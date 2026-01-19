@@ -58,6 +58,30 @@ We plan to use Sigma2 for the staging environment and computation.
 *   **Database**: MariaDB (running on Sigma2 infrastructure).
 *   **Scripts**: Python scripts running on Sigma2 compute nodes to perform the migration.
 
+### Network Configuration (Firewall Whitelisting)
+
+To allow migration scripts running on Sigma2 to connect to the MUSIT Oracle database, the following Sigma2 IP ranges must be whitelisted in the USIT/MUSIT firewall.
+
+**Source: [Sigma2 License and Access Policies](https://documentation.sigma2.no/software/licenses.html)**
+
+#### SAGA Cluster
+*   **IPv4**:
+    *   `158.36.42.32/28`
+    *   `158.36.42.48/28`
+*   **IPv6**:
+    *   `2001:700:4a01:10::/64`
+    *   `2001:700:4a01:21::/64`
+
+#### BETZY Cluster
+*   **IPv4**:
+    *   `158.36.154.0/28`
+    *   `158.36.154.16/28`
+*   **IPv6**:
+    *   `2001:700:4a01:23::/64`
+    *   `2001:700:4a01:24::/64`
+
+> **Note**: If we use the NIRD Service Platform for the migration runner, we must verify if it shares these IP ranges or has a distinct range that requires whitelisting.
+
 ## AWS Production
 
 The final destination for the data is a Specify instance hosted on AWS.
