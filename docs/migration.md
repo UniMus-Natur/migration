@@ -17,7 +17,8 @@ We are using an Extract-Transform-Load (ETL) pattern.
 
 ### 3. Load to Staging
 *   **Target**: MariaDB on Sigma2.
-*   **Tool**: SQLAlchemy (likely via Pandas `to_sql`).
+*   **Tool**: Specify 7 Django ORM.
+*   **Rationale**: Using the native ORM ensures full data integrity by enforcing application-level constraints and logic. It also results in a cleaner, more readable, and maintainable codebase compared to raw SQL insertion.
 *   **Schema**: Specify Schema.
 
 ### 4. Sync to Production
