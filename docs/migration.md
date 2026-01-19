@@ -8,8 +8,8 @@ We are using an Extract-Transform-Load (ETL) pattern.
 
 ### 1. Connect and Extract
 *   **Source**: MUSIT Oracle Database.
-*   **Tool**: Python `cx_Oracle` or `oracledb` library (to be determined based on environment).
-*   **Method**: Select queries to retrieve data from legacy tables.
+*   **Tool**: **SQLAlchemy** with `oracledb` driver.
+*   **Method**: Select queries (via Pandas `read_sql` or SQLAlchemy Core) to retrieve data from legacy tables.
 
 ### 2. Transform
 *   **Logic**: Python scripts will map MUSIT schema fields to Specify schema.
@@ -17,6 +17,7 @@ We are using an Extract-Transform-Load (ETL) pattern.
 
 ### 3. Load to Staging
 *   **Target**: MariaDB on Sigma2.
+*   **Tool**: SQLAlchemy (likely via Pandas `to_sql`).
 *   **Schema**: Specify Schema.
 
 ### 4. Sync to Production

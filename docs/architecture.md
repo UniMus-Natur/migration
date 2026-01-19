@@ -16,7 +16,7 @@ graph LR
 ### Components
 
 1.  **Source System**: MUSIT (Oracle Database).
-2.  **Migration Logic**: Custom Python scripts to handle connection, extraction, and transformation.
+2.  **Migration Logic**: Custom Python scripts using **SQLAlchemy** to handle connection, extraction, and transformation.
 3.  **Staging Environment**: 
     *   **Location**: Sigma2 (NIRD/NIRD Service Platform).
     *   **Database**: MariaDB.
