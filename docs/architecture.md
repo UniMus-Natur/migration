@@ -8,9 +8,9 @@ The migration follows a pipeline approach moving data from the legacy oracle sys
 
 ```mermaid
 graph LR
-    A[MUSIT (Oracle DB)] -->|Extract & Transform| B(Python Migration Scripts)
-    B -->|Load| C[Specify Staging (MariaDB @ Sigma2)]
-    C -->|Sync| D[Specify Production (AWS France)]
+    A["MUSIT (Oracle DB)"] -->|Extract & Transform| B("Python Migration Scripts")
+    B -->|Load| C["Specify Staging (MariaDB @ Sigma2)"]
+    C -->|Sync| D["Specify Production (AWS France)"]
 ```
 
 ### Components
