@@ -36,3 +36,8 @@ We request **2 TiB** of project storage on NIRD to support the migration of the 
 3.  **Future Proofing (Images/Media)**: The remaining capacity (**~500 GiB**) is reserved for partially staging high-resolution specimen images or attachment files that may need to be linked to the new Specify 7 instance as the project expands scope.
 
 This 2 TiB allocation provides a safe buffer for the data-intensive migration operations without risking storage exhaustion during critical validation phases.
+
+## Related Documents
+
+*   [**Submitted Proposal (PDF)**](documents/NIRD-application.pdf)
+*   [**Data Management Plan (DOCX)**](documents/data-management-plan.docx)
