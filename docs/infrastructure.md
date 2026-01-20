@@ -57,13 +57,13 @@ Both Test and Production environments are unreachable on their designated ports 
 We plan to use Sigma2 for the staging environment and computation.
 
 ### Application Details
-*   **Target Resources**: Storage (NIRD) and Compute (likely NIRD Service Platform or small scale testing).
-*   **Next Deadline**: **Monday, February 23, 2026** (for allocation starting April 1, 2026).
-*   **Action Item**: Verify requirements and submit application before the deadline.
-
-### Resource Specs
-*   **Database**: MariaDB (running on Sigma2 infrastructure).
-*   **Scripts**: Python scripts running on Sigma2 compute nodes to perform the migration.
+*   **Architecture**: Kubernetes cluster hosting Dockerized microservices.
+*   **Components**: 
+    *   **Specify 7**: Live web application instance for validation and user acceptance testing.
+    *   **MariaDB**: Database container acting as the staging storage.
+    *   **Migration Runners**: Python workers executing the ETL pipeline.
+    *   **Nginx/Ingress**: For routing traffic to the Specify interface.
+*   **Target Resources**: Storage (NIRD) and Compute (NIRD Service Platform).
 
 ### Network Configuration (Firewall Whitelisting)
 
