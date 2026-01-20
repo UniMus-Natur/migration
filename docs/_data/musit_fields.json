@@ -1,0 +1,1090 @@
+[
+  {
+    "title": "Felter i Karplante-applikasjonen:",
+    "level": 1,
+    "tables": [],
+    "id": "a__Felter_i_Karplante-applikasjonen_"
+  },
+  {
+    "title": "Taxon",
+    "level": 4,
+    "tables": [
+      {
+        "headers": [
+          "Felt",
+          "Tabell",
+          "Feltnavn i tabell",
+          "Kommentar"
+        ],
+        "rows": [
+          {
+            "Felt": "Entered taxon name",
+            "Tabell": "CLASSIFICATION_TERM",
+            "Feltnavn i tabell": "ENTERED_CLASSTERM",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Valid taxon name",
+            "Tabell": "CLASSIFICATION_TERM",
+            "Feltnavn i tabell": "CLASSTERM",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Accepted taxon name",
+            "Tabell": "CLASSIFICATION_TERM",
+            "Feltnavn i tabell": "VALID_CLASSTERM",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Infraspesific rank and name",
+            "Tabell": "CLASSIFICATION_TERM",
+            "Feltnavn i tabell": "INFRASPES_RANK",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Infraspesific name",
+            "Tabell": "CLASSIFICATION_TERM",
+            "Feltnavn i tabell": "INFRASPES_NAME",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Sensu",
+            "Tabell": "CLASSIFICATION_TERM",
+            "Feltnavn i tabell": "SENSU_TERM",
+            "Kommentar": "s.str s.lat"
+          },
+          {
+            "Felt": "Note",
+            "Tabell": "NOTE",
+            "Feltnavn i tabell": "NOTE_TEXT",
+            "Kommentar": "Note koblet til classification_event"
+          }
+        ]
+      }
+    ],
+    "id": "a__Taxon"
+  },
+  {
+    "title": "Places",
+    "level": 4,
+    "tables": [
+      {
+        "headers": [
+          "Felt",
+          "Tabell",
+          "Feltnavn i tabell",
+          "Kommentar"
+        ],
+        "rows": [
+          {
+            "Felt": "Admplace",
+            "Tabell": "HIERARCHICAL_PLACE",
+            "Feltnavn i tabell": "HIERARCHICAL_PLACE_ID",
+            "Kommentar": "Søkefelt for å finne riktig hierchical_place_id, som representerer et «Administrativt sted», som kommune,fylke, land etc. Brukes også for hav, kontinent. Steder med en hierarkisk struktur"
+          },
+          {
+            "Felt": "Municipality",
+            "Tabell": "HIERARCHICAL_PLACE",
+            "Feltnavn i tabell": "",
+            "Kommentar": "Read only, og avledet av Admplace (hierarchical_place_id)"
+          },
+          {
+            "Felt": "Country/Province",
+            "Tabell": "HIERARCHICAL_PLACE",
+            "Feltnavn i tabell": "",
+            "Kommentar": "Samme som over"
+          },
+          {
+            "Felt": "Country",
+            "Tabell": "HIERARCHICAL_PLACE",
+            "Feltnavn i tabell": "",
+            "Kommentar": "Samme som over"
+          },
+          {
+            "Felt": "Locality",
+            "Tabell": "LOCALITY_PLACE",
+            "Feltnavn i tabell": "LOCALITY",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Ecology",
+            "Tabell": "ECOLOGY_PLACE",
+            "Feltnavn i tabell": "ECOLOGY",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Biogeografisk region",
+            "Tabell": "BIO_GEOGRAFISK_REGION",
+            "Feltnavn i tabell": "BIO_GEO_REGION",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Ca coord",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "CA_UTM",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Coordinate added later",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "COORDINATE_ADDED_LATER",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Datum",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "DATUM",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Zone",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "ZONE",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Band",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "BELT",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Coordinate",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "COORDINATE_STRING",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "<UTEN LABEL>",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "COORDINATE_EXPECTED_OUTPUT_ECHO",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Coord precision",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "PRECISION",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Map sheet",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "MAP_SHEET",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Ca",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "CA_ALTITUDE",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Altitude",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "ALTITUDE_STRING",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "<UTEN LABEL>",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "ALTITUDE_EXPECTED_OUTPUT_ECHO",
+            "Kommentar": ""
+          }
+        ]
+      }
+    ],
+    "id": "a__Places"
+  },
+  {
+    "title": "Coordinate module",
+    "level": 2,
+    "tables": [],
+    "id": "a__Coordinate_module"
+  },
+  {
+    "title": "Coordinate module i MusitBotanikk",
+    "level": 3,
+    "tables": [],
+    "id": "a__Coordinate_module_i_MusitBotanikk"
+  },
+  {
+    "title": "Main coordinate",
+    "level": 4,
+    "tables": [
+      {
+        "headers": [
+          "Felt",
+          "Tabell",
+          "Feltnavn i tabell",
+          "Kommentar"
+        ],
+        "rows": [
+          {
+            "Felt": "Ca coord",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "CA_UTM",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Coordinate added later",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "COORDINATE_ADDED_LATER",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Datum",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "DATUM",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Zone",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "ZONE",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Band",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "BELT",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Coordinate",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "COORDINATE_STRING",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "<UTEN LABEL>",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "COORDINATE_EXPECTED_OUTPUT_ECHO",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Coord precision",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "PRECISION",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Map sheet",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "MAP_SHEET",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Ca altitude",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "CA_ALTITUDE",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "<No label>",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "ALTITUDE_STRING",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Ca depth",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "CA_DEPTH",
+            "Kommentar": "Kun zoologi"
+          },
+          {
+            "Felt": "<No label>",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "DEPTH_STRING",
+            "Kommentar": "Kun zoologi"
+          },
+          {
+            "Felt": "Accuracy",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "ACCURACY",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Source",
+            "Tabell": "KOORDINATE_PLACE",
+            "Feltnavn i tabell": "Ikke i bruk",
+            "Kommentar": "Ikke i bruk"
+          }
+        ]
+      }
+    ],
+    "id": "a__Main_coordinate"
+  },
+  {
+    "title": "Derived coordinate",
+    "level": 4,
+    "tables": [
+      {
+        "headers": [
+          "Felter",
+          "Tabell",
+          "Felter i tabell",
+          "Kommentar"
+        ],
+        "rows": [
+          {
+            "Felter": "Lat",
+            "Tabell": "DERIVED_COORDINATES",
+            "Felter i tabell": "LATITUDE",
+            "Kommentar": ""
+          },
+          {
+            "Felter": "<No label>",
+            "Tabell": "DERIVED_COORDINATES",
+            "Felter i tabell": "LONGITUDE",
+            "Kommentar": ""
+          },
+          {
+            "Felter": "UTM",
+            "Tabell": "DERIVED_COORDINATES",
+            "Felter i tabell": "UTM_X",
+            "Kommentar": ""
+          },
+          {
+            "Felter": "<No label>",
+            "Tabell": "DERIVED_COORDINATES",
+            "Felter i tabell": "UTM_Y",
+            "Kommentar": ""
+          },
+          {
+            "Felter": "UTM 33",
+            "Tabell": "DERIVED_COORDINATES",
+            "Felter i tabell": "UTM33_X",
+            "Kommentar": ""
+          },
+          {
+            "Felter": "<No label>",
+            "Tabell": "DERIVED_COORDINATES",
+            "Felter i tabell": "UTM33_Y",
+            "Kommentar": ""
+          },
+          {
+            "Felter": "Derived type",
+            "Tabell": "DERIVED_COORDINATES",
+            "Felter i tabell": "DERIVED_COORDINATE_TYPE",
+            "Kommentar": ""
+          },
+          {
+            "Felter": "North / South",
+            "Tabell": "DERIVED_COORDINATES",
+            "Felter i tabell": "NORTH_SOUTH",
+            "Kommentar": ""
+          },
+          {
+            "Felter": "Zone & Band",
+            "Tabell": "DERIVED_COORDINATES",
+            "Felter i tabell": "ZONE",
+            "Kommentar": ""
+          },
+          {
+            "Felter": "<No label>",
+            "Tabell": "DERIVED_COORDINATES",
+            "Felter i tabell": "BAND",
+            "Kommentar": ""
+          },
+          {
+            "Felter": "Datum",
+            "Tabell": "DERIVED_COORDINATES",
+            "Felter i tabell": "DATUM",
+            "Kommentar": ""
+          },
+          {
+            "Felter": "Derived coordinate ID",
+            "Tabell": "DERIVED_COORDINATES",
+            "Felter i tabell": "KOORDINATE_PLACE_ID",
+            "Kommentar": ""
+          }
+        ]
+      }
+    ],
+    "id": "a__Derived_coordinate"
+  },
+  {
+    "title": "Leg & Det (Persons and dates)",
+    "level": 2,
+    "tables": [],
+    "id": "a__Leg___Det__Persons_and_dates_"
+  },
+  {
+    "title": "Leg",
+    "level": 4,
+    "tables": [
+      {
+        "headers": [
+          "Felt",
+          "Tabell",
+          "Feltnavn i tabell",
+          "Kommentar"
+        ],
+        "rows": [
+          {
+            "Felt": "Leg (Person name)",
+            "Tabell": "EVENT_ROLE_PERSON_NAME",
+            "Feltnavn i tabell": "PERSON_NAME_ID/ROLE_ID",
+            "Kommentar": "Kobling mellom Collecting event- og personnavn-tabellene med rolle som LEG (eller LEGSCR)"
+          },
+          {
+            "Felt": "Leg no",
+            "Tabell": "LEGNR",
+            "Feltnavn i tabell": "MUSEUM_OBJECT_LEGNR_PERSON",
+            "Kommentar": "Kobling mellom object (belegg) og person (og dermed personnavn)"
+          },
+          {
+            "Felt": "SCR",
+            "Tabell": "EVENT_ROLE_PERSON_NAME",
+            "Feltnavn i tabell": "ROLE_ID",
+            "Kommentar": "Navnet er utledet via håndskrift hvis rolle er LEGSCR)"
+          },
+          {
+            "Felt": "No #",
+            "Tabell": "EVENT_ROLE_PERSON_NAME",
+            "Feltnavn i tabell": "SORTING_SEQUENCE",
+            "Kommentar": "Hvilken rekkefølge skal samlerne vises i?"
+          }
+        ]
+      }
+    ],
+    "id": "a__Leg"
+  },
+  {
+    "title": "Det",
+    "level": 4,
+    "tables": [
+      {
+        "headers": [
+          "Felt",
+          "Tabell",
+          "Feltnavn i tabell",
+          "Kommentar"
+        ],
+        "rows": [
+          {
+            "Felt": "Det (Person name)",
+            "Tabell": "EVENT_ROLE_PERSON_NAME",
+            "Feltnavn i tabell": "PERSON_NAME/ROLE_ID",
+            "Kommentar": "Se Leg"
+          },
+          {
+            "Felt": "Scr",
+            "Tabell": "EVENT_ROLE_PERSON_NAME",
+            "Feltnavn i tabell": "ROLE_ID",
+            "Kommentar": "Se Leg"
+          },
+          {
+            "Felt": "No #",
+            "Tabell": "EVENT_ROLE_PERSON_NAME",
+            "Feltnavn i tabell": "SORTING_SEQUENCE",
+            "Kommentar": "Se Leg"
+          }
+        ]
+      }
+    ],
+    "id": "a__Det"
+  },
+  {
+    "title": "Person module",
+    "level": 2,
+    "tables": [],
+    "id": "a__Person_module"
+  },
+  {
+    "title": "Personmodulen",
+    "level": 3,
+    "tables": [],
+    "id": "a__Personmodulen"
+  },
+  {
+    "title": "Personnavn-tabellen (PERSON_NAME)",
+    "level": 4,
+    "tables": [
+      {
+        "headers": [
+          "Kolonnenavn",
+          "Type",
+          "Kommentar"
+        ],
+        "rows": [
+          {
+            "Kolonnenavn": "PERSON_NAME_ID",
+            "Type": "NUMBER",
+            "Kommentar": "Primary key for tabellen"
+          },
+          {
+            "Kolonnenavn": "ACTOR_ID",
+            "Type": "NUMBER",
+            "Kommentar": "FOREIGN KEY til actor"
+          },
+          {
+            "Kolonnenavn": "PERSON_SURNAME",
+            "Type": "VARCHAR2",
+            "Kommentar": "Etternavn"
+          },
+          {
+            "Kolonnenavn": "PERSON_MIDDLE_NAME",
+            "Type": "VARCHAR2",
+            "Kommentar": "Mellomnavn (brukes sjelden/aldri, neppe relevant)"
+          },
+          {
+            "Kolonnenavn": "PERSON_GIVEN_NAME",
+            "Type": "VARCHAR2",
+            "Kommentar": "Fornavn"
+          },
+          {
+            "Kolonnenavn": "TITLE",
+            "Type": "VACHAR2",
+            "Kommentar": "Tittel (Dr. , Sir., Hr., osv) Brukes noe"
+          },
+          {
+            "Kolonnenavn": "PERSON_NAME_TYPE",
+            "Type": "NUMBER",
+            "Kommentar": "Hvilket museum hører personen til? Foreign key til type-tabellen"
+          }
+        ]
+      }
+    ],
+    "id": "a__Personnavn-tabellen__PERSON_NAME_"
+  },
+  {
+    "title": "Actor-tabellen (ACTOR)",
+    "level": 4,
+    "tables": [
+      {
+        "headers": [
+          "Kolonnenavn",
+          "Type",
+          "Kommentar"
+        ],
+        "rows": [
+          {
+            "Kolonnenavn": "ACTOR_ID",
+            "Type": "NUMBER",
+            "Kommentar": "Primary key for tabellen"
+          },
+          {
+            "Kolonnenavn": "ACTOR_TYPE",
+            "Type": "NUMBER",
+            "Kommentar": "Type for Actor, stort sett person"
+          },
+          {
+            "Kolonnenavn": "ACTORNAME",
+            "Type": "VARCHAR2",
+            "Kommentar": "Navn"
+          },
+          {
+            "Kolonnenavn": "VALID_PERSON_NAME_ID",
+            "Type": "NUMBER",
+            "Kommentar": "Foreign key til “gyldig/forestrukket» variant av navnet"
+          },
+          {
+            "Kolonnenavn": "GROUP_MEMBER_NAMES",
+            "Type": "VARCHAR2",
+            "Kommentar": "Ikke brukt. Opprinnelig tenkt at Actor kan være gruppe"
+          },
+          {
+            "Kolonnenavn": "BIRTHDATE",
+            "Type": "DATE",
+            "Kommentar": "Ikke brukt"
+          },
+          {
+            "Kolonnenavn": "DEATHDATE",
+            "Type": "DATE",
+            "Kommentar": "Ikke brukt"
+          },
+          {
+            "Kolonnenavn": "ADRESS",
+            "Type": "VARCHAR2",
+            "Kommentar": "Ikke brukt"
+          },
+          {
+            "Kolonnenavn": "POSTAL_ADDRESS",
+            "Type": "VARCHAR2",
+            "Kommentar": "Ikke brukt"
+          },
+          {
+            "Kolonnenavn": "EMAIL_ADDRESS",
+            "Type": "VARCHAR2",
+            "Kommentar": "Kanskje brukt (?)"
+          },
+          {
+            "Kolonnenavn": "PHONE_NUMBER",
+            "Type": "VARCHAR2",
+            "Kommentar": "Ikke brukt"
+          },
+          {
+            "Kolonnenavn": "INSTITUTION",
+            "Type": "VARCHAR2",
+            "Kommentar": "Ikke brukt"
+          },
+          {
+            "Kolonnenavn": "GENDER",
+            "Type": "VARCHAR2",
+            "Kommentar": "Ikke brukt"
+          },
+          {
+            "Kolonnenavn": "URL",
+            "Type": "VARCHAR2",
+            "Kommentar": ""
+          },
+          {
+            "Kolonnenavn": "URL_NOTE",
+            "Type": "VARCHAR2",
+            "Kommentar": "Brukes som referanse til kjente personbaser, som Wikidata, OrcID osv."
+          },
+          {
+            "Kolonnenavn": "NOTE",
+            "Type": "VARCHAR2",
+            "Kommentar": "Data om personen som ikke er lagt ut i felter. Usikker på relevans"
+          }
+        ]
+      }
+    ],
+    "id": "a__Actor-tabellen__ACTOR_"
+  },
+  {
+    "title": "Felter i Personmodulen",
+    "level": 3,
+    "tables": [],
+    "id": "a__Felter_i_Personmodulen"
+  },
+  {
+    "title": "Names",
+    "level": 4,
+    "tables": [
+      {
+        "headers": [
+          "Felt",
+          "Tabell",
+          "Feltnavn i tabell",
+          "Kommentar"
+        ],
+        "rows": [
+          {
+            "Felt": "ID",
+            "Tabell": "PERSON_NAME",
+            "Feltnavn i tabell": "PERSON_NAME_ID",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Title",
+            "Tabell": "PERSON_NAME",
+            "Feltnavn i tabell": "TITLE",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Given name",
+            "Tabell": "PERSON_NAME",
+            "Feltnavn i tabell": "PERSON_GIVEN_NAME",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Surname",
+            "Tabell": "PERSON_NAME",
+            "Feltnavn i tabell": "PERSON_SURNAME",
+            "Kommentar": ""
+          }
+        ]
+      }
+    ],
+    "id": "a__Names"
+  },
+  {
+    "title": "Synonyms",
+    "level": 4,
+    "tables": [],
+    "id": "a__Synonyms"
+  },
+  {
+    "title": "Additional information",
+    "level": 4,
+    "tables": [
+      {
+        "headers": [
+          "Felt",
+          "Tabell",
+          "Feltnavn i tabell",
+          "Kommentar"
+        ],
+        "rows": [
+          {
+            "Felt": "Legal entity type",
+            "Tabell": "ACTOR",
+            "Feltnavn i tabell": "ACTOR_TYPE",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Display name",
+            "Tabell": "ACTOR",
+            "Feltnavn i tabell": "ACTORNAME",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Group name",
+            "Tabell": "ACTOR",
+            "Feltnavn i tabell": "GROUP_MEMBER_NAMES",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Birth date",
+            "Tabell": "ACTOR",
+            "Feltnavn i tabell": "BIRTHDATE",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Death date",
+            "Tabell": "ACTOR",
+            "Feltnavn i tabell": "DEATHDATE",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Address",
+            "Tabell": "ACTOR",
+            "Feltnavn i tabell": "ADRESS",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Postal address",
+            "Tabell": "ACTOR",
+            "Feltnavn i tabell": "POSTAL_ADDRESS",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Email",
+            "Tabell": "ACTOR",
+            "Feltnavn i tabell": "EMAIL_ADDRESS",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Phone number",
+            "Tabell": "ACTOR",
+            "Feltnavn i tabell": "PHONE_NUMBER",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Gender",
+            "Tabell": "ACTOR",
+            "Feltnavn i tabell": "GENDER",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "URL",
+            "Tabell": "ACTOR",
+            "Feltnavn i tabell": "URL",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "URL note",
+            "Tabell": "ACTOR",
+            "Feltnavn i tabell": "URL_NOTE",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Note",
+            "Tabell": "ACTOR",
+            "Feltnavn i tabell": "NOTE",
+            "Kommentar": ""
+          }
+        ]
+      }
+    ],
+    "id": "a__Additional_information"
+  },
+  {
+    "title": "Date (for innsamling og bestemmelse)",
+    "level": 2,
+    "tables": [],
+    "id": "a__Date__for_innsamling_og_bestemmelse_"
+  },
+  {
+    "title": "Diverse felter fordelt i faner nederst på siden",
+    "level": 2,
+    "tables": [],
+    "id": "a__Diverse_felter_fordelt_i_faner_nederst_på_siden"
+  },
+  {
+    "title": "Notes",
+    "level": 4,
+    "tables": [
+      {
+        "headers": [
+          "Felt",
+          "Tabell",
+          "Feltnavn i tabell",
+          "Kommentar"
+        ],
+        "rows": [
+          {
+            "Felt": "Collectors note",
+            "Tabell": "NOTE",
+            "Feltnavn i tabell": "NOTE_TEXT",
+            "Kommentar": "Note koblet til collecting event"
+          },
+          {
+            "Felt": "Adm note",
+            "Tabell": "NOTE",
+            "Feltnavn i tabell": "NOTE_TEXT",
+            "Kommentar": "Note koblet til objektet (belegget)"
+          }
+        ]
+      }
+    ],
+    "id": "a__Notes"
+  },
+  {
+    "title": "Adm",
+    "level": 4,
+    "tables": [
+      {
+        "headers": [
+          "Felt",
+          "Tabell",
+          "Feltnavn i tabell",
+          "Kommentar"
+        ],
+        "rows": [
+          {
+            "Felt": "Reg.?",
+            "Tabell": "OBJECT_ATTRIBUTES",
+            "Feltnavn i tabell": "IS_REG",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Corrected?",
+            "Tabell": "OBJECT_ATTRIBUTES",
+            "Feltnavn i tabell": "IS_CORR",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Approved?",
+            "Tabell": "OBJECT_ATTRIBUTES",
+            "Feltnavn i tabell": "IS_APPROVED",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Object withheld",
+            "Tabell": "OBJECT_ATTRIBUTES",
+            "Feltnavn i tabell": "OBJECT_WITHHELD",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Reg date",
+            "Tabell": "OBJECT_ATTRIBUTES",
+            "Feltnavn i tabell": "REG_DATE",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Corr date",
+            "Tabell": "OBJECT_ATTRIBUTES",
+            "Feltnavn i tabell": "KORR_DATE",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Approved date",
+            "Tabell": "OBJECT_ATTRIBUTES",
+            "Feltnavn i tabell": "APPROVED_DATE",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Last modified date",
+            "Tabell": "OBJECT_ATTRIBUTES",
+            "Feltnavn i tabell": "LAST_MODIFIED",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Reg by",
+            "Tabell": "OBJECT_ATTRIBUTES",
+            "Feltnavn i tabell": "REG_USER",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Corr by",
+            "Tabell": "OBJECT_ATTRIBUTES",
+            "Feltnavn i tabell": "KORR_USER",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Approved by",
+            "Tabell": "OBJECT_ATTRIBUTES",
+            "Feltnavn i tabell": "APPROVE_USER",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Last modified by",
+            "Tabell": "OBJECT_ATTRIBUTES",
+            "Feltnavn i tabell": "LAST_MODIFIED_BY",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "<internt felt>",
+            "Tabell": "OBJECT_ATTRIBUTES",
+            "Feltnavn i tabell": "IS_REG",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "<internt felt>",
+            "Tabell": "OBJECT_ATTRIBUTES",
+            "Feltnavn i tabell": "IS_KORR",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "<internt felt>",
+            "Tabell": "OBJECT_ATTRIBUTES",
+            "Feltnavn i tabell": "IS_APPROVED",
+            "Kommentar": ""
+          }
+        ]
+      }
+    ],
+    "id": "a__Adm"
+  },
+  {
+    "title": "Literature",
+    "level": 4,
+    "tables": [
+      {
+        "headers": [
+          "Felt",
+          "Tabell",
+          "Feltnavn i tabell",
+          "Kommentar"
+        ],
+        "rows": [
+          {
+            "Felt": "Specimen literature",
+            "Tabell": "DOCUMENT_OBJECT/ REFERENCE_DOCUMENT",
+            "Feltnavn i tabell": "DOCUMENT_REFERENCE, DOCUMENT_TITLE, DOCUMENT_TYPE",
+            "Kommentar": "DOCUMENT_OBJECT kobler REFERENCE_OBJECT til objektet (belegget)"
+          },
+          {
+            "Felt": "Taxon literature",
+            "Tabell": "EVENT_DOCUMENT, REFERENCE_DOCUMENT",
+            "Feltnavn i tabell": "DOCUMENT_REFERENCE, DOCUMENT_TITLE, DOCUMENT_TYPE",
+            "Kommentar": "EVENT_DOCUMENT kobler REFERENCE_OBJECT til bestemelseshendelsen (taxonet)"
+          }
+        ]
+      }
+    ],
+    "id": "a__Literature"
+  },
+  {
+    "title": "Type info",
+    "level": 4,
+    "tables": [
+      {
+        "headers": [
+          "Felt",
+          "Tabell",
+          "Feltnavn i tabell",
+          "Kommentar"
+        ],
+        "rows": [
+          {
+            "Felt": "Type status",
+            "Tabell": "TYPIFICATION_EVENT",
+            "Feltnavn i tabell": "TYPIFICATION_TYPE_ID",
+            "Kommentar": "Holotype, Isotype,...."
+          },
+          {
+            "Felt": "Designated by",
+            "Tabell": "PERSON_NAME_EVENT_ROLE",
+            "Feltnavn i tabell": "PERSON_NAME_ID/ROLE_ID",
+            "Kommentar": "Kobling mellom typification_event og person_name"
+          },
+          {
+            "Felt": "Publication",
+            "Tabell": "EVENT_DOCUMENT/REFERENCE_DOCUMENT",
+            "Feltnavn i tabell": "DOCUMENT_REFERENCE, DOCUMENT_TITLE, DOCUMENT_TYPE",
+            "Kommentar": "EVENT_DOCUMENT kobler REFERENCE_OBJECT til TYPIFICATION_EVENT"
+          },
+          {
+            "Felt": "Note",
+            "Tabell": "EVENT_NOTE, NOTE",
+            "Feltnavn i tabell": "NOTE_TEXT",
+            "Kommentar": "Note koblet til TYPIFICATION_EVENT"
+          },
+          {
+            "Felt": "Year",
+            "Tabell": "TIMESPAN",
+            "Feltnavn i tabell": "FROM_DATE, TO_DATE",
+            "Kommentar": "TIMESPAN koblet til TYPIFICATION_EVENT"
+          }
+        ]
+      }
+    ],
+    "id": "a__Type_info"
+  },
+  {
+    "title": "Other data/Administrative data",
+    "level": 4,
+    "tables": [
+      {
+        "headers": [
+          "Felt",
+          "Tabell",
+          "Feltnavn i tabell",
+          "Kommentar"
+        ],
+        "rows": [
+          {
+            "Felt": "Dataset",
+            "Tabell": "",
+            "Feltnavn i tabell": "",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Duplicates",
+            "Tabell": "",
+            "Feltnavn i tabell": "",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Project name",
+            "Tabell": "",
+            "Feltnavn i tabell": "",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Same sheet as",
+            "Tabell": "",
+            "Feltnavn i tabell": "",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Ex herb.",
+            "Tabell": "",
+            "Feltnavn i tabell": "",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Artsobs no",
+            "Tabell": "",
+            "Feltnavn i tabell": "",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Voucher",
+            "Tabell": "",
+            "Feltnavn i tabell": "",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "UUID",
+            "Tabell": "",
+            "Feltnavn i tabell": "",
+            "Kommentar": ""
+          },
+          {
+            "Felt": "Analysis request",
+            "Tabell": "",
+            "Feltnavn i tabell": "",
+            "Kommentar": ""
+          }
+        ]
+      }
+    ],
+    "id": "a__Other_data_Administrative_data"
+  }
+]
