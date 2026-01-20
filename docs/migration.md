@@ -1,4 +1,11 @@
+---
+layout: default
+title: Migration Strategy
+nav_order: 5
+---
+
 # Migration Strategy
+
 
 This document details the technical implementation of the migration from MUSIT to Specify.
 

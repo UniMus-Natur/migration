@@ -1,4 +1,11 @@
+---
+layout: default
+title: Database Strategy
+nav_order: 4
+---
+
 # Database Setup Strategy in Specify
+
 
 ## Introduction
 

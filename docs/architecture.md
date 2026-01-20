@@ -1,4 +1,11 @@
+---
+layout: default
+title: Architecture
+nav_order: 2
+---
+
 # Architecture
+
 
 This section describes the high-level architecture of the migration process.
 

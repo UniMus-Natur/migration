@@ -1,4 +1,11 @@
+---
+layout: default
+title: Infrastructure
+nav_order: 3
+---
+
 # Infrastructure
+
 
 This document details the source, staging, and production environments involved in the migration.
 

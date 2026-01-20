@@ -1,4 +1,11 @@
+---
+layout: home
+title: Home
+nav_order: 1
+---
+
 # Welcome to the MUSIT to Specify Migration Knowledge Base
+
 
 This documentation covers the planning, architecture, and execution of migrating the Norwegian University Museums (MUSIT) collection management system to Specify.
 

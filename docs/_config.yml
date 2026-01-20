@@ -1,3 +1,13 @@
-theme: jekyll-theme-slate
+remote_theme: just-the-docs/just-the-docs
+
 title: MUSIT to Specify Migration
 description: Knowledge base for the Norwegian University Museums collection management system migration.
+
+# Just the Docs settings
+search_enabled: true
+heading_anchors: true
+
+aux_links:
+  "GitHub": "https://github.com/UniMus-Natur/migration/tree/main"
+
+color_scheme: dark
