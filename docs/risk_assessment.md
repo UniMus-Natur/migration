@@ -33,14 +33,34 @@ Risks are evaluated based on **Likelihood** (Low, Medium, High) and **Impact** (
 | **Governance** | Governance conflicts: Museums disagreeing on shared standards (e.g., Geography tree, agents). | High | Medium | **High** | - Strong central governance committee with decision-making power. |
 | **Security** | Complex permission schemes required to isolate sensitive data between museums. | High | High | **High** | - Granular Role-Based Access Control (RBAC). |
 
-### Options 2-4: Intermediate Aggregation (Per Museum, Per Discipline)
+### Option 2: One Database per Museum (5 Databases)
 
-**Description**: Grouping by Museum or Organism type (4 to 20 databases).
+**Description**: Separate databases for each museum (Oslo, Bergen, Trondheim, Tromsø, Stavanger).
 
 | Risk Category | Risk Description | Likelihood | Impact | Overall Level | Mitigation |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Data Integrity** | **Duplicate Agents/Geography**: "Person" and "Geography" are not shared across databases, leading to duplicates and inconsistencies for shared entities. | High | Medium | **High** | - External "Authority Service" to sync GUIDs.<br>- Periodic reconciliation scripts. |
-| **User Experience** | Users working across multiple disciplines (e.g., a curator for both Botany and Mycology) need multiple logins if they are in different DBs. | Medium | Low | **Low** | - SSO (Single Sign-On) integration. |
+| **Data Integrity** | **Cross-Museum Standardization**: Creating a national standard becomes harder as each museum manages its own lists (e.g., Geography). | Medium | Medium | **Medium** | - National coordination group.<br>- Shared configuration templates. |
+| **User Experience** | **Siloed Access**: Researchers needing access to collections in multiple museums need separate accounts or logins (mitigated by FEIDE/SSO). | Low | Low | **Low** | - SSO (Single Sign-On). |
+| **Collaboration** | **Shared Resources**: Cannot share "Person" or "agents" across museums, leading to duplicate agent records for the same collector nationally. | High | Low | **Medium** | - National Agent Registry service (external). |
+
+### Option 3: One Database per Main Organism Group (4 Databases)
+
+**Description**: Databases organized by discipline (e.g., Botany, Zoology) shared across all museums.
+
+| Risk Category | Risk Description | Likelihood | Impact | Overall Level | Mitigation |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Governance** | **Complex Governance**: Museums must agree on standards within a discipline. A decision in "Botany" affects all 5 museums. | High | Medium | **High** | - Strong discipline-specific councils. |
+| **Data Integrity** | **Cross-Discipline Silos**: Cannot link resources between disciplines (e.g., a host plant in Botany linked to an insect in Entomology). | Medium | Medium | **Medium** | - External linking via persistent identifiers (UUIDs). |
+
+### Option 4: One Database per Main Organism Group per Museum (20 Databases)
+
+**Description**: Databases organized by discipline AND museum (e.g., Oslo Botany, Bergen Botany, etc.).
+
+| Risk Category | Risk Description | Likelihood | Impact | Overall Level | Mitigation |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Operational** | **High Fragmentation**: Managing 20+ databases increases upgrade and maintenance complexity significantly compared to 1-5 DBs. | High | Medium | **High** | - Automation (Ansible). |
+| **User Experience** | **Fragmented Experience**: A user in Oslo working on both Botany and Zoology needs two different environments. | High | Low | **Medium** | - SSO. |
+| **Data Integrity** | **Maximum Duplication**: Agents, Geography, and Taxonomy references are duplicated across 20 silos. Synchronization is very difficult. | High | High | **High** | - Aggressive external authority management. |
 
 ### Option 5: One Database per Collection (~60 Databases)
 
