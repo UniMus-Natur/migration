@@ -11,6 +11,8 @@ nav_order: 4
 
 UniMus:Natur must decide how to structure our databases in Specify. Options range from a single database for all museums and collections to one database per collection at every museum. This setup impacts data standardization, backup regimes, and user roles.
 
+> See also: [Risk Assessment](risk_assessment.md) for a detailed breakdown of risks associated with these options.
+
 ## Specify Hierarchy
 
 Each database (termed an "Institution" in Specify) can be divided into:

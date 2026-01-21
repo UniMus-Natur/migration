@@ -14,6 +14,7 @@ This documentation covers the planning, architecture, and execution of migrating
 *   [**Architecture**](architecture.md): Overview of the data flow and system components.
 *   [**Infrastructure**](infrastructure.md): Details on Source (MUSIT), Staging (Sigma2), and Production (AWS) environments.
 *   [**Database Strategy**](database_strategy.md): Analysis of database organization options (Single vs Multi-DB).
+*   [**Risk Assessment**](risk_assessment.md): Detailed risk analysis of the database strategy options.
 *   [**Database Fields**](database_fields.md): Auto-generated schema reference and ERD.
 *   [**Migration Strategy**](migration.md): Technical details on the ETL process from Oracle to MariaDB.
 *   [**NIRD Application Text**](nird_application.md): Text used for the Sigma2/NIRD resource application.
