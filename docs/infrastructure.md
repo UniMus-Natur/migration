@@ -88,12 +88,26 @@ To allow migration scripts running on Sigma2 to connect to the MUSIT Oracle data
     *   `2001:700:4a01:24::/64`
 
 #### NIRD Service Platform (NIRD-SP)
-*   **Observed IPv4**:
-    *   `158.36.102.145`
-    *   `158.36.102.150`
-*   **Suspected Range**: `158.36.102.0/24` (To be confirmed with Sigma2 support)
+*   **Confirmed Range**: `158.36.102.139` - `158.36.102.150`
+*   **Confirmed By**: Sigma2 Support
 
-> **Note**: The NIRD Service Platform (where the migration runner lives) uses a distinct egress pool compared to SAGA/BETZY. Connections to USIT/MUSIT Oracle databases must whitelist this range.
+**IP List for Firewall Whitelisting:**
+```text
+158.36.102.139
+158.36.102.140
+158.36.102.141
+158.36.102.142
+158.36.102.143
+158.36.102.144
+158.36.102.145
+158.36.102.146
+158.36.102.147
+158.36.102.148
+158.36.102.149
+158.36.102.150
+```
+
+> **Note**: This is a dynamic pool of 12 IP addresses. All addresses above must be whitelisted to ensure the migration runner can always connect to the MUSIT Oracle database.
 
 ## AWS Production
 
