@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "specify7.fullname" . }}-static
+  labels:
+    {{- include "specify7.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "specify7.selectorLabels" . | nindent 6 }}
+      component: static
+  template:
+    metadata:
+      labels:
+        {{- include "specify7.selectorLabels" . | nindent 8 }}
+        component: static
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+            - name: shared-assets
+              mountPath: /volumes
+            # The backend config is also needed here because /static/config serves it!
+            - name: config
+              mountPath: /volumes/specify-config/local_specify_settings.py
+              subPath: local_specify_settings.py
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: {{ include "specify7.fullname" . }}-nginx-config
+        - name: shared-assets
+          persistentVolumeClaim:
+            claimName: {{ include "specify7.fullname" . }}-shared-assets
+        - name: config
+          secret:
+            secretName: {{ include "specify7.fullname" . }}-config

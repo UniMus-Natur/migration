@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "specify7.fullname" . }}-worker
+  labels:
+    {{- include "specify7.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "specify7.selectorLabels" . | nindent 6 }}
+      component: worker
+  template:
+    metadata:
+      labels:
+        {{- include "specify7.selectorLabels" . | nindent 8 }}
+        component: worker
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: worker
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+               echo "Waiting for backend init..."
+               # (Optional: wait regarding shared volume population?)
+               
+               # Run Celery
+               # Using -Q {{ .Values.specify.database.name }} as per docker-compose
+               exec celery -A specifyweb worker -l INFO --concurrency=1 -Q {{ .Values.specify.database.name }}
+          env:
+            - name: DJANGO_SETTINGS_MODULE
+              value: "specifyweb.settings"
+            # Redis URL needs to be configured. Assuming 'redis' hostname for now, 
+            # ideally should be in values.yaml. 
+            # Adding a basic env var here that specify settings might use or we need to override settings.
+            # looking at my values.yaml, I didn't explicitly put redis url there, 
+            # but specify settings usually look for REDIS_HOST.
+            - name: REDIS_HOST
+              value: "redis" 
+          volumeMounts:
+            - name: config
+              mountPath: /opt/specify7/specifyweb/settings/local_specify_settings.py
+              subPath: local_specify_settings.py
+            - name: shared-assets
+              mountPath: /volumes
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+
+      volumes:
+        - name: config
+          secret:
+            secretName: {{ include "specify7.fullname" . }}-config
+        - name: shared-assets
+          persistentVolumeClaim:
+            claimName: {{ include "specify7.fullname" . }}-shared-assets

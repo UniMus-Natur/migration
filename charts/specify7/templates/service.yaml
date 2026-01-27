@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "specify7.fullname" . }}-backend
+  labels:
+    {{- include "specify7.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: 8000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "specify7.selectorLabels" . | nindent 4 }}
+    component: backend
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "specify7.fullname" . }}-static
+  labels:
+    {{- include "specify7.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "specify7.selectorLabels" . | nindent 4 }}
+    component: static
