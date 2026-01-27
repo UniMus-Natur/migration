@@ -57,7 +57,7 @@ Both Test and Production environments are unreachable on their designated ports 
 We plan to use Sigma2 for the staging environment and computation.
 
 ### Application Details
-*   **Architecture**: Kubernetes cluster hosting Dockerized microservices.
+*   **Architecture**: Kubernetes cluster hosting Dockerized microservices. (See [**Kubernetes Deployment**](kubernetes_deployment.md) for details).
 *   **Components**: 
     *   **Specify 7**: Live web application instance for validation and user acceptance testing.
     *   **MariaDB**: Database container acting as the staging storage.
