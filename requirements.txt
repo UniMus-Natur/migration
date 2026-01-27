@@ -1,0 +1,2 @@
+-r specify7/requirements.txt
+# Add your local requirements below

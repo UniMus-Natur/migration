@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "specify7.fullname" . }}-backend
+  labels:
+    {{- include "specify7.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "specify7.selectorLabels" . | nindent 6 }}
+      component: backend
+  template:
+    metadata:
+      labels:
+        {{- include "specify7.selectorLabels" . | nindent 8 }}
+        component: backend
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      
+      initContainers:
+        - name: asset-extractor
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              echo "Extracting static assets to shared volume..."
+              mkdir -p /volumes/static-files
+              mkdir -p /volumes/webpack-output
+              cp -r /opt/specify7/specifyweb/static/* /volumes/static-files/
+              # Check for webpack output location in the image and copy if exists
+              if [ -d "/opt/specify7/specifyweb/frontend/static" ]; then
+                cp -r /opt/specify7/specifyweb/frontend/static/* /volumes/webpack-output/
+              fi
+              echo "Extraction complete."
+          volumeMounts:
+            - name: shared-assets
+              mountPath: /volumes
+
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+               # Ensure database is reachable
+               echo "Waiting for database..."
+               # (Optional: add wait-for-it or similar logic here)
+               
+               # Run Specify
+               # Note: Official image CMD might be different, but we override to ensure correct settings binding
+               exec gunicorn -b 0.0.0.0:8000 specifyweb.wsgi
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: DJANGO_SETTINGS_MODULE
+              value: "specifyweb.settings"
+          volumeMounts:
+            - name: config
+              mountPath: /opt/specify7/specifyweb/settings/local_specify_settings.py
+              subPath: local_specify_settings.py
+            - name: shared-assets
+              mountPath: /volumes
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+
+      volumes:
+        - name: config
+          secret:
+            secretName: {{ include "specify7.fullname" . }}-config
+        - name: shared-assets
+          persistentVolumeClaim:
+            claimName: {{ include "specify7.fullname" . }}-shared-assets

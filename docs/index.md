@@ -11,6 +11,8 @@ This documentation covers the planning, architecture, and execution of migrating
 
 ## Sections
 
+*   [**Development Setup**](development_setup.md): Guide to setting up the local python environment.
+*   [**Kubernetes Deployment**](kubernetes_deployment.md): Instructions for the Helm staging deployment.
 *   [**Architecture**](architecture.md): Overview of the data flow and system components.
 *   [**Infrastructure**](infrastructure.md): Details on Source (MUSIT), Staging (Sigma2), and Production (AWS) environments.
 *   [**Database Strategy**](database_strategy.md): Analysis of database organization options (Single vs Multi-DB).
