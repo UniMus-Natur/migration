@@ -1,0 +1,3 @@
+[submodule "specify7"]
+	path = specify7
+	url = https://github.com/specify/specify7
