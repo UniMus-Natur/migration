@@ -43,13 +43,21 @@ spec:
             # looking at my values.yaml, I didn't explicitly put redis url there, 
             # but specify settings usually look for REDIS_HOST.
             - name: REDIS_HOST
-              value: "redis" 
+              value: {{ .Release.Name }}-redis-master
+          {{- if .Values.secrets.existingSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secrets.existingSecret }}
+          {{- end }}
           volumeMounts:
             - name: config
               mountPath: /opt/specify7/specifyweb/settings/local_specify_settings.py
               subPath: local_specify_settings.py
             - name: shared-assets
               mountPath: /volumes
+              {{- if .Values.persistence.mainSubPath }}
+              subPath: {{ .Values.persistence.mainSubPath }}
+              {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
 
@@ -59,4 +67,4 @@ spec:
             secretName: {{ include "specify7.fullname" . }}-config
         - name: shared-assets
           persistentVolumeClaim:
-            claimName: {{ include "specify7.fullname" . }}-shared-assets
+            claimName: {{ if .Values.persistence.existingClaim }}{{ .Values.persistence.existingClaim }}{{ else }}{{ include "specify7.fullname" . }}-shared-assets{{ end }}

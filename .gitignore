@@ -4,3 +4,4 @@ __pycache__/
 config/local_specify_settings.py
 specify7_venv/
 .env
+**/staging.values.yaml

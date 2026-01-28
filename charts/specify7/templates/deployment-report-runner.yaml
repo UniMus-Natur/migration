@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "specify7.fullname" . }}-report-runner
+  labels:
+    {{- include "specify7.labels" . | nindent 4 }}
+    component: report-runner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "specify7.selectorLabels" . | nindent 6 }}
+      component: report-runner
+  template:
+    metadata:
+      labels:
+        {{- include "specify7.selectorLabels" . | nindent 8 }}
+        component: report-runner
+    spec:
+      containers:
+        - name: report-runner
+          image: "{{ .Values.reportRunner.image.repository }}:{{ .Values.reportRunner.image.tag | default "latest" }}"
+          imagePullPolicy: {{ .Values.reportRunner.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080 
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.reportRunner.resources | nindent 12 }}

@@ -9,4 +9,14 @@ dependencies:
     version: 11.x.x
     repository: https://charts.bitnami.com/bitnami
     condition: mariadb.enabled
+  - name: redis
+    version: 18.x.x
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled
+  - name: common
+    version: 2.x.x
+    repository: https://charts.bitnami.com/bitnami
+    tags:
+      - bitnami-common
+
 

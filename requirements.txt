@@ -1,2 +1,12 @@
 -r specify7/requirements.txt
 # Add your local requirements below
+
+# Database Drivers
+oracledb
+mysqlclient
+sqlalchemy
+
+# Data Analysis & Interactive Tools
+pandas
+ipython
+jupyterlab
