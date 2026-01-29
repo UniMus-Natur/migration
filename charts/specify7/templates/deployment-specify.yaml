@@ -21,6 +21,20 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       
       initContainers:
+        - name: volume-permissions
+          image: public.ecr.aws/bitnami/bitnami-shell:11-debian-11-r102
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              chown -R 999:999 /volumes
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: shared-assets
+              mountPath: /volumes
+              {{- if .Values.persistence.mainSubPath }}
+              subPath: {{ .Values.persistence.mainSubPath }}
+              {{- end }}
         - name: asset-extractor
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -69,6 +83,8 @@ spec:
               value: "specifyweb.settings"
             - name: REDIS_HOST
               value: {{ .Release.Name }}-redis-master
+            - name: WEB_CONCURRENCY
+              value: "4"
           {{- if .Values.secrets.existingSecret }}
           envFrom:
             - secretRef:
@@ -78,6 +94,9 @@ spec:
             - name: config
               mountPath: /opt/specify7/specifyweb/settings/local_specify_settings.py
               subPath: local_specify_settings.py
+            - name: config
+              mountPath: /opt/specify7/specifyweb/settings/secret_key.py
+              subPath: secret_key.py
             - name: shared-assets
               mountPath: /volumes
               {{- if .Values.persistence.mainSubPath }}

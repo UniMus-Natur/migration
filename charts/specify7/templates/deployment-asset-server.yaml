@@ -17,6 +17,21 @@ spec:
         {{- include "specify7.selectorLabels" . | nindent 8 }}
         component: asset-server
     spec:
+      initContainers:
+        - name: volume-permissions
+          image: public.ecr.aws/bitnami/bitnami-shell:11-debian-11-r102
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              chown -R 999:999 /home/specify/attachments
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: attachments
+              mountPath: /home/specify/attachments
+              {{- if .Values.persistence.mainSubPath }}
+              subPath: {{ .Values.persistence.mainSubPath }}/attachments
+              {{- end }}
       containers:
         - name: asset-server
           image: "{{ .Values.assetServer.image.repository }}:{{ .Values.assetServer.image.tag | default "latest" }}"

@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-specify7-mariadb
+  labels:
+    app.kubernetes.io/component: primary
+    app.kubernetes.io/instance: specify7
+    app.kubernetes.io/name: mariadb
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: primary
+      app.kubernetes.io/instance: specify7
+      app.kubernetes.io/name: mariadb
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/instance: specify7
+          component: backend
+    ports:
+    - protocol: TCP
+      port: 3306
