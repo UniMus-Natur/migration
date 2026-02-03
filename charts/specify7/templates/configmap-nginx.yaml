@@ -31,7 +31,11 @@ data:
         
         # 3. Webpack output (JS/CSS bundles)
         location /static/js/ {
-            alias /volumes/webpack-output/;
+            alias /volumes/webpack-output/js/;
+        }
+
+        location /static/img/ {
+            alias /volumes/webpack-output/img/;
         }
         
         # 4. General static files (frontend assets, admin interface)
