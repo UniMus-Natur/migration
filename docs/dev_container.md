@@ -100,3 +100,37 @@ To run scripts using the Specify ORM:
 # Example
 python scripts/test_setup.py
 ```
+
+## 6. Remote Build (Kaniko on K8s)
+
+You can trigger a remote build (Kaniko on K8s) directly from your terminal using the helper script.
+
+### 1. Prerequisites (One-time Setup)
+
+**Create Secret**:
+The cluster needs your GitHub Container Registry credentials.
+```bash
+# Replace YOUR_TOKEN with a GitHub Classic PAT (read:packages, write:packages)
+kubectl create secret docker-registry ghcr-secret \
+  --docker-server=ghcr.io \
+  --docker-username=unimus-natur \
+  --docker-password=YOUR_TOKEN
+```
+
+### 2. Usage
+
+**Build Current Branch**:
+Builds the current remote state of your branch and pushes to `ghcr.io/unimus-natur/migration:latest`.
+```bash
+./scripts/build-k8s.sh
+```
+
+**Build Specific Branch**:
+```bash
+./scripts/build-k8s.sh feature/new-setup
+```
+
+**Build Custom Branch & Tag**:
+```bash
+./scripts/build-k8s.sh feature/new-setup ghcr.io/unimus-natur/migration:test-1
+```
