@@ -16,6 +16,8 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     pkg-config \
     default-libmysqlclient-dev \
+    libldap-dev \
+    libsasl2-dev \
     iputils-ping \
     socat \
     && rm -rf /var/lib/apt/lists/*

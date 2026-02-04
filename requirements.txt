@@ -8,5 +8,3 @@ sqlalchemy
 
 # Data Analysis & Interactive Tools
 pandas
-ipython
-jupyterlab
