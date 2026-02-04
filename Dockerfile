@@ -1,20 +1,12 @@
-FROM python:3.11-slim-bookworm
+FROM python:3.11-bookworm
 
 # Install system dependencies
-# git: for pip (submodule refs) and general usage
-# vim: for editing
-# curl/wget: for tools
-# mariadb-client: to inspect the local DB
-# libaio1: often returned by oracledb if thick mode is needed (though we use thin by default)
-# build-essential, pkg-config, default-libmysqlclient-dev: for building mysqlclient
+# Full image includes git, curl, build-essential, pkg-config
+# We add database clients and headers specifically needed
 RUN apt-get update && apt-get install -y \
-    git \
     vim \
-    curl \
     mariadb-client \
     libaio1 \
-    build-essential \
-    pkg-config \
     default-libmysqlclient-dev \
     libldap-dev \
     libsasl2-dev \

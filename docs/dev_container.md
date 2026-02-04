@@ -115,6 +115,11 @@ kubectl create secret docker-registry ghcr-secret \
   --docker-server=ghcr.io \
   --docker-username=unimus-natur \
   --docker-password=YOUR_TOKEN
+
+> **Note for Organizations**:
+> GitHub Container Registry always requires authenticating as a **User**.
+> If you are pushing to an Organization (`ghcr.io/unimus-natur/...`), you must use a Personal Access Token (PAT) from a user account that has write access to the organization's packages.
+> For shared/automated setups, it is best practice to use a **Machine User** (a dedicated bot account) added to your organization.
 ```
 
 ### 2. Usage
@@ -134,3 +139,7 @@ Builds the current remote state of your branch and pushes to `ghcr.io/unimus-nat
 ```bash
 ./scripts/build-k8s.sh feature/new-setup ghcr.io/unimus-natur/migration:test-1
 ```
+
+> **Note on Resources**:
+> The build pod is configured with resource limits. The cluster enforces a policy where the **Limit cannot exceed 2x the Request**.
+> If you adjust resources in `scripts/build-k8s.sh`, ensure you maintain this ratio (e.g., Request 2Gi -> Limit 4Gi).

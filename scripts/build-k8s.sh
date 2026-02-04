@@ -49,16 +49,9 @@ metadata:
   name: $POD_NAME
 spec:
   restartPolicy: Never
-  containers:
-  - name: kaniko
-    image: gcr.io/kaniko-project/executor:latest
-    args:
-    - "--context=git://github.com/UniMus-Natur/migration.git#refs/heads/$BRANCH"
-    - "--destination=$DESTINATION"
-    volumeMounts:
-    - name: kaniko-secret
-      mountPath: /kaniko/.docker
   volumes:
+  - name: workspace
+    emptyDir: {}
   - name: kaniko-secret
     projected:
       sources:
@@ -67,10 +60,42 @@ spec:
           items:
             - key: .dockerconfigjson
               path: config.json
+  initContainers:
+  - name: git-clone
+    image: alpine/git
+    args:
+    - clone
+    - --recursive
+    - --branch
+    - "$BRANCH"
+    - --single-branch
+    - "https://github.com/UniMus-Natur/migration.git"
+    - "/workspace"
+    volumeMounts:
+    - name: workspace
+      mountPath: /workspace
+  containers:
+  - name: kaniko
+    image: gcr.io/kaniko-project/executor:latest
+    args:
+    - "--context=dir:///workspace"
+    - "--destination=$DESTINATION"
+    volumeMounts:
+    - name: kaniko-secret
+      mountPath: /kaniko/.docker
+    - name: workspace
+      mountPath: /workspace
+    resources:
+      requests:
+        memory: "2Gi"
+        cpu: "1000m"
+      limits:
+        memory: "4Gi"
+        cpu: "2000m"
 EOF
 
 echo "⏳ Waiting for pod $POD_NAME to start..."
-kubectl wait --for=condition=Ready pod/$POD_NAME --timeout=60s
+kubectl wait --for=condition=Ready pod/$POD_NAME --timeout=300s
 
 echo "📜 Streaming logs..."
 kubectl logs -f $POD_NAME
