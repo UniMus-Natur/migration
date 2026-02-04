@@ -1,0 +1,53 @@
+{{- if .Values.migration.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "specify7.fullname" . }}-migration
+  labels:
+    {{- include "specify7.labels" . | nindent 4 }}
+    component: migration
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "specify7.selectorLabels" . | nindent 6 }}
+      component: migration
+  template:
+    metadata:
+      labels:
+        {{- include "specify7.selectorLabels" . | nindent 8 }}
+        component: migration
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migration
+          image: "{{ .Values.migration.image.repository }}:{{ .Values.migration.image.tag }}"
+          imagePullPolicy: {{ .Values.migration.image.pullPolicy }}
+          command:
+            {{- toYaml .Values.migration.command | nindent 12 }}
+          env:
+            - name: DJANGO_SETTINGS_MODULE
+              value: "specifyweb.settings"
+            - name: PYTHONPATH
+              value: "/app/specify7"
+          {{- if .Values.secrets.existingSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secrets.existingSecret }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /app/specify7/specifyweb/settings/local_specify_settings.py
+              subPath: local_specify_settings.py
+            - name: config
+              mountPath: /app/specify7/specifyweb/settings/secret_key.py
+              subPath: secret_key.py
+          resources:
+            {{- toYaml .Values.migration.resources | nindent 12 }}
+      volumes:
+        - name: config
+          secret:
+            secretName: {{ include "specify7.fullname" . }}-config
+{{- end }}

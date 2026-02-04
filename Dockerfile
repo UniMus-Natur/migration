@@ -1,5 +1,4 @@
-# Use same base python as Specify 7
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 # Install system dependencies
 # git: for pip (submodule refs) and general usage
@@ -18,6 +17,7 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     default-libmysqlclient-dev \
     iputils-ping \
+    socat \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -28,6 +28,9 @@ COPY specify7/requirements.txt /app/specify7/
 
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the rest of the application code
+COPY . /app/
 
 # Default command is bash to let you explore
 CMD ["/bin/bash"]

@@ -78,7 +78,7 @@ specify:
     # When mariadb.enabled=true, host is typically "{{ .Release.Name }}-mariadb"
     # We will handle this logic in secret-config.yaml or you can hardcode it here.
     # For now, we assume the user will set this or we default to the subchart service name.
-    host: "" 
+    host: ""
     port: 3306
   user:
     masterName: "bn_specify" # Default user for bitnami/mariadb is usually 'bn_myapp' or custom
@@ -116,8 +116,8 @@ redis:
     enabled: false # simplistic for internal usage, valid would be true + secret management
   master:
     persistence:
-      enabled: false 
-      # Redis is used as a broker/cache here, persistence might not be strictly needed for this use case 
+      enabled: false
+      # Redis is used as a broker/cache here, persistence might not be strictly needed for this use case
       # or should be enabled for reliability. Keeping false for simplicity/dev.
 
 # MariaDB Sub-chart Configuration (Bitnami)
@@ -132,10 +132,10 @@ mariadb:
     persistence:
       enabled: true
       # size: 8Gi # Ignored when existingClaim is used
-      # Use global existingClaim/subPath if defined manually here, 
+      # Use global existingClaim/subPath if defined manually here,
       # or we rely on the user to populate these in values.yaml correctly.
       # existingClaim: ""
-      # subPath: "MariaDB" 
+      # subPath: "MariaDB"
       # Since we want to support both modes, we'll leave these empty by default in values.yaml
       # and let the user override them (like in staging.values.yaml) or we can link them template-wise?
       # Bitnami charts don't support "global.persistence" inheritance automatically usually.
@@ -143,3 +143,13 @@ mariadb:
       existingClaim: ""
       subPath: ""
 
+# Migration Runner / Dev Container Configuration
+migration:
+  enabled: true
+  image:
+    repository: ghcr.io/unimus-natur/migration
+    pullPolicy: IfNotPresent
+    tag: "latest"
+  resources: {}
+  # Command to keep the container running indefinitely
+  command: ["/bin/bash", "-c", "sleep infinity"]
