@@ -26,5 +26,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application code
 COPY . /app/
 
+# Generate necessary build files for Specify 7
+RUN echo "VERSION = 'v7'" > /app/specify7/specifyweb/settings/build_version.py && \
+    echo "SECRET_KEY = 'dummy_secret_key_for_build_process'" > /app/specify7/specifyweb/settings/secret_key.py
+
+
 # Default command is bash to let you explore
 CMD ["/bin/bash"]
