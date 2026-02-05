@@ -12,7 +12,13 @@ RUN apt-get update && apt-get install -y \
     libsasl2-dev \
     iputils-ping \
     socat \
-    && rm -rf /var/lib/apt/lists/*
+    openssh-server \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir /var/run/sshd \
+    && echo 'root:root' | chpasswd \
+    && sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config \
+    # SSH login fix. Otherwise user is kicked off after login
+    && sed -i 's@session\s*required\s*pam_loginuid.so@session optional pam_loginuid.so@g' /etc/pam.d/sshd
 
 WORKDIR /app
 
@@ -32,4 +38,7 @@ RUN echo "VERSION = 'v7'" > /app/specify7/specifyweb/settings/build_version.py &
 
 
 # Default command is bash to let you explore
-CMD ["/bin/bash"]
+EXPOSE 22
+
+# Default command starts sshd and then bash (or whatever else you need)
+CMD ["/usr/sbin/sshd", "-D"]

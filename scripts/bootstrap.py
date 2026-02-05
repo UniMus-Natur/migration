@@ -1,5 +1,13 @@
 import os
 import sys
+
+# Monkey patch MySQLdb with PyMySQL for local development
+try:
+    import pymysql
+    pymysql.install_as_MySQLdb()
+except ImportError:
+    pass
+
 import django
 
 def setup():
