@@ -30,7 +30,9 @@ spec:
           image: "{{ .Values.migration.image.repository }}:{{ .Values.migration.image.tag }}"
           imagePullPolicy: {{ .Values.migration.image.pullPolicy }}
           command:
-            {{- toYaml .Values.migration.command | nindent 12 }}
+            - "/bin/bash"
+            - "-c"
+            - "env | grep -v '^_=' > /etc/environment && mkdir -p /run/sshd && /usr/sbin/sshd -D"
           env:
             - name: DJANGO_SETTINGS_MODULE
               value: "specifyweb.settings"
