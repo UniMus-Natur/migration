@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y \
     && mkdir /var/run/sshd \
     && echo 'root:root' | chpasswd \
     && sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config \
+    && echo "PermitUserEnvironment yes" >> /etc/ssh/sshd_config \
     # SSH login fix. Otherwise user is kicked off after login
     && sed -i 's@session\s*required\s*pam_loginuid.so@session optional pam_loginuid.so@g' /etc/pam.d/sshd
 
