@@ -40,5 +40,10 @@ RUN echo "VERSION = 'v7'" > /app/specify7/specifyweb/settings/build_version.py &
 # Default command is bash to let you explore
 EXPOSE 22
 
+# Copy entrypoint script
+COPY docker-entrypoint.sh /app/
+RUN chmod +x /app/docker-entrypoint.sh
+
 # Default command starts sshd and then bash (or whatever else you need)
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["/usr/sbin/sshd", "-D"]

@@ -32,7 +32,7 @@ spec:
           command:
             - "/bin/bash"
             - "-c"
-            - "env | grep -v '^_=' > /etc/environment && mkdir -p /run/sshd && /usr/sbin/sshd -D"
+            - "export -p > /etc/profile.d/k8s_env.sh && echo 'source /etc/profile.d/k8s_env.sh' >> /etc/bash.bashrc && echo 'source /etc/profile.d/k8s_env.sh' >> /root/.profile && echo 'source /etc/profile.d/k8s_env.sh' >> /root/.bashrc && mkdir -p /run/sshd && /usr/sbin/sshd -D"
           env:
             - name: DJANGO_SETTINGS_MODULE
               value: "specifyweb.settings"
