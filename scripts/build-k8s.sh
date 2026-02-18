@@ -136,6 +136,8 @@ spec:
     args:
     - "--context=$BUILD_CONTEXT"
     - "--destination=$DESTINATION"
+    - "--git=recurse-submodules=true"
+    - "--git=recurse-submodules=true"
     volumeMounts:
     - name: kaniko-secret
       mountPath: /kaniko/.docker
