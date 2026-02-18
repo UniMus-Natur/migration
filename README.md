@@ -53,8 +53,11 @@ A custom Helm chart is provided in `charts/specify7` to deploy a staging environ
 -   Integrated MariaDB (Bitnami) for self-contained staging.
 
 **Quick Start**:
-```bash
-helm repo add bitnami https://charts.bitnami.com/bitnami
-helm dependency build charts/specify7
+
 helm install staging ./charts/specify7
 ```
+
+## Versioning & Release
+
+The project uses automatic semantic versioning. 
+See [Versioning and Release Process](docs/versioning_and_release.md) for details on how releases are cut and how the Helm chart is updated.
