@@ -29,6 +29,9 @@ spec:
               subPath: default.conf
             - name: shared-assets
               mountPath: /volumes
+              {{- if .Values.persistence.mainSubPath }}
+              subPath: {{ .Values.persistence.mainSubPath }}
+              {{- end }}
             # The backend config is also needed here because /static/config serves it!
             - name: config
               mountPath: /volumes/specify-config/local_specify_settings.py
@@ -39,7 +42,7 @@ spec:
             name: {{ include "specify7.fullname" . }}-nginx-config
         - name: shared-assets
           persistentVolumeClaim:
-            claimName: {{ include "specify7.fullname" . }}-shared-assets
+            claimName: {{ if .Values.persistence.existingClaim }}{{ .Values.persistence.existingClaim }}{{ else }}{{ include "specify7.fullname" . }}-shared-assets{{ end }}
         - name: config
           secret:
             secretName: {{ include "specify7.fullname" . }}-config

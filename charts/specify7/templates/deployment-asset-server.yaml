@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "specify7.fullname" . }}-asset-server
+  labels:
+    {{- include "specify7.labels" . | nindent 4 }}
+    component: asset-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "specify7.selectorLabels" . | nindent 6 }}
+      component: asset-server
+  template:
+    metadata:
+      labels:
+        {{- include "specify7.selectorLabels" . | nindent 8 }}
+        component: asset-server
+    spec:
+      initContainers:
+        - name: volume-permissions
+          image: public.ecr.aws/bitnami/bitnami-shell:11-debian-11-r102
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              chown -R 999:999 /home/specify/attachments
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: attachments
+              mountPath: /home/specify/attachments
+              {{- if .Values.persistence.mainSubPath }}
+              subPath: {{ .Values.persistence.mainSubPath }}/attachments
+              {{- end }}
+      containers:
+        - name: asset-server
+          image: "{{ .Values.assetServer.image.repository }}:{{ .Values.assetServer.image.tag | default "latest" }}"
+          imagePullPolicy: {{ .Values.assetServer.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          env:
+            - name: SERVER_NAME
+              value: "0.0.0.0" # or use actual hostname if needed, but 0.0.0.0 usually safe for binding
+            - name: SERVER_PORT
+              value: "80"
+            - name: ATTACHMENT_KEY
+              value: {{ .Values.specify.assetServerKey | quote }}
+            - name: DEBUG_MODE
+              value: "false"
+          volumeMounts:
+            - name: attachments
+              mountPath: /home/specify/attachments
+              {{- if .Values.persistence.mainSubPath }}
+              subPath: {{ .Values.persistence.mainSubPath }}/attachments
+              {{- end }}
+          resources:
+            {{- toYaml .Values.assetServer.resources | nindent 12 }}
+      volumes:
+        - name: attachments
+          persistentVolumeClaim:
+            claimName: {{ if .Values.persistence.existingClaim }}{{ .Values.persistence.existingClaim }}{{ else }}{{ include "specify7.fullname" . }}-attachments{{ end }}

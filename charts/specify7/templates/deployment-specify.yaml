@@ -21,6 +21,20 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       
       initContainers:
+        - name: volume-permissions
+          image: public.ecr.aws/bitnami/bitnami-shell:11-debian-11-r102
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              chown -R 999:999 /volumes
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: shared-assets
+              mountPath: /volumes
+              {{- if .Values.persistence.mainSubPath }}
+              subPath: {{ .Values.persistence.mainSubPath }}
+              {{- end }}
         - name: asset-extractor
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -40,6 +54,9 @@ spec:
           volumeMounts:
             - name: shared-assets
               mountPath: /volumes
+              {{- if .Values.persistence.mainSubPath }}
+              subPath: {{ .Values.persistence.mainSubPath }}
+              {{- end }}
 
       containers:
         - name: {{ .Chart.Name }}
@@ -47,16 +64,16 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["/bin/bash", "-c"]
-          args:
-            - |
-               # Ensure database is reachable
-               echo "Waiting for database..."
-               # (Optional: add wait-for-it or similar logic here)
-               
-               # Run Specify
-               # Note: Official image CMD might be different, but we override to ensure correct settings binding
-               exec gunicorn -b 0.0.0.0:8000 specifyweb.wsgi
+          # command: ["/bin/bash", "-c"]
+          # args:
+          #   - |
+          #      # Ensure database is reachable
+          #      echo "Waiting for database..."
+          #      # (Optional: add wait-for-it or similar logic here)
+          #      
+          #      # Run Specify
+          #      # Note: Official image CMD might be different, but we override to ensure correct settings binding
+          #      exec gunicorn -b 0.0.0.0:8000 specifyweb.wsgi
           ports:
             - name: http
               containerPort: 8000
@@ -64,12 +81,27 @@ spec:
           env:
             - name: DJANGO_SETTINGS_MODULE
               value: "specifyweb.settings"
+            - name: REDIS_HOST
+              value: {{ .Release.Name }}-redis-master
+            - name: WEB_CONCURRENCY
+              value: "4"
+          {{- if .Values.secrets.existingSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secrets.existingSecret }}
+          {{- end }}
           volumeMounts:
             - name: config
               mountPath: /opt/specify7/specifyweb/settings/local_specify_settings.py
               subPath: local_specify_settings.py
+            - name: config
+              mountPath: /opt/specify7/specifyweb/settings/secret_key.py
+              subPath: secret_key.py
             - name: shared-assets
               mountPath: /volumes
+              {{- if .Values.persistence.mainSubPath }}
+              subPath: {{ .Values.persistence.mainSubPath }}
+              {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
 
@@ -79,4 +111,4 @@ spec:
             secretName: {{ include "specify7.fullname" . }}-config
         - name: shared-assets
           persistentVolumeClaim:
-            claimName: {{ include "specify7.fullname" . }}-shared-assets
+            claimName: {{ if .Values.persistence.existingClaim }}{{ .Values.persistence.existingClaim }}{{ else }}{{ include "specify7.fullname" . }}-shared-assets{{ end }}

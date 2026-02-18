@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "specify7.fullname" . }}-asset-server
+  labels:
+    {{- include "specify7.labels" . | nindent 4 }}
+    component: asset-server
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.assetServer.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "specify7.selectorLabels" . | nindent 4 }}
+    component: asset-server

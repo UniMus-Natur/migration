@@ -19,21 +19,29 @@ spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: volume-permissions
+          image: public.ecr.aws/bitnami/bitnami-shell:11-debian-11-r102
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              chown -R 999:999 /volumes
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: shared-assets
+              mountPath: /volumes
+              {{- if .Values.persistence.mainSubPath }}
+              subPath: {{ .Values.persistence.mainSubPath }}
+              {{- end }}
       containers:
         - name: worker
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["/bin/bash", "-c"]
-          args:
-            - |
-               echo "Waiting for backend init..."
-               # (Optional: wait regarding shared volume population?)
-               
-               # Run Celery
-               # Using -Q {{ .Values.specify.database.name }} as per docker-compose
-               exec celery -A specifyweb worker -l INFO --concurrency=1 -Q {{ .Values.specify.database.name }}
+          # command: ["/bin/bash", "-c"]
+          # args: ... removed to use default image entrypoint
           env:
             - name: DJANGO_SETTINGS_MODULE
               value: "specifyweb.settings"
@@ -43,13 +51,24 @@ spec:
             # looking at my values.yaml, I didn't explicitly put redis url there, 
             # but specify settings usually look for REDIS_HOST.
             - name: REDIS_HOST
-              value: "redis" 
+              value: {{ .Release.Name }}-redis-master
+          {{- if .Values.secrets.existingSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secrets.existingSecret }}
+          {{- end }}
           volumeMounts:
             - name: config
               mountPath: /opt/specify7/specifyweb/settings/local_specify_settings.py
               subPath: local_specify_settings.py
+            - name: config
+              mountPath: /opt/specify7/specifyweb/settings/secret_key.py
+              subPath: secret_key.py
             - name: shared-assets
               mountPath: /volumes
+              {{- if .Values.persistence.mainSubPath }}
+              subPath: {{ .Values.persistence.mainSubPath }}
+              {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
 
@@ -59,4 +78,4 @@ spec:
             secretName: {{ include "specify7.fullname" . }}-config
         - name: shared-assets
           persistentVolumeClaim:
-            claimName: {{ include "specify7.fullname" . }}-shared-assets
+            claimName: {{ if .Values.persistence.existingClaim }}{{ .Values.persistence.existingClaim }}{{ else }}{{ include "specify7.fullname" . }}-shared-assets{{ end }}

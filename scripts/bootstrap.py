@@ -1,5 +1,13 @@
 import os
 import sys
+
+# Monkey patch MySQLdb with PyMySQL for local development
+try:
+    import pymysql
+    pymysql.install_as_MySQLdb()
+except ImportError:
+    pass
+
 import django
 
 def setup():
@@ -18,14 +26,16 @@ def setup():
         sys.path.append(SPECIFY_DIR)
 
     # 3. Inject our local settings into the expected specifyweb module location
-    # This allows us to use specifyweb.settings without modifying the submodule files
-    # The module 'specifyweb.settings.local_specify_settings' is anticipated by specifyweb.settings.__init__
-    try:
-        import config.local_specify_settings
-        sys.modules['specifyweb.settings.local_specify_settings'] = config.local_specify_settings
-        # print(f"Successfully injected local settings from {config.local_specify_settings.__file__}")
-    except ImportError:
-        print("Warning: config.local_specify_settings not found. Using Specify defaults.")
+    # BUT only if we are NOT running in Kubernetes (where we want to use the mounted secrets)
+    if os.environ.get('KUBERNETES_SERVICE_HOST'):
+        print("Running in Kubernetes: Skipping injection of config.local_specify_settings (using mounted secrets)")
+    else:
+        try:
+            import config.local_specify_settings
+            sys.modules['specifyweb.settings.local_specify_settings'] = config.local_specify_settings
+            # print(f"Successfully injected local settings from {config.local_specify_settings.__file__}")
+        except ImportError:
+            print("Warning: config.local_specify_settings not found. Using Specify defaults.")
 
     # 4. Configure Django settings
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "specifyweb.settings")

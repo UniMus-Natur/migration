@@ -30,7 +30,17 @@ If viewing on GitHub Pages, visit the [Documentation Site](https://unimus-natur.
     Scripts in `scripts/` utilize a `bootstrap.py` helper to load the Specify 7 environment dynamically.
     ```bash
     python scripts/test_setup.py
+    python scripts/test_setup.py
     ```
+
+## Dev / Migration Container
+
+For advanced debugging, database proxying, and running migration scripts inside the cluster, see the [Dev Container Guide](docs/dev_container.md).
+
+It supports:
+- Building with **Podman** (x86/amd64).
+- **Proxying** Oracle and MariaDB to your local machine.
+- Running scripts with full **ORM access** in the cluster.
 
 ## Kubernetes Deployment
 
@@ -43,8 +53,11 @@ A custom Helm chart is provided in `charts/specify7` to deploy a staging environ
 -   Integrated MariaDB (Bitnami) for self-contained staging.
 
 **Quick Start**:
-```bash
-helm repo add bitnami https://charts.bitnami.com/bitnami
-helm dependency build charts/specify7
+
 helm install staging ./charts/specify7
 ```
+
+## Versioning & Release
+
+The project uses automatic semantic versioning. 
+See [Versioning and Release Process](docs/versioning_and_release.md) for details on how releases are cut and how the Helm chart is updated.
