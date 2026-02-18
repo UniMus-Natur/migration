@@ -15,9 +15,81 @@ if [ ! -z "$2" ]; then
     DESTINATION="$2"
 fi
 
+
+# Calculate version
+echo "🔍 Calculating version..."
+NEW_VERSION=$(python3 scripts/calculate_version.py)
+SHORT_HASH=$(git rev-parse --short HEAD)
+
+echo "📏 Version: $NEW_VERSION"
+echo "#️⃣  Commit:  $SHORT_HASH"
+
+CHART_FILE="charts/specify7/Chart.yaml"
+VALUES_FILE="charts/specify7/values.yaml"
+STAGING_VALUES_FILE="charts/specify7/staging.values.yaml"
+
+if [ "$BRANCH" == "main" ]; then
+    echo "🌿 Branch is main. Handling release..."
+    
+    # Check if we need to tag
+    if git rev-parse "$NEW_VERSION" >/dev/null 2>&1; then
+        echo "✅ Tag $NEW_VERSION already exists."
+    else
+        echo "🆕 New version detected: $NEW_VERSION"
+        
+        # Update files
+        echo "📝 Updating Chart.yaml and values.yaml..."
+        python3 scripts/calculate_version.py --update "$NEW_VERSION" "$CHART_FILE" "$VALUES_FILE"
+        
+        # Commit and Tag
+        echo "💾 Committing and Tagging..."
+        git add "$CHART_FILE" "$VALUES_FILE"
+        git commit -m "chore: release $NEW_VERSION"
+        git tag "$NEW_VERSION"
+        
+        echo "🚀 Pushing to origin..."
+        git push origin "$BRANCH" --tags
+    fi
+    
+    DESTINATION="${DESTINATION%%:*}:$NEW_VERSION"
+    BUILD_CONTEXT="git://github.com/UniMus-Natur/migration.git#refs/tags/$NEW_VERSION"
+else
+    echo "🌿 Branch is $BRANCH (not main)."
+    DESTINATION="${DESTINATION%%:*}:$SHORT_HASH"
+    
+    # Update staging values if it exists
+    if [ -f "$STAGING_VALUES_FILE" ]; then
+        echo "📝 Updating staging.values.yaml..."
+        # note: passing None for Chart.yaml to skip it? 
+        # My python script expects 3 args strictly for update mode + optional 4th.
+        # Let's adjust usage or just pass the files.
+        # Actually I can update values.yaml locally for dev too?
+        # User said: "helm chart should always follow the latest".
+        # Let's update `staging.values.yaml` with the short hash.
+        # We need to hack the python script usage or just use sed here for simplicity? 
+        # Or better, reuse the python tool but be careful.
+        # The python tool updates Chart AND Values. 
+        # I only want to update staging values for non-main? 
+        # Or maybe I update Chart.yaml appVersion too?
+        # Let's assume updating check files is okay locally.
+        
+        # Using a temporary python snippet might be easier given the strict args I wrote? 
+        # Or just use sed for this simple case
+        case "$(uname -s)" in
+            Darwin) sed -i '' -E "s/(\s+tag:\s*)\"[^\"]+\"/\1\"$SHORT_HASH\"/" "$STAGING_VALUES_FILE" ;;
+            *)      sed -i -E "s/(\s+tag:\s*)\"[^\"]+\"/\1\"$SHORT_HASH\"/" "$STAGING_VALUES_FILE" ;;
+        esac
+    fi
+    # Use branch for build context
+    BUILD_CONTEXT="git://github.com/UniMus-Natur/migration.git#refs/heads/$BRANCH"
+fi
+
+echo "🎯 Build Destination: $DESTINATION"
+
 echo "🚀 Starting K8s Builder..."
 echo "📍 Context: $BRANCH"
-echo "🎯 Destination: $DESTINATION"
+# The original "🎯 Destination" echo is now redundant with "🎯 Build Destination" above.
+# echo "🎯 Destination: $DESTINATION" 
 
 # check if secret exists
 if ! kubectl get secret $GHCR_SECRET_NAME >/dev/null 2>&1; then
@@ -50,41 +122,23 @@ metadata:
 spec:
   restartPolicy: Never
   volumes:
-  - name: workspace
-    emptyDir: {}
   - name: kaniko-secret
     projected:
       sources:
       - secret:
           name: $GHCR_SECRET_NAME
           items:
-            - key: .dockerconfigjson
-              path: config.json
-  initContainers:
-  - name: git-clone
-    image: alpine/git
-    args:
-    - clone
-    - --recursive
-    - --branch
-    - "$BRANCH"
-    - --single-branch
-    - "https://github.com/UniMus-Natur/migration.git"
-    - "/workspace"
-    volumeMounts:
-    - name: workspace
-      mountPath: /workspace
+          - key: .dockerconfigjson
+            path: config.json
   containers:
   - name: kaniko
     image: gcr.io/kaniko-project/executor:latest
     args:
-    - "--context=dir:///workspace"
+    - "--context=$BUILD_CONTEXT"
     - "--destination=$DESTINATION"
     volumeMounts:
     - name: kaniko-secret
       mountPath: /kaniko/.docker
-    - name: workspace
-      mountPath: /workspace
     resources:
       requests:
         memory: "2Gi"
