@@ -3,7 +3,7 @@ name: specify7
 description: A Helm chart for deploying Specify 7 on Kubernetes
 type: application
 version: 0.1.0
-appVersion: "7.9.6"
+appVersion: "v0.1.0"
 dependencies:
   - name: mariadb
     version: 11.x.x
