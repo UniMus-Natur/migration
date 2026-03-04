@@ -1,0 +1,44 @@
+{{- if and .Values.prefect.enabled .Values.prefect.worker.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "specify7.fullname" . }}-prefect-worker
+  labels:
+    {{- include "specify7.labels" . | nindent 4 }}
+    component: prefect-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "specify7.selectorLabels" . | nindent 6 }}
+      component: prefect-worker
+  template:
+    metadata:
+      labels:
+        {{- include "specify7.selectorLabels" . | nindent 8 }}
+        component: prefect-worker
+    spec:
+      serviceAccountName: {{ include "specify7.fullname" . }}-prefect-worker
+      containers:
+        - name: worker
+          image: "{{ .Values.prefect.image.repository }}:{{ .Values.prefect.image.tag }}"
+          imagePullPolicy: {{ .Values.prefect.image.pullPolicy }}
+          command: ["prefect", "worker", "start"]
+          args:
+            - --pool
+            - {{ .Values.prefect.worker.workPool }}
+            - --type
+            - kubernetes
+          env:
+            {{- if .Values.prefect.server.enabled }}
+            - name: PREFECT_API_URL
+              value: "http://{{ include "specify7.fullname" . }}-prefect-server:4200/api"
+            {{- end }}
+          {{- if .Values.secrets.existingSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secrets.existingSecret }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.prefect.worker.resources | nindent 12 }}
+{{- end }}

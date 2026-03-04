@@ -1,0 +1,48 @@
+{{- if and .Values.prefect.enabled .Values.prefect.devWorker.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "specify7.fullname" . }}-prefect-dev-worker
+  labels:
+    {{- include "specify7.labels" . | nindent 4 }}
+    component: prefect-dev-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "specify7.selectorLabels" . | nindent 6 }}
+      component: prefect-dev-worker
+  template:
+    metadata:
+      labels:
+        {{- include "specify7.selectorLabels" . | nindent 8 }}
+        component: prefect-dev-worker
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: dev-worker
+          image: "{{ default .Values.migration.image.repository .Values.prefect.devWorker.image.repository }}:{{ default .Values.migration.image.tag .Values.prefect.devWorker.image.tag }}"
+          imagePullPolicy: {{ .Values.prefect.devWorker.image.pullPolicy }}
+          workingDir: /app
+          command: ["python", "-m", "prefect", "worker", "start"]
+          args:
+            - --pool
+            - {{ .Values.prefect.devWorker.workPool }}
+            - --type
+            - process
+          env:
+            {{- if .Values.prefect.server.enabled }}
+            - name: PREFECT_API_URL
+              value: "http://{{ include "specify7.fullname" . }}-prefect-server:4200/api"
+            {{- end }}
+          {{- if .Values.secrets.existingSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secrets.existingSecret }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.prefect.devWorker.resources | nindent 12 }}
+{{- end }}

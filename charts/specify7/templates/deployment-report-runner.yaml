@@ -25,5 +25,10 @@ spec:
             - name: http
               containerPort: 8080 
               protocol: TCP
+          {{- if .Values.secrets.existingSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secrets.existingSecret }}
+          {{- end }}
           resources:
             {{- toYaml .Values.reportRunner.resources | nindent 12 }}

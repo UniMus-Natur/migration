@@ -1,0 +1,42 @@
+{{- if and .Values.prefect.enabled .Values.prefect.server.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "specify7.fullname" . }}-prefect-server
+  labels:
+    {{- include "specify7.labels" . | nindent 4 }}
+    component: prefect-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "specify7.selectorLabels" . | nindent 6 }}
+      component: prefect-server
+  template:
+    metadata:
+      labels:
+        {{- include "specify7.selectorLabels" . | nindent 8 }}
+        component: prefect-server
+    spec:
+      containers:
+        - name: server
+          image: "{{ .Values.prefect.image.repository }}:{{ .Values.prefect.image.tag }}"
+          imagePullPolicy: {{ .Values.prefect.image.pullPolicy }}
+          command: ["prefect", "server", "start"]
+          args:
+            - --host
+            - 0.0.0.0
+            - --port
+            - "4200"
+          ports:
+            - name: http
+              containerPort: 4200
+              protocol: TCP
+          {{- if .Values.secrets.existingSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secrets.existingSecret }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.prefect.server.resources | nindent 12 }}
+{{- end }}

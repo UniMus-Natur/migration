@@ -1,0 +1,36 @@
+# prefect.yaml
+name: migration
+prefect-version: 3.0.0
+
+# build section allows you to manage and build docker images
+build: null
+
+# push section allows you to manage if and how this project is uploaded to remote locations
+push: null
+
+# pull section allows you to provide instructions for cloning this project in remote locations
+pull:
+  - prefect.deployments.steps.set_working_directory:
+      directory: /app
+
+# the deployments section allows you to provide configuration for deploying flows
+deployments:
+  - name: test-oracle
+    version: 1.0.0
+    tags: ["test", "oracle"]
+    description: "Tests the connection to the Test Oracle DB"
+    entrypoint: flows/test_oracle.py:test_oracle_connectivity_flow
+    work_pool:
+      name: kubernetes-worker
+      work_queue_name: default
+    job_variables:
+      image: "ghcr.io/unimus-natur/migration:latest"
+
+  - name: test-oracle-dev
+    version: 1.0.0
+    tags: ["test", "oracle", "dev"]
+    description: "Fast in-cluster dev run for Oracle connectivity checks"
+    entrypoint: flows/test_oracle.py:test_oracle_connectivity_flow
+    work_pool:
+      name: dev-process
+      work_queue_name: default

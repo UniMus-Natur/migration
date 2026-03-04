@@ -153,3 +153,53 @@ migration:
   resources: {}
   # Command to keep the container running indefinitely
   command: ["/bin/bash", "-c", "sleep infinity"]
+
+# Prefect Configuration
+prefect:
+  enabled: true
+  image:
+    repository: prefecthq/prefect
+    tag: "3.6.20-python3.12"
+    pullPolicy: IfNotPresent
+
+  server:
+    enabled: true
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+
+  worker:
+    enabled: true
+    # Name of the Work Pool to poll
+    workPool: "kubernetes-worker"
+    resources:
+      requests:
+        cpu: 150m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  # Optional in-cluster worker for rapid development.
+  # This worker runs flows as "process" jobs in a long-lived pod,
+  # so you can sync code into the pod and test without rebuilding images.
+  devWorker:
+    enabled: true
+    workPool: "dev-process"
+    image:
+      # Defaults to migration.image.repository when empty
+      repository: ""
+      # Defaults to migration.image.tag when empty
+      tag: ""
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
