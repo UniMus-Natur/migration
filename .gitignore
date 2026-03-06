@@ -6,3 +6,4 @@ specify7_venv/
 .env
 **/staging.values.yaml
 .venv
+.cursor

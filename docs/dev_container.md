@@ -6,14 +6,14 @@ nav_order: 6
 
 # Dev / Migration Container
 
-This guide details how to build and use the "Migration Runner" container. This container runs inside the Kubernetes cluster and provides a persistent environment with access to:
-1.  **Specify 7 Source Code** (with ORM).
-2.  **Internal Cluster Network** (MariaDB, Redis).
-3.  **External Oracle Database** (via VPN/Firewall whitelisting).
+This guide explains how to build and use the migration runtime image for in-cluster development. The runtime provides access to:
+1. **Specify 7 source code** (with ORM support).
+2. **Internal cluster services** (MariaDB, Redis).
+3. **External Oracle databases** (subject to firewall and whitelist rules).
 
 ## 1. Build the Image (Podman)
 
-Since the cluster may be running on a different architecture or we want to ensure compatibility, we build for `linux/amd64`.
+Build for `linux/amd64` to match cluster compatibility requirements.
 
 **Prerequisites**:
 - `podman` installed.
@@ -55,7 +55,7 @@ For a fast in-cluster loop, use the Prefect `devWorker` (process type), which ru
 
 ## 3. Accessing the Runtime
 
-The previous long-lived `migration` toolbox pod is no longer part of the default chart.
+The old long-lived `migration` toolbox pod is no longer part of the default chart.
 Use the Prefect `devWorker` pod as the runtime:
 
 ```bash
@@ -65,7 +65,7 @@ kubectl exec -it "$POD_NAME" -- bash
 
 ## 4. Database Proxies (Port Forwarding)
 
-To access databases (Oracle or Cluster MariaDB) from your **local machine** using tools like DBeaver or DbGate, use the included helper script.
+To access Oracle or cluster MariaDB from your local machine (for tools like DBeaver/DbGate), use the included helper script.
 
 ### Inside the Runtime Pod:
 Start the proxies. This binds `socat` to the pod's ports.
@@ -92,7 +92,7 @@ kubectl port-forward $POD_NAME 1553:1553 3306:3306
 ## 5. Running Migration Scripts
 
 When using Prefect with `git_clone`, flow runs execute from a temporary cloned directory, not `/app`.
-For ad-hoc shell work, the image still includes repo tooling and dependencies.
+For ad-hoc shell work, the image still includes the required repository tooling and dependencies.
 
 To run scripts using the Specify ORM:
 

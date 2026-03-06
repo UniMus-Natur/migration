@@ -36,6 +36,7 @@ If viewing on GitHub Pages, visit the [Documentation Site](https://unimus-natur.
 ## Dev / Migration Container
 
 For advanced debugging, database proxying, and running migration scripts inside the cluster, see the [Dev Container Guide](docs/dev_container.md).
+For the current Prefect in-cluster workflow, see the [Prefect Runbook](docs/prefect_worker.md).
 
 It supports:
 - Building with **Podman** (x86/amd64).
@@ -54,6 +55,7 @@ A custom Helm chart is provided in `charts/specify7` to deploy a staging environ
 
 **Quick Start**:
 
+```bash
 helm install staging ./charts/specify7
 ```
 
