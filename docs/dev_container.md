@@ -53,23 +53,21 @@ For a fast in-cluster loop, use the Prefect `devWorker` (process type), which ru
     helm upgrade --install staging ./charts/specify7 --values ./charts/specify7/values.yaml
     ```
 
-## 3. Accessing the Container
+## 3. Accessing the Runtime
 
-Find the pod name and execute a shell:
+The previous long-lived `migration` toolbox pod is no longer part of the default chart.
+Use the Prefect `devWorker` pod as the runtime:
 
 ```bash
-# Get Pod Name
-export POD_NAME=$(kubectl get pods -l component=migration -o jsonpath="{.items[0].metadata.name}")
-
-# Enter Container
-kubectl exec -it $POD_NAME -- bash
+export POD_NAME=$(kubectl get pods -l component=prefect-dev-worker -o jsonpath="{.items[0].metadata.name}")
+kubectl exec -it "$POD_NAME" -- bash
 ```
 
 ## 4. Database Proxies (Port Forwarding)
 
 To access databases (Oracle or Cluster MariaDB) from your **local machine** using tools like DBeaver or DbGate, use the included helper script.
 
-### Inside the Container:
+### Inside the Runtime Pod:
 Start the proxies. This binds `socat` to the pod's ports.
 
 ```bash
@@ -93,7 +91,8 @@ kubectl port-forward $POD_NAME 1553:1553 3306:3306
 
 ## 5. Running Migration Scripts
 
-The container has the full repo at `/app` and the `specify7` submodule at `/app/specify7`.
+When using Prefect with `git_clone`, flow runs execute from a temporary cloned directory, not `/app`.
+For ad-hoc shell work, the image still includes repo tooling and dependencies.
 
 To run scripts using the Specify ORM:
 

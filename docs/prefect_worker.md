@@ -1,100 +1,94 @@
-# Prefect Worker for Migrations
+# Prefect Runbook (K8s Dev Worker)
 
-This document describes the setup and usage of the "Inside-Out" migration workflow using long-lived Prefect Workers running within the Kubernetes cluster.
+This runbook describes the current Prefect workflow used in this repository for rapid in-cluster development.
 
-## Architecture
+## Current Model
 
-The Prefect Workers poll the Prefect Orchestrator (Cloud or Server) for flow runs scheduled in specific Work Pools.
+- `prefect-server` runs inside the namespace and exposes API/UI on port `4200`.
+- `prefect-dev-worker` runs as a long-lived worker pod using work pool `dev-process` (type `process`).
+- Deployments in `prefect.yaml` use `git_clone` on each run, so code comes from Git (branch `add-prefect`) instead of the baked `/app` source.
 
-- The **kubernetes worker** executes runs by creating a temporary Kubernetes Job (reproducible and production-like).
-- The **dev process worker** executes runs directly inside a long-lived pod (fast feedback for development).
+This means you do **not** need to rebuild the image for normal code changes. You only need to commit and push.
 
-**Benefits:**
-- **No Inbound Access Needed:** The Worker polls outbound.
-- **RBAC Controlled:** Runs with specific, limited permissions.
-- **Dynamic Code:** Pulls code at runtime.
+## Required Components
 
-## Prerequisites
+1. Helm release with Prefect enabled and secret injection configured.
+2. A `dev-process` work pool in Prefect.
+3. Valid Oracle credentials in `secrets.existingSecret` (e.g. `specify-secret`).
+4. Migration image containing runtime dependencies:
+   - `prefect`
+   - `prefect-kubernetes` (if kubernetes worker is enabled)
+   - `python-oracledb` with Oracle Instant Client for thick mode
 
-1.  **Prefect Cloud Account** (or self-hosted Prefect Server).
-2.  **API Key**: A Prefect API Key with permissions to join a Work Pool.
-3.  **Work Pools**:
-    - `kubernetes-worker` of type `kubernetes`
-    - `dev-process` of type `process`
+## Helm Configuration Notes
 
-### Work Pool Configuration Tip
+In `charts/specify7/staging.values.yaml`:
 
-> [!TIP]
-> **Automatic Job Cleanup**: To prevent completed pods/jobs from cluttering the namespace, configure the **Base Job Template** in your Prefect Work Pool settings to include `ttlSecondsAfterFinished`.
->
-> Example addition to the Job template:
-> ```yaml
-> spec:
->   ttlSecondsAfterFinished: 60
-> ```
-> This ensures Kubernetes automatically deletes the Job 60 seconds after completion.
+- `prefect.server.enabled: true`
+- `prefect.devWorker.enabled: true`
+- `prefect.devWorker.workPool: "dev-process"`
+- `prefect.devWorker.image.*` points to your migration image tag
+- `secrets.existingSecret` points to the env secret with Oracle and Prefect vars
 
-## Configuration
+If you are only doing dev-process runs, `prefect.worker.enabled` can be `false`.
 
-In `charts/specify7/values.yaml`, find the `prefect` section:
+## Daily Dev Loop
 
-```yaml
-prefect:
-  enabled: true
-  image:
-    repository: prefecthq/prefect
-    tag: "3.6.20-python3.12"
-  
-  server:
-    enabled: true
-    
-  worker:
-    enabled: true
-    workPool: "kubernetes-worker"
-  
-  devWorker:
-    enabled: true
-    workPool: "dev-process"
-    image:
-      repository: ghcr.io/unimus-natur/migration
-      tag: "latest"
-```
-
-If `server.enabled` is true, both workers will automatically connect to the internal Prefect server. If you are using a self-hosted external server or Prefect Cloud, set `server.enabled: false` and provide `PREFECT_API_KEY` and `PREFECT_API_URL` via the `secrets.existingSecret` property, referencing a Kubernetes Secret created from your `.env` file.
-
-## Deployment
-
-Deploy using Helm, ensuring you provide the `secrets.existingSecret` value:
+1. Start API access:
 
 ```bash
-kubectl create secret generic specify7-env --from-env-file=example.env
-
-helm upgrade --install specify7 ./charts/specify7 \
-  --set prefect.enabled=true \
-  --set secrets.existingSecret=specify7-env
+kubectl port-forward svc/specify7-prefect-server 4200:4200
 ```
 
-## Developer Experience
+2. In another terminal:
 
-Use two pools for a fast-but-safe workflow:
+```bash
+source .venv/bin/activate
+export PREFECT_API_URL=http://127.0.0.1:4200/api
+```
 
-1.  **Rapid Development (`dev-process`)**
-    - Sync code into the dev worker pod (for example with `kubectl cp`, DevSpace, or Mutagen).
-    - Trigger runs from deployments targeting the `dev-process` pool.
-    - Runs execute immediately in the worker pod without rebuilding images.
-2.  **Validation / Production-like (`kubernetes-worker`)**
-    - Build and push a tagged image.
-    - Trigger runs from deployments targeting the `kubernetes-worker` pool.
-    - Worker creates isolated Kubernetes Jobs from the image.
+3. Commit and push code changes to `add-prefect` (the branch used in `prefect.yaml` pull step).
 
-## Troubleshooting
+4. Register/update deployment:
 
--   **Worker Logs**: Check both workers to ensure they are connected:
-    ```bash
-    kubectl logs -l component=prefect-worker
-    kubectl logs -l component=prefect-dev-worker
-    ```
--   **Permissions**: If the created Jobs fail to start, check RBAC errors in events:
-    ```bash
-    kubectl get events --sort-by=.metadata.creationTimestamp
-    ```
+```bash
+prefect deploy --all
+```
+
+5. Run connectivity checks:
+
+```bash
+# TEST
+prefect deployment run "Oracle Connectivity Check/oracle-connectivity-dev" --param target=TEST
+
+# PROD
+prefect deployment run "Oracle Connectivity Check/oracle-connectivity-dev" --param target=PROD
+```
+
+6. Inspect results:
+
+```bash
+prefect flow-run ls
+prefect flow-run logs <FLOW_RUN_ID>
+kubectl logs -f -l component=prefect-dev-worker
+```
+
+## Known Oracle Failure Patterns
+
+- `DPY-6005 ... [Errno 111] Connection refused`  
+  Network path/listener not reachable from cluster.
+
+- `DPY-6001 ... service is not registered (ORA-12514-like)`  
+  Host/port reachable, but `ORACLE_*_SERVICE` is wrong for that listener.
+
+- `DPY-3001 ... only supported in thick mode`  
+  Server requires native network encryption/integrity; thick mode is required.
+
+- `DPI-1047 ... cannot locate libclntsh.so`  
+  Oracle Instant Client library is missing/invisible in image or stale image tag is still running.
+
+## Practical Tips
+
+- Use explicit image tags (not only `latest`) for reproducibility.
+- Keep `prefect.yaml` pull branch aligned with your active branch.
+- If runs are stuck in `Scheduled`, verify worker health and in-namespace connectivity to `prefect-server:4200`.
