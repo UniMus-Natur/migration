@@ -29,21 +29,27 @@ def test_oracle_connection(host: str, port: str, service_name: str, user: str, p
         logger.error(f"Failed to connect to Oracle: {str(e)}")
         return False
 
-@flow(name="Test Oracle Connectivity", description="Verifies connection to the Oracle Test database using environment credentials")
-def test_oracle_connectivity_flow():
+def run_oracle_connectivity_check(env_prefix: str) -> None:
     logger = get_run_logger()
-    
-    # Retrieve configuration from environment variables (as available in the pod)
-    user = os.getenv("ORACLE_TEST_USER")
-    password = os.getenv("ORACLE_TEST_PASSWORD")
-    host = os.getenv("ORACLE_TEST_HOST")
-    port = os.getenv("ORACLE_TEST_PORT", "1553")
-    service = os.getenv("ORACLE_TEST_SERVICE")
-    
+
+    user_key = f"ORACLE_{env_prefix}_USER"
+    password_key = f"ORACLE_{env_prefix}_PASSWORD"
+    host_key = f"ORACLE_{env_prefix}_HOST"
+    port_key = f"ORACLE_{env_prefix}_PORT"
+    service_key = f"ORACLE_{env_prefix}_SERVICE"
+
+    user = os.getenv(user_key)
+    password = os.getenv(password_key)
+    host = os.getenv(host_key)
+    port = os.getenv(port_key, "1553")
+    service = os.getenv(service_key)
+
     if not all([user, password, host, service]):
-        logger.error("Missing required Oracle credentials in the environment variables.")
-        raise ValueError("Missing Oracle credentials (ORACLE_TEST_USER, ORACLE_TEST_PASSWORD, ORACLE_TEST_HOST, ORACLE_TEST_SERVICE)")
-        
+        raise ValueError(
+            "Missing Oracle credentials "
+            f"({user_key}, {password_key}, {host_key}, {service_key})"
+        )
+
     success = test_oracle_connection(
         host=host,
         port=port,
@@ -51,9 +57,17 @@ def test_oracle_connectivity_flow():
         user=user,
         password=password
     )
-    
+
     if not success:
+        logger.error(f"Oracle {env_prefix} connectivity check failed.")
         raise Exception("Failed to verify Oracle connection")
-        
+
+@flow(name="Oracle Connectivity Check", description="Verifies Oracle connectivity using ORACLE_<TARGET>_* environment credentials")
+def oracle_connectivity_flow(target: str = "TEST"):
+    env_prefix = target.strip().upper()
+    if env_prefix not in {"TEST", "PROD"}:
+        raise ValueError("target must be either 'TEST' or 'PROD'")
+    run_oracle_connectivity_check(env_prefix)
+
 if __name__ == "__main__":
-    test_oracle_connectivity_flow()
+    oracle_connectivity_flow()
