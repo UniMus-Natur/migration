@@ -2,6 +2,31 @@ import os
 import oracledb
 from prefect import flow, task, get_run_logger
 
+_ORACLE_CLIENT_INITIALIZED = False
+
+def initialize_oracle_client() -> None:
+    global _ORACLE_CLIENT_INITIALIZED
+    if _ORACLE_CLIENT_INITIALIZED:
+        return
+
+    logger = get_run_logger()
+    use_thick = os.getenv("ORACLE_USE_THICK_MODE", "true").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+    if not use_thick:
+        logger.info("Using python-oracledb thin mode.")
+        _ORACLE_CLIENT_INITIALIZED = True
+        return
+
+    lib_dir = os.getenv("ORACLE_CLIENT_LIB_DIR")
+    if lib_dir:
+        oracledb.init_oracle_client(lib_dir=lib_dir)
+        logger.info(f"Initialized python-oracledb thick mode with lib_dir={lib_dir}")
+    else:
+        oracledb.init_oracle_client()
+        logger.info("Initialized python-oracledb thick mode.")
+    _ORACLE_CLIENT_INITIALIZED = True
+
 @task(retries=2, retry_delay_seconds=5)
 def test_oracle_connection(host: str, port: str, service_name: str, user: str, password: str) -> bool:
     logger = get_run_logger()
@@ -10,6 +35,7 @@ def test_oracle_connection(host: str, port: str, service_name: str, user: str, p
     dsn = f"{host}:{port}/{service_name}"
     
     try:
+        initialize_oracle_client()
         connection = oracledb.connect(user=user, password=password, dsn=dsn)
         logger.info("Successfully established connection to Oracle.")
         
