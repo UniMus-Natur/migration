@@ -19,11 +19,15 @@ spec:
         component: prefect-worker
     spec:
       serviceAccountName: {{ include "specify7.fullname" . }}-prefect-worker
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: worker
-          image: "{{ .Values.prefect.image.repository }}:{{ .Values.prefect.image.tag }}"
-          imagePullPolicy: {{ .Values.prefect.image.pullPolicy }}
-          command: ["prefect", "worker", "start"]
+          image: "{{ .Values.prefect.worker.image.repository }}:{{ .Values.prefect.worker.image.tag }}"
+          imagePullPolicy: {{ .Values.prefect.worker.image.pullPolicy }}
+          command: ["python", "-m", "prefect", "worker", "start"]
           args:
             - --pool
             - {{ .Values.prefect.worker.workPool }}

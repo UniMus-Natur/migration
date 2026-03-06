@@ -165,6 +165,10 @@ prefect:
     enabled: true
     # Name of the Work Pool to poll
     workPool: "kubernetes-worker"
+    image:
+      repository: ghcr.io/unimus-natur/migration
+      tag: "latest"
+      pullPolicy: IfNotPresent
     resources:
       requests:
         cpu: 150m
