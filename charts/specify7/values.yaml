@@ -161,22 +161,6 @@ prefect:
         cpu: 1000m
         memory: 1Gi
 
-  worker:
-    enabled: true
-    # Name of the Work Pool to poll
-    workPool: "kubernetes-worker"
-    image:
-      repository: ghcr.io/unimus-natur/migration
-      tag: "latest"
-      pullPolicy: IfNotPresent
-    resources:
-      requests:
-        cpu: 150m
-        memory: 256Mi
-      limits:
-        cpu: 500m
-        memory: 512Mi
-
   # Optional in-cluster worker for rapid development.
   # This worker runs flows as "process" jobs in a long-lived pod,
   # so you can sync code into the pod and test without rebuilding images.

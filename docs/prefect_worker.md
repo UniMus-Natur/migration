@@ -17,7 +17,6 @@ This means you do **not** need to rebuild the image for normal code changes. You
 3. Valid Oracle credentials in `secrets.existingSecret` (e.g. `specify-secret`).
 4. Migration image containing runtime dependencies:
    - `prefect`
-   - `prefect-kubernetes` (if kubernetes worker is enabled)
    - `python-oracledb` with Oracle Instant Client for thick mode
 
 ## Helm Configuration Notes
@@ -29,8 +28,6 @@ In `charts/specify7/staging.values.yaml`:
 - `prefect.devWorker.workPool: "dev-process"`
 - `prefect.devWorker.image.*` points to your migration image tag
 - `secrets.existingSecret` points to the env secret with Oracle and Prefect vars
-
-If you are only doing dev-process runs, `prefect.worker.enabled` can be `false`.
 
 ## Daily Dev Loop
 

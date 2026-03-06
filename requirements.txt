@@ -1,7 +1,6 @@
 # Add your local requirements below
 # Dependencies for cluster orchestration
 prefect
-prefect-kubernetes
 # Prefect 3.x expects newer jsonschema than Specify pin
 jsonschema>=4.24,<5
 
