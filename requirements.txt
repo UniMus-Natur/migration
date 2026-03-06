@@ -1,7 +1,8 @@
--r specify7/requirements.txt
 # Add your local requirements below
 # Dependencies for cluster orchestration
 prefect
+# Prefect 3.x expects newer jsonschema than Specify pin
+jsonschema>=4.24,<5
 
 # Database Drivers
 oracledb

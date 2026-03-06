@@ -1,4 +1,4 @@
-FROM python:3.11-bookworm
+FROM python:3.12-bookworm
 
 # Install system dependencies
 # Full image includes git, curl, build-essential, pkg-config
@@ -27,8 +27,11 @@ WORKDIR /app
 COPY requirements.txt /app/
 COPY specify7/requirements.txt /app/specify7/
 
-# Install dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install dependencies:
+# 1) Install Specify 7 pins from submodule
+# 2) Install migration-layer deps and controlled overrides (e.g. jsonschema)
+RUN pip install --no-cache-dir -r /app/specify7/requirements.txt && \
+    pip install --no-cache-dir -r /app/requirements.txt
 
 # Copy the rest of the application code
 COPY . /app/
