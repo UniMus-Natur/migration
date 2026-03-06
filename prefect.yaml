@@ -11,11 +11,12 @@ push: null
 # pull section allows you to provide instructions for cloning this project in remote locations
 pull:
   - prefect.deployments.steps.git_clone:
+      id: clone-step
       repository: https://github.com/UniMus-Natur/migration.git
       branch: add-prefect
       include_submodules: true
   - prefect.deployments.steps.set_working_directory:
-      directory: "{{ prefect.deployments.steps.git_clone.directory }}"
+      directory: "{{ clone-step.directory }}"
 
 # the deployments section allows you to provide configuration for deploying flows
 deployments:
