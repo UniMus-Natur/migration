@@ -56,8 +56,8 @@ prefect:
     enabled: true
     workPool: "dev-process"
     image:
-      repository: ""  # Defaults to migration.image.repository
-      tag: ""         # Defaults to migration.image.tag
+      repository: ghcr.io/unimus-natur/migration
+      tag: "latest"
 ```
 
 If `server.enabled` is true, both workers will automatically connect to the internal Prefect server. If you are using a self-hosted external server or Prefect Cloud, set `server.enabled: false` and provide `PREFECT_API_KEY` and `PREFECT_API_URL` via the `secrets.existingSecret` property, referencing a Kubernetes Secret created from your `.env` file.

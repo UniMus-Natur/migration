@@ -143,17 +143,6 @@ mariadb:
       existingClaim: ""
       subPath: ""
 
-# Migration Runner / Dev Container Configuration
-migration:
-  enabled: true
-  image:
-    repository: ghcr.io/unimus-natur/migration
-    pullPolicy: IfNotPresent
-    tag: "latest"
-  resources: {}
-  # Command to keep the container running indefinitely
-  command: ["/bin/bash", "-c", "sleep infinity"]
-
 # Prefect Configuration
 prefect:
   enabled: true
@@ -191,10 +180,8 @@ prefect:
     enabled: true
     workPool: "dev-process"
     image:
-      # Defaults to migration.image.repository when empty
-      repository: ""
-      # Defaults to migration.image.tag when empty
-      tag: ""
+      repository: ghcr.io/unimus-natur/migration
+      tag: "latest"
       pullPolicy: IfNotPresent
     resources:
       requests:

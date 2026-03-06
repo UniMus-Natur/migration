@@ -32,7 +32,8 @@ podman push ghcr.io/unimus-natur/migration:latest
 
 ## 2. Deploy to Cluster
 
-The container is deployed as part of the `specify7` Helm chart.
+The migration toolbox container is no longer deployed by the `specify7` Helm chart by default.
+For a fast in-cluster loop, use the Prefect `devWorker` (process type), which runs from the migration image.
 
 1.  **Load Image (Local Dev)**:
     If using `kind` or `minikube` and not pushing to a registry, load the image:
@@ -44,8 +45,8 @@ The container is deployed as part of the `specify7` Helm chart.
     kind load image-archive migration.tar
     ```
 
-2.  **Enable in Helm**:
-    Ensure `migration.enabled: true` is set in `values.yaml` (default).
+2.  **Configure Prefect dev worker image**:
+    Ensure `prefect.devWorker.image.repository` and `prefect.devWorker.image.tag` point to your migration image.
 
 3.  **Upgrade/Install**:
     ```bash

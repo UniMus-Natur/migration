@@ -24,7 +24,7 @@ spec:
       {{- end }}
       containers:
         - name: dev-worker
-          image: "{{ default .Values.migration.image.repository .Values.prefect.devWorker.image.repository }}:{{ default .Values.migration.image.tag .Values.prefect.devWorker.image.tag }}"
+          image: "{{ .Values.prefect.devWorker.image.repository }}:{{ .Values.prefect.devWorker.image.tag }}"
           imagePullPolicy: {{ .Values.prefect.devWorker.image.pullPolicy }}
           workingDir: /app
           command: ["python", "-m", "prefect", "worker", "start"]
