@@ -6,14 +6,14 @@ nav_order: 6
 
 # Dev / Migration Container
 
-This guide details how to build and use the "Migration Runner" container. This container runs inside the Kubernetes cluster and provides a persistent environment with access to:
-1.  **Specify 7 Source Code** (with ORM).
-2.  **Internal Cluster Network** (MariaDB, Redis).
-3.  **External Oracle Database** (via VPN/Firewall whitelisting).
+This guide explains how to build and use the migration runtime image for in-cluster development. The runtime provides access to:
+1. **Specify 7 source code** (with ORM support).
+2. **Internal cluster services** (MariaDB, Redis).
+3. **External Oracle databases** (subject to firewall and whitelist rules).
 
 ## 1. Build the Image (Podman)
 
-Since the cluster may be running on a different architecture or we want to ensure compatibility, we build for `linux/amd64`.
+Build for `linux/amd64` to match cluster compatibility requirements.
 
 **Prerequisites**:
 - `podman` installed.
@@ -32,7 +32,8 @@ podman push ghcr.io/unimus-natur/migration:latest
 
 ## 2. Deploy to Cluster
 
-The container is deployed as part of the `specify7` Helm chart.
+The migration toolbox container is no longer deployed by the `specify7` Helm chart by default.
+For a fast in-cluster loop, use the Prefect `devWorker` (process type), which runs from the migration image.
 
 1.  **Load Image (Local Dev)**:
     If using `kind` or `minikube` and not pushing to a registry, load the image:
@@ -44,31 +45,29 @@ The container is deployed as part of the `specify7` Helm chart.
     kind load image-archive migration.tar
     ```
 
-2.  **Enable in Helm**:
-    Ensure `migration.enabled: true` is set in `values.yaml` (default).
+2.  **Configure Prefect dev worker image**:
+    Ensure `prefect.devWorker.image.repository` and `prefect.devWorker.image.tag` point to your migration image.
 
 3.  **Upgrade/Install**:
     ```bash
     helm upgrade --install staging ./charts/specify7 --values ./charts/specify7/values.yaml
     ```
 
-## 3. Accessing the Container
+## 3. Accessing the Runtime
 
-Find the pod name and execute a shell:
+The old long-lived `migration` toolbox pod is no longer part of the default chart.
+Use the Prefect `devWorker` pod as the runtime:
 
 ```bash
-# Get Pod Name
-export POD_NAME=$(kubectl get pods -l component=migration -o jsonpath="{.items[0].metadata.name}")
-
-# Enter Container
-kubectl exec -it $POD_NAME -- bash
+export POD_NAME=$(kubectl get pods -l component=prefect-dev-worker -o jsonpath="{.items[0].metadata.name}")
+kubectl exec -it "$POD_NAME" -- bash
 ```
 
 ## 4. Database Proxies (Port Forwarding)
 
-To access databases (Oracle or Cluster MariaDB) from your **local machine** using tools like DBeaver or DbGate, use the included helper script.
+To access Oracle or cluster MariaDB from your local machine (for tools like DBeaver/DbGate), use the included helper script.
 
-### Inside the Container:
+### Inside the Runtime Pod:
 Start the proxies. This binds `socat` to the pod's ports.
 
 ```bash
@@ -92,7 +91,8 @@ kubectl port-forward $POD_NAME 1553:1553 3306:3306
 
 ## 5. Running Migration Scripts
 
-The container has the full repo at `/app` and the `specify7` submodule at `/app/specify7`.
+When using Prefect with `git_clone`, flow runs execute from a temporary cloned directory, not `/app`.
+For ad-hoc shell work, the image still includes the required repository tooling and dependencies.
 
 To run scripts using the Specify ORM:
 

@@ -1,0 +1,32 @@
+# prefect.yaml
+name: migration
+prefect-version: 3.0.0
+
+# build section allows you to manage and build docker images
+build: null
+
+# push section allows you to manage if and how this project is uploaded to remote locations
+push: null
+
+# pull section allows you to provide instructions for cloning this project in remote locations
+pull:
+  - prefect.deployments.steps.git_clone:
+      id: clone-step
+      repository: https://github.com/UniMus-Natur/migration.git
+      branch: add-prefect
+      include_submodules: true
+  - prefect.deployments.steps.set_working_directory:
+      directory: "{{ clone-step.directory }}"
+
+# the deployments section allows you to provide configuration for deploying flows
+deployments:
+  - name: oracle-connectivity-dev
+    version: 1.0.0
+    tags: ["oracle", "dev"]
+    description: "Fast in-cluster Oracle connectivity check (set parameter target=TEST or PROD)"
+    entrypoint: flows/test_oracle.py:oracle_connectivity_flow
+    parameters:
+      target: "TEST"
+    work_pool:
+      name: dev-process
+      work_queue_name: default

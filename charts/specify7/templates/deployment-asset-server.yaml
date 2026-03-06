@@ -49,6 +49,11 @@ spec:
               value: {{ .Values.specify.assetServerKey | quote }}
             - name: DEBUG_MODE
               value: "false"
+          {{- if .Values.secrets.existingSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secrets.existingSecret }}
+          {{- end }}
           volumeMounts:
             - name: attachments
               mountPath: /home/specify/attachments

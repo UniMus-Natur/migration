@@ -1,0 +1,21 @@
+---
+description: Keep documentation strictly aligned with current codebase behavior
+globs: **/*.md
+alwaysApply: false
+---
+
+# Documentation Status Quo Rule
+
+When writing or editing documentation:
+
+- Describe only what is currently implemented and in use.
+- Do not reference removed, deprecated, or inactive parts of the stack.
+- Verify claims against the current code/templates/config before documenting.
+- If behavior changed, update docs to the current state instead of preserving old paths.
+- Prefer concrete current commands, component names, and file paths over historical context.
+
+Before finalizing docs updates, quickly check:
+
+1. The documented workflow matches current `prefect.yaml` and Helm values/templates.
+2. Referenced services/components actually exist in chart templates and deployment config.
+3. No guidance depends on deleted scripts, removed pods, or disabled workers.

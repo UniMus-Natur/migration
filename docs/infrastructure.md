@@ -17,21 +17,25 @@ This document details the source, staging, and production environments involved 
 *   **Hostname:** `dbora-musit-prod03.uio.no`
 *   **IP Address:** `129.240.118.168`
 *   **Port:** `1553` (Custom Oracle port)
-*   **Service Name:** *(Standard Production SID usually follows `MUSIT` or similar naming)*
+*   **Service Name:** Environment-driven (`ORACLE_PROD_SERVICE`) and must match the listener registration.
 
 #### Test / Development
 *   **Hostname:** `dbora-musit-utv03.uio.no`
 *   **IP Address:** `129.240.118.167`
 *   **Service Name (SID):** `MUSTST`
-*   **Port:** `1553` *(Likely shares configuration with production)* or `1521`
+*   **Port:** `1553`
 
-### Connection Strings
-Based on the identified infrastructure, the standard Oracle JDBC connection string formats are:
+### Connection Pattern
+Runtime connectivity checks in this repository use:
 
-**Test Environment:**
 ```text
-jdbc:oracle:thin:@//dbora-musit-utv03.uio.no:1553/MUSTST
+<host>:<port>/<service_name>
 ```
+
+where values are read from:
+
+- `ORACLE_TEST_HOST`, `ORACLE_TEST_PORT`, `ORACLE_TEST_SERVICE`
+- `ORACLE_PROD_HOST`, `ORACLE_PROD_PORT`, `ORACLE_PROD_SERVICE`
 
 ### Network & Access
 *   **Subnet:** The MUSIT database cluster resides on the **129.240.118.x** subnet.
@@ -40,17 +44,14 @@ jdbc:oracle:thin:@//dbora-musit-utv03.uio.no:1553/MUSTST
     *   Machine-specific firewall whitelisting or a privileged admin VPN profile is required for connectivity.
     *   DNS Resolution is available internally on the UiO network.
 
-#### Connectivity Verification (Firewall Status)
-**Confirmed: Blocked**
+#### Connectivity Verification (Current Runbook Signals)
+Recent in-cluster Prefect connectivity checks show:
 
-Both Test and Production environments are unreachable on their designated ports from the current location (VPN).
+- **TEST:** connection attempts can fail with `Connection refused` (`DPY-6005`), indicating network path/listener availability issues.
+- **PROD:** host/port are reachable, but connection behavior depends on Oracle listener service configuration and server-side policies.
+- **Encryption Policy:** production-side native network encryption/integrity requirements require `python-oracledb` thick mode in the runtime image.
 
-| Environment | Host | Port | Result | Implication |
-| :--- | :--- | :--- | :--- | :--- |
-| **Test** | `dbora-musit-utv03.uio.no` | 1553, 1521 | **Timeout** | Firewall blocked. |
-| **Prod** | `dbora-musit-prod03.uio.no` | 1553 | **Timeout** | Firewall blocked. |
-
-*Note: Ping (ICMP) works for both hosts, proving the servers are online, but TCP ports are filtered.*
+These checks are runtime-dependent and should be revalidated through the current Prefect flow logs.
 
 ## Sigma2 Resources (Staging)
 
