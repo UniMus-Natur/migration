@@ -20,20 +20,11 @@ pull:
 
 # the deployments section allows you to provide configuration for deploying flows
 deployments:
-  - name: oracle-connectivity-test-dev
+  - name: oracle-connectivity-smoke-dev
     version: 1.0.0
-    tags: ["oracle", "test", "dev"]
-    description: "Fast in-cluster Oracle TEST connectivity check"
-    entrypoint: flows/test_oracle.py:oracle_connectivity_test_flow
-    work_pool:
-      name: dev-process
-      work_queue_name: default
-
-  - name: oracle-connectivity-prod-dev
-    version: 1.0.0
-    tags: ["oracle", "prod", "dev"]
-    description: "Fast in-cluster Oracle PROD connectivity check"
-    entrypoint: flows/test_oracle.py:oracle_connectivity_prod_flow
+    tags: ["oracle", "smoke", "dev"]
+    description: "Fast in-cluster smoke check for Oracle TEST and PROD connectivity"
+    entrypoint: flows/test_oracle.py:oracle_connectivity_smoke_flow
     work_pool:
       name: dev-process
       work_queue_name: default

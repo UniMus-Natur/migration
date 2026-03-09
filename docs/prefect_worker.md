@@ -52,14 +52,10 @@ export PREFECT_API_URL=http://127.0.0.1:4200/api
 prefect deploy --all
 ```
 
-5. Run connectivity checks:
+5. Run connectivity smoke check:
 
 ```bash
-# TEST
-prefect deployment run "Oracle Connectivity Check/oracle-connectivity-dev" --param target=TEST
-
-# PROD
-prefect deployment run "Oracle Connectivity Check/oracle-connectivity-dev" --param target=PROD
+prefect deployment run "Oracle Connectivity Smoke Check/oracle-connectivity-smoke-dev"
 ```
 
 6. Inspect results:
