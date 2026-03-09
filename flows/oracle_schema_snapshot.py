@@ -10,7 +10,7 @@ from prefect import flow, get_run_logger
 from prefect.runtime import flow_run
 
 from flows.lib.oracle_connectivity import create_oracle_connection, get_oracle_config_from_env
-from flows.lib.s3_connectivity import build_s3_client_from_env
+from flows.lib.s3_connectivity import upload_file_with_compat_retry
 
 
 def _parse_owners(owners_csv: str | None) -> list[str]:
@@ -338,7 +338,6 @@ def oracle_schema_snapshot_flow(owners_csv: str | None = None):
         run_id = flow_run.id or snapshot_time
         base_key = f"{prefix}/{run_id}"
 
-        s3 = build_s3_client_from_env()
         upload_targets = {
             "schema_catalog.json": json_path,
             "tables.csv": tables_csv,
@@ -351,7 +350,7 @@ def oracle_schema_snapshot_flow(owners_csv: str | None = None):
         uploaded = []
         for filename, local_path in upload_targets.items():
             object_key = f"{base_key}/{filename}"
-            s3.upload_file(str(local_path), bucket, object_key)
+            upload_file_with_compat_retry(str(local_path), bucket, object_key)
             uploaded.append(f"s3://{bucket}/{object_key}")
 
         logger.info("Uploaded schema snapshot artifacts:")
