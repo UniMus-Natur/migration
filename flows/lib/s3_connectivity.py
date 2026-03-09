@@ -16,12 +16,24 @@ def build_s3_client_from_env():
         "yes",
         "on",
     }
+    payload_signing_enabled = os.getenv("S3_PAYLOAD_SIGNING_ENABLED", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
     kwargs = {
         "service_name": "s3",
         "region_name": region,
         "endpoint_url": endpoint_url,
-        "config": Config(s3={"addressing_style": "path" if force_path else "auto"}),
+        "config": Config(
+            signature_version="s3v4",
+            s3={
+                "addressing_style": "path" if force_path else "auto",
+                "payload_signing_enabled": payload_signing_enabled,
+            },
+        ),
     }
     if access_key and secret_key:
         kwargs["aws_access_key_id"] = access_key

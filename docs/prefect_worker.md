@@ -90,6 +90,7 @@ kubectl logs -f -l component=prefect-dev-worker
 
 - `S3 upload errors`  
   Verify `S3_BUCKET`, credentials, endpoint/region, and path-style settings in your secret.
+  For MinIO/proxy setups with `XAmzContentSHA256Mismatch`, set `S3_PAYLOAD_SIGNING_ENABLED=false`.
 
 ## Practical Tips
 
