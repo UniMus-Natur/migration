@@ -28,3 +28,12 @@ deployments:
     work_pool:
       name: dev-process
       work_queue_name: default
+
+  - name: oracle-schema-snapshot-dev
+    version: 1.0.0
+    tags: ["oracle", "prod", "schema", "dev"]
+    description: "Extract Oracle PROD schema metadata and upload JSON/CSV artifacts to S3"
+    entrypoint: flows/oracle_schema_snapshot.py:oracle_schema_snapshot_flow
+    work_pool:
+      name: dev-process
+      work_queue_name: default

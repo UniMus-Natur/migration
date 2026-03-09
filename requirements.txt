@@ -3,6 +3,7 @@
 prefect
 # Prefect 3.x expects newer jsonschema than Specify pin
 jsonschema>=4.24,<5
+boto3
 
 # Database Drivers
 oracledb

@@ -109,3 +109,10 @@ def connect_and_ping_oracle(
         if log_error:
             log_error(f"Failed to connect to Oracle: {str(exc)}")
         return False
+
+
+def create_oracle_connection(config: OracleConfig):
+    initialize_oracle_client()
+    return oracledb.connect(
+        user=config.user, password=config.password, dsn=f"{config.host}:{config.port}/{config.service_name}"
+    )
