@@ -88,12 +88,19 @@ def run_oracle_connectivity_check(env_prefix: str) -> None:
         logger.error(f"Oracle {env_prefix} connectivity check failed.")
         raise Exception("Failed to verify Oracle connection")
 
-@flow(name="Oracle Connectivity Check", description="Verifies Oracle connectivity using ORACLE_<TARGET>_* environment credentials")
-def oracle_connectivity_flow(target: str = "TEST"):
-    env_prefix = target.strip().upper()
-    if env_prefix not in {"TEST", "PROD"}:
-        raise ValueError("target must be either 'TEST' or 'PROD'")
-    run_oracle_connectivity_check(env_prefix)
+@flow(
+    name="Oracle Connectivity Check Test",
+    description="Verifies Oracle TEST connectivity using ORACLE_TEST_* credentials",
+)
+def oracle_connectivity_test_flow():
+    run_oracle_connectivity_check("TEST")
+
+@flow(
+    name="Oracle Connectivity Check Prod",
+    description="Verifies Oracle PROD connectivity using ORACLE_PROD_* credentials",
+)
+def oracle_connectivity_prod_flow():
+    run_oracle_connectivity_check("PROD")
 
 if __name__ == "__main__":
-    oracle_connectivity_flow()
+    oracle_connectivity_test_flow()
