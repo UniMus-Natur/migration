@@ -23,12 +23,21 @@ def run_oracle_connectivity_check(env_prefix: str) -> None:
 
 
 @flow(
-    name="Oracle Connectivity Smoke Check",
-    description="Runs Oracle connectivity checks for both TEST and PROD credentials",
+    name="Oracle Connectivity Prod Check",
+    description="Runs Oracle connectivity check for PROD credentials",
 )
-def oracle_connectivity_smoke_flow():
+def oracle_connectivity_prod_flow():
+    # Keep this list-based structure so adding TEST back is a one-line change.
+    for target in ["PROD"]:
+        run_oracle_connectivity_check(target)
+
+
+@flow(
+    name="Oracle Connectivity Test Check",
+    description="Runs Oracle connectivity check for TEST credentials",
+)
+def oracle_connectivity_test_flow():
     run_oracle_connectivity_check("TEST")
-    run_oracle_connectivity_check("PROD")
 
 if __name__ == "__main__":
-    oracle_connectivity_smoke_flow()
+    oracle_connectivity_prod_flow()
