@@ -193,6 +193,7 @@ def oracle_schema_snapshot_flow(owners_csv: str | None = None):
         col_where, col_params = _build_owner_clause("owner", owners)
         cons_where, cons_params = _build_owner_clause("owner", owners)
         idx_where, idx_params = _build_owner_clause("owner", owners)
+        idx_owner_where, idx_owner_params = _build_owner_clause("index_owner", owners)
         view_where, view_params = _build_owner_clause("owner", owners)
 
         tables = _query_rows(
@@ -252,10 +253,10 @@ def oracle_schema_snapshot_flow(owners_csv: str | None = None):
             f"""
             SELECT index_owner AS owner, table_name, index_name, column_name, column_position, descend
             FROM all_ind_columns
-            {idx_where.replace("owner", "index_owner")}
+            {idx_owner_where}
             ORDER BY owner, table_name, index_name, column_position
             """,
-            idx_params,
+            idx_owner_params,
         )
         views = _query_rows(
             connection,
