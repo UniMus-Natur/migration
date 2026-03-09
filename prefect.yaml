@@ -23,7 +23,7 @@ deployments:
   - name: oracle-connectivity-prod-dev
     version: 1.0.0
     tags: ["oracle", "prod", "dev"]
-    description: "Fast in-cluster Oracle PROD connectivity check"
+    description: "Fast in-cluster Oracle PROD connectivity + S3 preflight check"
     entrypoint: flows/test_oracle.py:oracle_connectivity_prod_flow
     work_pool:
       name: dev-process

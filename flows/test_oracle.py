@@ -5,6 +5,7 @@ from flows.lib.oracle_connectivity import (
     get_oracle_config_from_env,
     initialize_oracle_client,
 )
+from flows.lib.s3_connectivity import validate_s3_connectivity
 
 
 @task(retries=2, retry_delay_seconds=5)
@@ -22,14 +23,22 @@ def run_oracle_connectivity_check(env_prefix: str) -> None:
         raise Exception("Failed to verify Oracle connection")
 
 
+@task(retries=1, retry_delay_seconds=3)
+def run_s3_connectivity_check() -> None:
+    logger = get_run_logger()
+    validate_s3_connectivity(write_check=True)
+    logger.info("S3 connectivity check succeeded (head_bucket + write/delete probe).")
+
+
 @flow(
     name="Oracle Connectivity Prod Check",
-    description="Runs Oracle connectivity check for PROD credentials",
+    description="Runs Oracle PROD connectivity check and S3 preflight check",
 )
 def oracle_connectivity_prod_flow():
     # Keep this list-based structure so adding TEST back is a one-line change.
     for target in ["PROD"]:
         run_oracle_connectivity_check(target)
+    run_s3_connectivity_check()
 
 
 @flow(

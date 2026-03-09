@@ -52,7 +52,7 @@ export PREFECT_API_URL=http://127.0.0.1:4200/api
 prefect deploy --all
 ```
 
-5. Run PROD connectivity check:
+5. Run PROD connectivity check (Oracle + S3 preflight):
 
 ```bash
 prefect deployment run "Oracle Connectivity Prod Check/oracle-connectivity-prod-dev"

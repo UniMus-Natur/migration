@@ -6,12 +6,11 @@ from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 
-import boto3
-from botocore.config import Config
 from prefect import flow, get_run_logger
 from prefect.runtime import flow_run
 
 from flows.lib.oracle_connectivity import create_oracle_connection, get_oracle_config_from_env
+from flows.lib.s3_connectivity import build_s3_client_from_env
 
 
 def _parse_owners(owners_csv: str | None) -> list[str]:
@@ -50,30 +49,6 @@ def _write_csv(path: Path, rows: list[dict], headers: Iterable[str]) -> None:
         writer.writeheader()
         for row in rows:
             writer.writerow(row)
-
-
-def _build_s3_client():
-    access_key = os.getenv("AWS_ACCESS_KEY_ID") or os.getenv("S3_ACCESS_KEY_ID")
-    secret_key = os.getenv("AWS_SECRET_ACCESS_KEY") or os.getenv("S3_SECRET_ACCESS_KEY")
-    region = os.getenv("AWS_DEFAULT_REGION") or os.getenv("S3_REGION") or "us-east-1"
-    endpoint_url = os.getenv("S3_ENDPOINT_URL") or None
-    force_path = os.getenv("S3_FORCE_PATH_STYLE", "true").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-
-    kwargs = {
-        "service_name": "s3",
-        "region_name": region,
-        "endpoint_url": endpoint_url,
-        "config": Config(s3={"addressing_style": "path" if force_path else "auto"}),
-    }
-    if access_key and secret_key:
-        kwargs["aws_access_key_id"] = access_key
-        kwargs["aws_secret_access_key"] = secret_key
-    return boto3.client(**kwargs)
 
 
 def _build_dbml(
@@ -363,7 +338,7 @@ def oracle_schema_snapshot_flow(owners_csv: str | None = None):
         run_id = flow_run.id or snapshot_time
         base_key = f"{prefix}/{run_id}"
 
-        s3 = _build_s3_client()
+        s3 = build_s3_client_from_env()
         upload_targets = {
             "schema_catalog.json": json_path,
             "tables.csv": tables_csv,
