@@ -52,15 +52,19 @@ export PREFECT_API_URL=http://127.0.0.1:4200/api
 prefect deploy --all
 ```
 
-5. Run connectivity checks:
+5. Run PROD connectivity check (Oracle + S3 preflight):
 
 ```bash
-# TEST
-prefect deployment run "Oracle Connectivity Check/oracle-connectivity-dev" --param target=TEST
-
-# PROD
-prefect deployment run "Oracle Connectivity Check/oracle-connectivity-dev" --param target=PROD
+prefect deployment run "Oracle Connectivity Prod Check/oracle-connectivity-prod-dev"
 ```
+
+Optional: run Oracle schema snapshot export (uploads JSON/CSV to S3):
+
+```bash
+prefect deployment run "Oracle Schema Snapshot/oracle-schema-snapshot-dev"
+```
+
+Schema snapshot artifacts include `schema_catalog.json`, CSV extracts, and `schema.dbml`.
 
 6. Inspect results:
 
@@ -83,6 +87,10 @@ kubectl logs -f -l component=prefect-dev-worker
 
 - `DPI-1047 ... cannot locate libclntsh.so`  
   Oracle Instant Client library is missing/invisible in image or stale image tag is still running.
+
+- `S3 upload errors`  
+  Verify `S3_BUCKET`, credentials, endpoint/region, and path-style settings in your secret.
+  For MinIO/proxy setups with `XAmzContentSHA256Mismatch`, set `S3_PAYLOAD_SIGNING_ENABLED=false`.
 
 ## Practical Tips
 

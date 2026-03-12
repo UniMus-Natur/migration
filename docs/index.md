@@ -17,7 +17,9 @@ This documentation covers the planning, architecture, and execution of migrating
 - [**Database Strategy**](database_strategy.md): Single-db vs multi-db strategy analysis.
 - [**Risk Assessment**](risk_assessment.md): Risk analysis for the selected database strategy.
 - [**Database Fields**](database_fields.md): Auto-generated schema reference and ERD.
-- [**Migration Strategy**](migration.md): ETL implementation details from Oracle to MariaDB.
+- [**Oracle Schema Overview**](oracle_schema_overview.md): Deep analysis and grouping of the legacy source schemas and tables.
+- [**Migration Strategy (Phased)**](migration_strategy.md): Strategy for merging shared data and iteratively migrating datasets to Specify 7.
+- [**Migration (ETL Technical)**](migration.md): ETL pipeline implementation details from Oracle to MariaDB.
 - [**NIRD Application Text**](nird_application.md): Text used in the Sigma2/NIRD application.
 - [**Submitted Proposal (PDF)**](documents/NIRD-application.pdf): Final submitted NIRD application.
 - [**Data Management Plan (DOCX)**](documents/data-management-plan.docx): Project data management plan.
