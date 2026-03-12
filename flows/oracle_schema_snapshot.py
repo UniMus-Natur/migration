@@ -114,7 +114,12 @@ def _build_dbml(
                 attrs.append("unique")
             attrs_str = f" [{', '.join(attrs)}]" if attrs else ""
             col_name = _q(col["column_name"])
-            lines.append(f"  {col_name} {col['data_type']}{attrs_str}")
+            data_type = col["data_type"]
+            # Multi-word Oracle types (e.g. TIMESTAMP(6) WITH TIME ZONE) must be
+            # quoted so the DBML parser doesn't treat extra words as inline settings.
+            if " " in data_type:
+                data_type = f'"{data_type}"'
+            lines.append(f"  {col_name} {data_type}{attrs_str}")
         lines.append("}")
         lines.append("")
 
