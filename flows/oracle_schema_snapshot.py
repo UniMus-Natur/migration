@@ -104,8 +104,12 @@ def _build_dbml(
         owner = table["owner"]
         table_name = table["table_name"]
         tkey = (owner, table_name)
+        table_cols = cols_by_table.get(tkey, [])
+        if not table_cols:
+            # DBML requires at least one column; skip tables with no accessible column metadata.
+            continue
         lines.append(f"Table {_q(owner)}.{_q(table_name)} {{")
-        for col in cols_by_table.get(tkey, []):
+        for col in table_cols:
             # DBML inline settings only support pk and unique; not null is omitted.
             attrs: list[str] = []
             if col["column_name"] in pk_by_table.get(tkey, set()):
