@@ -1,6 +1,7 @@
 import csv
 import json
 import os
+import re
 import tempfile
 from collections.abc import Iterable
 from datetime import datetime, timezone
@@ -87,6 +88,14 @@ def _build_dbml(
     for tkey in cols_by_table:
         cols_by_table[tkey] = sorted(cols_by_table[tkey], key=lambda r: r["column_id"])
 
+    _SAFE_ID = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+
+    def _q(name: str) -> str:
+        """Quote a DBML identifier only when it contains characters that need it."""
+        if _SAFE_ID.match(name):
+            return name
+        return '"' + name.replace('"', '""') + '"'
+
     lines: list[str] = []
     lines.append("// Generated from Oracle ALL_* metadata")
     lines.append("")
@@ -95,17 +104,17 @@ def _build_dbml(
         owner = table["owner"]
         table_name = table["table_name"]
         tkey = (owner, table_name)
-        lines.append(f"Table {owner}.{table_name} {{")
+        lines.append(f"Table {_q(owner)}.{_q(table_name)} {{")
         for col in cols_by_table.get(tkey, []):
+            # DBML inline settings only support pk and unique; not null is omitted.
             attrs: list[str] = []
             if col["column_name"] in pk_by_table.get(tkey, set()):
                 attrs.append("pk")
-            if col.get("nullable") == "N":
-                attrs.append("not null")
             if col["column_name"] in unique_by_table.get(tkey, set()):
                 attrs.append("unique")
             attrs_str = f" [{', '.join(attrs)}]" if attrs else ""
-            lines.append(f"  {col['column_name']} {col['data_type']}{attrs_str}")
+            col_name = _q(col["column_name"])
+            lines.append(f"  {col_name} {col['data_type']}{attrs_str}")
         lines.append("}")
         lines.append("")
 
@@ -122,8 +131,8 @@ def _build_dbml(
         # Keep a one-column reference per line for broad DBML tooling compatibility.
         for src, dst in zip(ccols, ref_cols):
             lines.append(
-                f"Ref: {owner}.{table}.{src['column_name']} > "
-                f"{ref_owner}.{dst['table_name']}.{dst['column_name']}"
+                f"Ref: {_q(owner)}.{_q(table)}.{_q(src['column_name'])} > "
+                f"{_q(ref_owner)}.{_q(dst['table_name'])}.{_q(dst['column_name'])}"
             )
 
     lines.append("")
