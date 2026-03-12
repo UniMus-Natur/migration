@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from prefect import flow, get_run_logger
-from prefect.runtime import flow_run
 
 from flows.lib.oracle_connectivity import create_oracle_connection, get_oracle_config_from_env
 from flows.lib.s3_connectivity import upload_file_with_compat_retry
@@ -292,8 +291,6 @@ def oracle_schema_snapshot_flow():
         if not bucket:
             raise ValueError("Missing required S3_BUCKET environment variable")
         prefix = os.getenv("S3_PREFIX", "oracle-schema").strip("/")
-        run_id = flow_run.id or snapshot_time
-        base_key = f"{prefix}/{run_id}"
 
         upload_targets = {
             "schema_catalog.json": json_path,
@@ -306,7 +303,7 @@ def oracle_schema_snapshot_flow():
         }
         uploaded = []
         for filename, local_path in upload_targets.items():
-            object_key = f"{base_key}/{filename}"
+            object_key = f"{prefix}/{filename}"
             upload_file_with_compat_retry(str(local_path), bucket, object_key)
             uploaded.append(f"s3://{bucket}/{object_key}")
 
