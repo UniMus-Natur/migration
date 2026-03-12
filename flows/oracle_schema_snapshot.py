@@ -13,27 +13,6 @@ from flows.lib.oracle_connectivity import create_oracle_connection, get_oracle_c
 from flows.lib.s3_connectivity import upload_file_with_compat_retry
 
 
-def _parse_owners(owners_csv: str | None) -> list[str]:
-    if owners_csv:
-        owners = [owner.strip().upper() for owner in owners_csv.split(",") if owner.strip()]
-        if owners:
-            return owners
-
-    env_owners = os.getenv("ORACLE_SCHEMA_OWNERS", "")
-    owners = [owner.strip().upper() for owner in env_owners.split(",") if owner.strip()]
-    if owners:
-        return owners
-
-    default_owner = os.getenv("ORACLE_PROD_USER", "").strip().upper()
-    return [default_owner] if default_owner else []
-
-
-def _build_owner_clause(column: str, owners: list[str]) -> tuple[str, dict[str, str]]:
-    if not owners:
-        return "", {}
-    bind_map = {f"owner_{idx}": owner for idx, owner in enumerate(owners)}
-    bind_keys = ", ".join(f":{key}" for key in bind_map)
-    return f" WHERE {column} IN ({bind_keys})", bind_map
 
 
 def _query_rows(connection, sql: str, params: dict | None = None) -> list[dict]:
@@ -156,92 +135,71 @@ def _build_dbml(
     name="Oracle Schema Snapshot",
     description="Extracts Oracle PROD schema metadata and uploads machine-readable outputs to S3",
 )
-def oracle_schema_snapshot_flow(owners_csv: str | None = None):
+def oracle_schema_snapshot_flow():
     logger = get_run_logger()
-    owners = _parse_owners(owners_csv)
-    logger.info(f"Schema owners filter: {owners if owners else 'ALL accessible owners'}")
+    logger.info("Fetching all accessible schemas (no owner filter)")
 
     config = get_oracle_config_from_env("PROD")
     connection = create_oracle_connection(config)
     try:
-        table_where, table_params = _build_owner_clause("owner", owners)
-        col_where, col_params = _build_owner_clause("owner", owners)
-        cons_where, cons_params = _build_owner_clause("owner", owners)
-        idx_where, idx_params = _build_owner_clause("owner", owners)
-        idx_owner_where, idx_owner_params = _build_owner_clause("index_owner", owners)
-        view_where, view_params = _build_owner_clause("owner", owners)
 
         tables = _query_rows(
             connection,
-            f"""
+            """
             SELECT owner, table_name, tablespace_name, num_rows, last_analyzed
             FROM all_tables
-            {table_where}
             ORDER BY owner, table_name
             """,
-            table_params,
         )
         columns = _query_rows(
             connection,
-            f"""
+            """
             SELECT owner, table_name, column_name, data_type, data_length, data_precision,
                    data_scale, nullable, column_id, char_used, char_length
             FROM all_tab_columns
-            {col_where}
             ORDER BY owner, table_name, column_id
             """,
-            col_params,
         )
         constraints = _query_rows(
             connection,
-            f"""
+            """
             SELECT owner, table_name, constraint_name, constraint_type, r_owner,
                    r_constraint_name, status, validated
             FROM all_constraints
-            {cons_where}
             ORDER BY owner, table_name, constraint_name
             """,
-            cons_params,
         )
         constraint_columns = _query_rows(
             connection,
-            f"""
+            """
             SELECT owner, table_name, constraint_name, column_name, position
             FROM all_cons_columns
-            {cons_where}
             ORDER BY owner, table_name, constraint_name, position
             """,
-            cons_params,
         )
         indexes = _query_rows(
             connection,
-            f"""
+            """
             SELECT owner, table_name, index_name, uniqueness, index_type, status
             FROM all_indexes
-            {idx_where}
             ORDER BY owner, table_name, index_name
             """,
-            idx_params,
         )
         index_columns = _query_rows(
             connection,
-            f"""
+            """
             SELECT index_owner AS owner, table_name, index_name, column_name, column_position, descend
             FROM all_ind_columns
-            {idx_owner_where}
             ORDER BY owner, table_name, index_name, column_position
             """,
-            idx_owner_params,
         )
         views = _query_rows(
             connection,
-            f"""
+            """
             SELECT owner, view_name, text_length
             FROM all_views
-            {view_where}
             ORDER BY owner, view_name
             """,
-            view_params,
         )
     finally:
         connection.close()
@@ -253,7 +211,6 @@ def oracle_schema_snapshot_flow(owners_csv: str | None = None):
             "host": config.host,
             "port": config.port,
             "service_name": config.service_name,
-            "owners_filter": owners,
         },
         "counts": {
             "tables": len(tables),
