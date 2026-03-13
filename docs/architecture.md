@@ -15,7 +15,7 @@ The migration follows a pipeline approach moving data from the legacy oracle sys
 
 ```mermaid
 graph LR
-    A["MUSIT (Oracle DB)"] -->|Pull & Transform| B("Python Migration Scripts (Sigma2)")
+    A["MUSIT (Oracle DB)"] -->|Pull & Transform| B("Prefect Migration Flows (Sigma2)")
     B -->|Load| C["Specify Staging (MariaDB @ Sigma2)"]
     C -->|Sync| D["Specify Production (AWS France)"]
 ```
@@ -23,7 +23,7 @@ graph LR
 ### Components
 
 1.  **Source System**: MUSIT (Oracle Database).
-2.  **Migration Logic**: Custom Python scripts executed on **Sigma2**. They pull data from Oracle and use the **Specify 7 Django ORM** to load it into the staging database, keeping the migration code clean and readable.
+2.  **Migration Logic**: Prefect flows executed on **Sigma2**. They pull data from Oracle and use the **Specify 7 Django ORM** to load it into the staging database, keeping the migration code clean and readable.
 3.  **Staging Environment**: 
     *   **Location**: Sigma2 (NIRD/NIRD Service Platform).
     *   **Database**: MariaDB.

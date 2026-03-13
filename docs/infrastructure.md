@@ -68,7 +68,7 @@ We plan to use Sigma2 for the staging environment and computation.
 
 ### Network Configuration (Firewall Whitelisting)
 
-To allow migration scripts running on Sigma2 to connect to the MUSIT Oracle database, the following Sigma2 IP ranges must be whitelisted in the USIT/MUSIT firewall.
+To allow migration flows running on Sigma2 to connect to the MUSIT Oracle database, the following Sigma2 IP ranges must be whitelisted in the USIT/MUSIT firewall.
 
 **Source: [Sigma2 License and Access Policies](https://documentation.sigma2.no/software/licenses.html)**
 

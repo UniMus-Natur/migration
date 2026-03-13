@@ -6,7 +6,7 @@ nav_order: 2
 
 # Development Setup
 
-This guide explains how to set up your local environment for writing migration scripts.
+This guide explains how to set up your local environment for writing migration flows.
 
 ## Prerequisite: The Submodule
 
@@ -25,22 +25,22 @@ git submodule update --init --recursive
     ```
 
 2.  **Configuration**:
-    The migration scripts need to connect to a database (either local or tunneled).
+    The migration flows need to connect to a database (either local or tunneled).
     
     *   Copy `config/local_specify_settings.py` (it is git-ignored).
     *   Edit it with your database credentials.
 
 ## The Bootstrap Mechanism
 
-To use the Specify 7 Django ORM in standalone scripts, we use a `bootstrap.py` helper.
+To use the Specify 7 Django ORM in standalone flows, we use a `bootstrap.py` helper.
 
 ### How it works
 1.  Adds the `specify7` submodule to `sys.path`.
 2.  Injects `config.local_specify_settings` into `sys.modules` as `specifyweb.settings.local_specify_settings`.
 3.  Calls `django.setup()`.
 
-### Writing a Script
-Start your script with:
+### Writing a Flow
+Start your flow with:
 
 ```python
 import bootstrap
