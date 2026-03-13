@@ -20,6 +20,10 @@ spec:
         matchLabels:
           app.kubernetes.io/instance: specify7
           component: backend
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/instance: specify7
+          component: prefect-dev-worker
     ports:
     - protocol: TCP
       port: 3306
