@@ -37,3 +37,12 @@ deployments:
     work_pool:
       name: dev-process
       work_queue_name: default
+
+  - name: oracle-feide-field-profile-dev
+    version: 1.0.0
+    tags: ["oracle", "prod", "feide", "exploration", "dev"]
+    description: "Profile USD_METADATA.BRUKARAR.FEIDE and upload anonymized aggregates to S3"
+    entrypoint: flows/oracle_feide_field_profile.py:oracle_feide_field_profile_flow
+    work_pool:
+      name: dev-process
+      work_queue_name: default
