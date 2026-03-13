@@ -26,6 +26,30 @@ def _many_rows(connection, sql: str) -> list[tuple]:
         return cursor.fetchall()
 
 
+def _query_dict_rows(connection, sql: str) -> list[dict]:
+    with connection.cursor() as cursor:
+        cursor.execute(sql)
+        columns = [desc[0].lower() for desc in cursor.description]
+        rows = []
+        for raw_row in cursor.fetchall():
+            row = {}
+            for key, value in zip(columns, raw_row):
+                row[key] = value.isoformat() if hasattr(value, "isoformat") else value
+            rows.append(row)
+        return rows
+
+
+def _write_csv_rows(path: Path, rows: list[dict]) -> None:
+    if not rows:
+        path.write_text("", encoding="utf-8")
+        return
+    headers = list(rows[0].keys())
+    with path.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=headers)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def _build_markdown_report(profile: dict) -> str:
     lines = [
         "# FEIDE Field Profile",
@@ -62,15 +86,13 @@ def _build_markdown_report(profile: dict) -> str:
     else:
         lines.append("- No email-like FEIDE values found.")
     lines.append("")
-    lines.append(
-        "Note: this report contains aggregate statistics only and does not export raw FEIDE identifiers."
-    )
+    lines.append("Additional artifacts include row-level exports for authorized private analysis.")
     return "\n".join(lines)
 
 
 @flow(
     name="Oracle FEIDE Field Profile",
-    description="Profiles USD_METADATA.BRUKARAR.FEIDE and uploads anonymized aggregate results to S3",
+    description="Profiles USD_METADATA.BRUKARAR.FEIDE and uploads aggregate and row-level results to S3",
 )
 def oracle_feide_field_profile_flow() -> dict:
     logger = get_run_logger()
@@ -140,6 +162,16 @@ def oracle_feide_field_profile_flow() -> dict:
             WHERE ROWNUM <= 25
             """,
         )
+
+        feide_users_non_blank = _query_dict_rows(
+            connection,
+            """
+            SELECT *
+            FROM USD_METADATA.BRUKARAR
+            WHERE TRIM(FEIDE) IS NOT NULL
+            ORDER BY USR
+            """,
+        )
     finally:
         connection.close()
 
@@ -173,6 +205,10 @@ def oracle_feide_field_profile_flow() -> dict:
             for domain, count in top_domains
             if domain is not None
         ],
+        "row_exports": {
+            "non_blank_user_rows": len(feide_users_non_blank),
+            "sample_rows": min(10, len(feide_users_non_blank)),
+        },
     }
 
     with tempfile.TemporaryDirectory(prefix="oracle-feide-profile-") as temp_dir:
@@ -180,6 +216,9 @@ def oracle_feide_field_profile_flow() -> dict:
         json_path = out_dir / "feide_profile.json"
         md_path = out_dir / "feide_profile.md"
         domains_csv = out_dir / "feide_top_domains.csv"
+        users_csv = out_dir / "feide_users_non_blank.csv"
+        users_sample_csv = out_dir / "feide_users_non_blank_sample10.csv"
+        users_sample_json = out_dir / "feide_users_non_blank_sample10.json"
 
         json_path.write_text(json.dumps(profile, indent=2), encoding="utf-8")
         md_path.write_text(_build_markdown_report(profile), encoding="utf-8")
@@ -187,6 +226,10 @@ def oracle_feide_field_profile_flow() -> dict:
             writer = csv.DictWriter(fh, fieldnames=["domain", "count"])
             writer.writeheader()
             writer.writerows(profile["top_email_domains"])
+        _write_csv_rows(users_csv, feide_users_non_blank)
+        sample_rows = feide_users_non_blank[:10]
+        _write_csv_rows(users_sample_csv, sample_rows)
+        users_sample_json.write_text(json.dumps(sample_rows, indent=2), encoding="utf-8")
 
         bucket = os.getenv("S3_BUCKET")
         if not bucket:
@@ -202,6 +245,9 @@ def oracle_feide_field_profile_flow() -> dict:
             "feide_profile.json": json_path,
             "feide_profile.md": md_path,
             "feide_top_domains.csv": domains_csv,
+            "feide_users_non_blank.csv": users_csv,
+            "feide_users_non_blank_sample10.csv": users_sample_csv,
+            "feide_users_non_blank_sample10.json": users_sample_json,
         }
         uploaded = []
         for filename, local_path in upload_targets.items():
