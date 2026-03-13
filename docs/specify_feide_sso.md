@@ -125,6 +125,21 @@ Current practical workflow:
 4. Validate login in staging.
 5. Disable test users when not needed and before production usage.
 
+## 10.1) Creating the organization access in Feide (service provider onboarding)
+
+If your organization is not already registered as a Feide service provider, the onboarding path is:
+
+1. Submit Feide service-provider application form.
+2. Wait for approval/registration by Feide.
+3. Access the Feide customer portal for your organization.
+4. Add additional portal users and assign roles (Feide admin/service admin).
+5. Create the OIDC configuration for your service and add redirect URI.
+
+Notes:
+
+- Feide documents this as organization-level onboarding, not a per-developer account setup.
+- If the organization already exists, an existing Feide administrator can grant you access in portal "Users and roles".
+
 ## 11) Preventing "any Feide user can log in"
 
 Yes, this is possible and already aligned with Specify's current login flow.
@@ -136,10 +151,12 @@ Current behavior in backend flow:
 - If the external identity (`provider`, `sub`) is already mapped in `spuserexternalid`, user is logged in.
 - If it is not mapped, Specify redirects to legacy login / account-link flow instead of granting access directly.
 - Invite links can be generated from UI/API and are permission-gated (`InviteLinkPT.create`), allowing privileged users to onboard users intentionally.
+- Important nuance: users who already have valid local Specify credentials can self-link their Feide identity through the legacy-login association flow.
 
 Operationally, this means:
 
 - Feide can authenticate identity.
 - Specify still authorizes access based on account linking and internal permissions.
-- You can keep onboarding controlled by privileged staff via the Security and Accounts invite-link workflow.
+- New users can be controlled via privileged invite-link workflow.
+- Existing users with local credentials can self-link unless you additionally restrict or modify the legacy-link path.
 
