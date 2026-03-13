@@ -21,5 +21,6 @@ This documentation covers the planning, architecture, and execution of migrating
 - [**Migration Strategy (Phased)**](migration_strategy.md): Strategy for merging shared data and iteratively migrating datasets to Specify 7.
 - [**Migration (ETL Technical)**](migration.md): ETL pipeline implementation details from Oracle to MariaDB.
 - [**NIRD Application Text**](nird_application.md): Text used in the Sigma2/NIRD application.
+- [**Specify + Feide SSO**](specify_feide_sso.md): Feide OIDC integration notes, onboarding model, and rollout guidance.
 - [**Submitted Proposal (PDF)**](documents/NIRD-application.pdf): Final submitted NIRD application.
 - [**Data Management Plan (DOCX)**](documents/data-management-plan.docx): Project data management plan.
