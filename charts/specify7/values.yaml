@@ -88,6 +88,12 @@ specify:
     password: "password"
   secretKey: "change-me-in-production"
   debug: true
+  # Django host/origin security settings.
+  allowedHosts:
+    - "*"
+  csrfTrustedOrigins:
+    - "https://*"
+    - "http://*"
   assetServerKey: "change-me"
 
 # Asset Server Configuration

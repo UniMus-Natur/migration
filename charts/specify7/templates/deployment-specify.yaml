@@ -101,6 +101,9 @@ spec:
             - name: config
               mountPath: /opt/specify7/specifyweb/settings/secret_key.py
               subPath: secret_key.py
+            - name: config
+              mountPath: /opt/specify7/specifyweb/settings/debug.py
+              subPath: debug.py
             - name: shared-assets
               mountPath: /volumes
               {{- if .Values.persistence.mainSubPath }}
