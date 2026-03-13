@@ -27,6 +27,8 @@ spec:
           args:
             - |
               chown -R 999:999 /volumes
+              chmod a+rx /volumes
+              chmod -R a+rX /volumes/static-files /volumes/webpack-output || true
           securityContext:
             runAsUser: 0
           volumeMounts:
@@ -50,6 +52,8 @@ spec:
               if [ -d "/opt/specify7/specifyweb/frontend/static" ]; then
                 cp -r /opt/specify7/specifyweb/frontend/static/* /volumes/webpack-output/
               fi
+              # Static nginx runs as a different user, so keep assets world-readable/executable.
+              chmod -R a+rX /volumes/static-files /volumes/webpack-output
               echo "Extraction complete."
           volumeMounts:
             - name: shared-assets
