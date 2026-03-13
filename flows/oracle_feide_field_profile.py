@@ -11,24 +11,24 @@ from flows.lib.oracle_connectivity import create_oracle_connection, get_oracle_c
 from flows.lib.s3_connectivity import upload_file_with_compat_retry
 
 
-def _one_row(connection, sql: str) -> tuple:
+def _one_row(connection, sql: str, params: dict | None = None) -> tuple:
     with connection.cursor() as cursor:
-        cursor.execute(sql)
+        cursor.execute(sql, params or {})
         row = cursor.fetchone()
         if row is None:
             raise ValueError("Expected a row but query returned none")
         return row
 
 
-def _many_rows(connection, sql: str) -> list[tuple]:
+def _many_rows(connection, sql: str, params: dict | None = None) -> list[tuple]:
     with connection.cursor() as cursor:
-        cursor.execute(sql)
+        cursor.execute(sql, params or {})
         return cursor.fetchall()
 
 
-def _query_dict_rows(connection, sql: str) -> list[dict]:
+def _query_dict_rows(connection, sql: str, params: dict | None = None) -> list[dict]:
     with connection.cursor() as cursor:
-        cursor.execute(sql)
+        cursor.execute(sql, params or {})
         columns = [desc[0].lower() for desc in cursor.description]
         rows = []
         for raw_row in cursor.fetchall():
@@ -94,10 +94,18 @@ def _build_markdown_report(profile: dict) -> str:
     name="Oracle FEIDE Field Profile",
     description="Profiles USD_METADATA.BRUKARAR.FEIDE and uploads aggregate and row-level results to S3",
 )
-def oracle_feide_field_profile_flow() -> dict:
+def oracle_feide_field_profile_flow(name_contains: str | None = None) -> dict:
     logger = get_run_logger()
     config = get_oracle_config_from_env("PROD")
     connection = create_oracle_connection(config)
+    name_contains = (name_contains or "").strip()
+    use_name_filter = len(name_contains) > 0
+    name_filter_sql = (
+        "AND LOWER(NAMN) LIKE LOWER(:name_like)"
+        if use_name_filter
+        else ""
+    )
+    params = {"name_like": f"%{name_contains}%"} if use_name_filter else {}
 
     try:
         (
@@ -108,7 +116,7 @@ def oracle_feide_field_profile_flow() -> dict:
             distinct_non_blank,
         ) = _one_row(
             connection,
-            """
+            f"""
             SELECT
               COUNT(*) AS total_rows,
               SUM(CASE WHEN FEIDE IS NULL THEN 1 ELSE 0 END) AS null_rows,
@@ -116,38 +124,46 @@ def oracle_feide_field_profile_flow() -> dict:
               SUM(CASE WHEN TRIM(FEIDE) IS NOT NULL THEN 1 ELSE 0 END) AS non_blank_rows,
               COUNT(DISTINCT CASE WHEN TRIM(FEIDE) IS NOT NULL THEN TRIM(FEIDE) END) AS distinct_non_blank
             FROM USD_METADATA.BRUKARAR
+            WHERE 1=1
+              {name_filter_sql}
             """,
+            params,
         )
 
         (duplicate_value_count,) = _one_row(
             connection,
-            """
+            f"""
             SELECT COUNT(*)
             FROM (
               SELECT TRIM(FEIDE) AS v, COUNT(*) AS c
               FROM USD_METADATA.BRUKARAR
               WHERE TRIM(FEIDE) IS NOT NULL
+                {name_filter_sql}
               GROUP BY TRIM(FEIDE)
               HAVING COUNT(*) > 1
             )
             """,
+            params,
         )
 
         (has_at, email_like, numeric_only, contains_space) = _one_row(
             connection,
-            """
+            f"""
             SELECT
               SUM(CASE WHEN TRIM(FEIDE) IS NOT NULL AND INSTR(TRIM(FEIDE), '@') > 0 THEN 1 ELSE 0 END) AS has_at,
               SUM(CASE WHEN TRIM(FEIDE) IS NOT NULL AND REGEXP_LIKE(TRIM(FEIDE), '^[^@[:space:]]+@[^@[:space:]]+$') THEN 1 ELSE 0 END) AS email_like,
               SUM(CASE WHEN TRIM(FEIDE) IS NOT NULL AND REGEXP_LIKE(TRIM(FEIDE), '^[0-9]+$') THEN 1 ELSE 0 END) AS numeric_only,
               SUM(CASE WHEN TRIM(FEIDE) IS NOT NULL AND REGEXP_LIKE(TRIM(FEIDE), '[[:space:]]') THEN 1 ELSE 0 END) AS contains_space
             FROM USD_METADATA.BRUKARAR
+            WHERE 1=1
+              {name_filter_sql}
             """,
+            params,
         )
 
         top_domains = _many_rows(
             connection,
-            """
+            f"""
             SELECT domain, cnt
             FROM (
               SELECT
@@ -155,22 +171,26 @@ def oracle_feide_field_profile_flow() -> dict:
                 COUNT(*) AS cnt
               FROM USD_METADATA.BRUKARAR
               WHERE TRIM(FEIDE) IS NOT NULL
+                {name_filter_sql}
                 AND REGEXP_LIKE(TRIM(FEIDE), '^[^@[:space:]]+@[^@[:space:]]+$')
               GROUP BY LOWER(REGEXP_SUBSTR(TRIM(FEIDE), '@(.+)$', 1, 1, NULL, 1))
               ORDER BY cnt DESC
             )
             WHERE ROWNUM <= 25
             """,
+            params,
         )
 
         feide_users_non_blank = _query_dict_rows(
             connection,
-            """
+            f"""
             SELECT *
             FROM USD_METADATA.BRUKARAR
             WHERE TRIM(FEIDE) IS NOT NULL
+              {name_filter_sql}
             ORDER BY USR
             """,
+            params,
         )
     finally:
         connection.close()
@@ -185,6 +205,7 @@ def oracle_feide_field_profile_flow() -> dict:
             "service_name": config.service_name,
             "table": "USD_METADATA.BRUKARAR",
             "column": "FEIDE",
+            "name_contains": name_contains if use_name_filter else None,
         },
         "counts": {
             "total_rows": int(total_rows or 0),
