@@ -14,7 +14,7 @@ The UniMus-Natur project is migrating the Natural History Museum's legacy datase
 
 We request NIRD resources to host a fully containerized staging environment orchestrated via Kubernetes. This validated environment consists of a live Specify 7 web instance, worker nodes, and MariaDB databases running as Docker microservices.
 
-Our methodology involves an ETL pipeline where data is extracted from the legacy Oracle system and loaded into this NIRD-hosted architecture using Python scripts and the Specify Django ORM. Hosting the live Specify staging instance on NIRD is critical; it enables us to verify the migration results through the actual user interface and API in a controlled Kubernetes environment. The requested resources will drive this containerized stack and support the computationally intensive, iterative processes required to transform, clean, and validate the complete dataset before production release.
+Our methodology involves an ETL pipeline where data is extracted from the legacy Oracle system and loaded into this NIRD-hosted architecture using Prefect flows and the Specify Django ORM. Hosting the live Specify staging instance on NIRD is critical; it enables us to verify the migration results through the actual user interface and API in a controlled Kubernetes environment. The requested resources will drive this containerized stack and support the computationally intensive, iterative processes required to transform, clean, and validate the complete dataset before production release.
 
 ## Relevant Usage Experience
 

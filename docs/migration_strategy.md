@@ -289,7 +289,7 @@ Once Phase 1 is done and Phase 2 begins, new agents or taxa might appear in late
 
 **Rule:** New agents/taxa discovered during a specimen batch are added to the shared tables *on the fly* during that batch migration. The shared tables grow incrementally, but each item is only ever added once (check before insert).
 
-This means the specimen migration scripts must:
+This means the specimen migration flows must:
 1. Look up the Agent/Taxon/Geography by stable ID (Oracle PK → Specify PK mapping table).
 2. If not found: insert it, record the mapping.
 3. If found: link to existing.

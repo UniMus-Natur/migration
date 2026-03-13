@@ -89,16 +89,16 @@ kubectl port-forward $POD_NAME 1553:1553 3306:3306
 *   **Oracle**: `localhost:1553`
 *   **MariaDB**: `localhost:3306`
 
-## 5. Running Migration Scripts
+## 5. Running Migration Flows
 
 When using Prefect with `git_clone`, flow runs execute from a temporary cloned directory, not `/app`.
 For ad-hoc shell work, the image still includes the required repository tooling and dependencies.
 
-To run scripts using the Specify ORM:
+To run flows using the Specify ORM:
 
 ```bash
 # Example
-python scripts/test_setup.py
+python flows/test_infrastructure.py
 ```
 
 ## 6. Remote Build (Kaniko on K8s)

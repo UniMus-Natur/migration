@@ -12,7 +12,7 @@ If viewing on GitHub Pages, visit the [Documentation Site](https://unimus-natur.
 - `charts/`: Kubernetes Helm charts (including `specify7`).
 - `config/`: Configuration files (local settings).
 - `docs/`: Knowledge base source files (Markdown).
-- `scripts/`: Python scripts for migration logic.
+- `flows/`: Prefect flows for migration logic.
 - `specify7/`: [Submodule] Official Specify 7 repository.
 
 ## Development Setup
@@ -26,22 +26,21 @@ If viewing on GitHub Pages, visit the [Documentation Site](https://unimus-natur.
     -   Copy `config/local_specify_settings.py` (if missing, see the template using the `bootstrap.py` logic) and configure your database credentials.
     -   *Note*: `config/local_specify_settings.py` is git-ignored.
 
-3.  **Running Scripts**:
-    Scripts in `scripts/` utilize a `bootstrap.py` helper to load the Specify 7 environment dynamically.
+3.  **Running Flows**:
+    Flows in `flows/` utilize a `bootstrap.py` helper to load the Specify 7 environment dynamically.
     ```bash
-    python scripts/test_setup.py
-    python scripts/test_setup.py
+    python flows/test_infrastructure.py
     ```
 
 ## Dev / Migration Container
 
-For advanced debugging, database proxying, and running migration scripts inside the cluster, see the [Dev Container Guide](docs/dev_container.md).
+For advanced debugging, database proxying, and running migration flows inside the cluster, see the [Dev Container Guide](docs/dev_container.md).
 For the current Prefect in-cluster workflow, see the [Prefect Runbook](docs/prefect_worker.md).
 
 It supports:
 - Building with **Podman** (x86/amd64).
 - **Proxying** Oracle and MariaDB to your local machine.
-- Running scripts with full **ORM access** in the cluster.
+- Running flows with full **ORM access** in the cluster.
 
 ## Kubernetes Deployment
 

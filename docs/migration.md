@@ -19,7 +19,7 @@ We are using an Extract-Transform-Load (ETL) pattern.
 *   **Method**: Select queries (via Pandas `read_sql` or SQLAlchemy Core) to retrieve data from legacy tables.
 
 ### 2. Transform
-*   **Logic**: Python scripts will map MUSIT schema fields to Specify schema.
+*   **Logic**: Prefect flows will map MUSIT schema fields to Specify schema.
 *   **Data Cleaning**: Any necessary data cleanup will happen at this stage.
 
 ### 3. Load to Staging

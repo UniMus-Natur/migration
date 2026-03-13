@@ -1,5 +1,9 @@
 from prefect import flow, task, get_run_logger
 
+from flows.lib.mariadb_connectivity import (
+    connect_and_ping_mariadb,
+    get_mariadb_config_from_env,
+)
 from flows.lib.oracle_connectivity import (
     connect_and_ping_oracle,
     get_oracle_config_from_env,
@@ -23,6 +27,20 @@ def run_oracle_connectivity_check(env_prefix: str) -> None:
         raise Exception("Failed to verify Oracle connection")
 
 
+@task(retries=2, retry_delay_seconds=3)
+def run_mariadb_connectivity_check() -> None:
+    logger = get_run_logger()
+    config = get_mariadb_config_from_env()
+    success = connect_and_ping_mariadb(
+        config=config,
+        log_info=logger.info,
+        log_error=logger.error,
+    )
+    if not success:
+        logger.error("MariaDB connectivity check failed.")
+        raise Exception("Failed to verify MariaDB connection")
+
+
 @task(retries=1, retry_delay_seconds=3)
 def run_s3_connectivity_check() -> None:
     logger = get_run_logger()
@@ -31,22 +49,25 @@ def run_s3_connectivity_check() -> None:
 
 
 @flow(
-    name="Oracle Connectivity Prod Check",
-    description="Runs Oracle PROD connectivity check and S3 preflight check",
+    name="Infrastructure Prod Check",
+    description="Runs Prod infrastructure connectivity checks (Oracle, MariaDB, S3)",
 )
-def oracle_connectivity_prod_flow():
+def infrastructure_prod_check_flow():
     # Keep this list-based structure so adding TEST back is a one-line change.
     for target in ["PROD"]:
         run_oracle_connectivity_check(target)
+    run_mariadb_connectivity_check()
     run_s3_connectivity_check()
 
 
 @flow(
-    name="Oracle Connectivity Test Check",
-    description="Runs Oracle connectivity check for TEST credentials",
+    name="Infrastructure Test Check",
+    description="Runs Test infrastructure connectivity checks (Oracle, MariaDB, S3)",
 )
-def oracle_connectivity_test_flow():
+def infrastructure_test_check_flow():
     run_oracle_connectivity_check("TEST")
+    run_mariadb_connectivity_check()
+    run_s3_connectivity_check()
 
 if __name__ == "__main__":
-    oracle_connectivity_prod_flow()
+    infrastructure_prod_check_flow()
