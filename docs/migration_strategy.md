@@ -74,6 +74,8 @@ Each step is both a migration and a **validation checkpoint** — see "Validatio
 **Also:** `USD_BOTANIKK_*.PERSONER`, `USD_BOTANIKK_*.AUTORPERSON`, `USD_NAT_TAXAREG.AUTORPERSON`  
 **Target:** Specify `Agent` table
 
+An implemented subset — MUSIT **`ACTOR`** + **`PERSON_NAME`** for **`MUSIT_BOTANIKK_FELLES`** and **`MUSIT_ZOOLOGI_ENTOMOLOGI`** — is loaded by the Prefect flow **`migrate_musit_agents_flow`** (`flows/migrate_musit_agents.py`). Scope, idempotency, and gaps (USD persons, authors, deduplication) are documented in [**MUSIT collection agents migration**](migrate_musit_agents.md).
+
 **Merge strategy:**
 1. Start with MUSIT `ACTOR` as canonical — it has the most structured data (birth/death, ORCID, institution).
 2. Match USD `PERSONER` against `ACTOR` by name string similarity → link or create new Agent.

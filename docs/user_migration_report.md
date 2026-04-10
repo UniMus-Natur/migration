@@ -6,7 +6,7 @@ nav_order: 7
 
 # User migration report (`migration_report.json`)
 
-This document describes the JSON artifact written by the Prefect flow **Migrate Users** (`flows/migrate_users.py`, `migrate_users_flow`). That flow implements **Phase 1.4** in the phased strategy: loading application users from Oracle `USD_METADATA` into Specify 7 as `SpecifyUser` and `Agent` records. For the overall plan, see [Migration Strategy (Phased)](migration_strategy.md).
+This document describes the JSON artifact written by the Prefect flow **Migrate Users** (`flows/migrate_users.py`, `migrate_users_flow`). That flow implements **Phase 1.4** in the phased strategy: loading application users from Oracle `USD_METADATA` into Specify 7 as `SpecifyUser` and `Agent` records. For the overall plan, see [Migration Strategy (Phased)](migration_strategy.md). Collection-side people (`ACTOR` / collectors) are a different source; see [MUSIT collection agents migration](migrate_musit_agents.md).
 
 ## Purpose
 

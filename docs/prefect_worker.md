@@ -66,6 +66,14 @@ prefect deployment run "Oracle Schema Snapshot/oracle-schema-snapshot-dev"
 
 Schema snapshot artifacts include `schema_catalog.json`, CSV extracts, and `schema.dbml`.
 
+Optional: migrate MUSIT **`ACTOR`** + **`PERSON_NAME`** into Specify **`Agent`** (Phase 1.1; default is dry run):
+
+```bash
+prefect deployment run "Migrate MUSIT Actors/migrate-musit-agents-dev"
+```
+
+See [MUSIT collection agents migration](migrate_musit_agents.md) for parameters and scope.
+
 6. Inspect results:
 
 ```bash
