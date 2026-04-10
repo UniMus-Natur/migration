@@ -43,8 +43,28 @@ def setup_django() -> None:
         except ImportError:
             pass
 
+    # Specify's settings/__init__.py requires build_version.py and
+    # secret_key.py to exist.  These are normally created by `make` (or by
+    # the Dockerfile), but a fresh git clone won't have them.
+    _ensure_specify_build_stubs(specify_dir)
+
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "specifyweb.settings")
 
     import django
     django.setup()
     _DJANGO_INITIALIZED = True
+
+
+def _ensure_specify_build_stubs(specify_dir: str) -> None:
+    """Create the two tiny Python files that Specify's settings expect."""
+    settings_dir = os.path.join(specify_dir, "specifyweb", "settings")
+    stubs = {
+        "build_version.py": "VERSION = 'migration-worker'\n",
+        "secret_key.py": "SECRET_KEY = 'migration-worker-key'\n",
+    }
+    for filename, content in stubs.items():
+        path = os.path.join(settings_dir, filename)
+        if not os.path.exists(path):
+            os.makedirs(settings_dir, exist_ok=True)
+            with open(path, "w") as f:
+                f.write(content)
