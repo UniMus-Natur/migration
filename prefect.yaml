@@ -46,3 +46,15 @@ deployments:
     work_pool:
       name: dev-process
       work_queue_name: default
+
+  - name: migrate-users-dev
+    version: 1.0.0
+    tags: ["oracle", "specify", "users", "migration", "dev"]
+    description: "Phase 1.4: Migrate MUSIT application users (BRUKARAR/GRUPPE) to Specify SpecifyUser + Agent"
+    entrypoint: flows/migrate_users.py:migrate_users_flow
+    parameters:
+      oracle_env: "PROD"
+      dry_run: true
+    work_pool:
+      name: dev-process
+      work_queue_name: default
