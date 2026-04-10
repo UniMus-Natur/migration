@@ -8,6 +8,9 @@
 #   source scripts/port-forward.sh prefect db   # combine shortcuts
 #   pf_stop                                     # tear down when done
 #
+# Safe to source again: skips any localhost port that already has a listener
+# (avoids duplicate kubectl/socat and keeps pf_stop tracking intact).
+#
 # Targets:
 #   mariadb    MariaDB         localhost:3306
 #   prefect    Prefect UI/API  localhost:4200  (+ sets PREFECT_API_URL)
@@ -16,7 +19,7 @@
 #   db         shorthand for mariadb + oracle
 #   all        everything (default)
 #
-# Requires: kubectl, socat (for Oracle only)
+# Requires: kubectl. For Oracle tunnels: socat (install: brew install socat | apt install socat)
 
 # Guard: warn if not sourced
 _pf_sourced=false
@@ -40,23 +43,46 @@ if [[ -f "$_pf_venv/bin/activate" && "$VIRTUAL_ENV" != "$_pf_venv" ]]; then
     echo "Activated virtualenv: $VIRTUAL_ENV"
 fi
 
-_PF_PIDS=()
-_PF_PREFECT_STARTED=false
+# Populated only for processes started in this shell; do not clear on repeat source
+# (so pf_stop still kills the first batch). Unset until first use or after pf_stop clears it.
+[[ -z ${_PF_PIDS+x} ]] && _PF_PIDS=()
+
+# Return 0 if something is listening on 127.0.0.1:port (IPv4).
+_pf_tcp_port_listening() {
+    local port="${1:?}"
+    if command -v lsof &>/dev/null; then
+        lsof -nP -iTCP:"$port" -sTCP:LISTEN &>/dev/null
+        return $?
+    fi
+    (echo >/dev/tcp/127.0.0.1/"$port") &>/dev/null
+    return $?
+}
 
 _pf_forward_mariadb() {
+    if _pf_tcp_port_listening 3306; then
+        echo "  MariaDB        svc/specify7-mariadb        → localhost:3306 (already in use – skip)"
+        return
+    fi
     echo "  MariaDB        svc/specify7-mariadb        → localhost:3306"
     kubectl port-forward svc/specify7-mariadb 3306:3306 >/dev/null 2>&1 &
     _PF_PIDS+=($!)
 }
 
 _pf_forward_prefect() {
+    if _pf_tcp_port_listening 4200; then
+        echo "  Prefect        svc/specify7-prefect-server  → localhost:4200 (already in use – skip)"
+        return
+    fi
     echo "  Prefect        svc/specify7-prefect-server  → localhost:4200"
     kubectl port-forward svc/specify7-prefect-server 4200:4200 >/dev/null 2>&1 &
     _PF_PIDS+=($!)
-    _PF_PREFECT_STARTED=true
 }
 
 _pf_forward_backend() {
+    if _pf_tcp_port_listening 8000; then
+        echo "  Specify7 API   svc/specify7-backend         → localhost:8000 (already in use – skip)"
+        return
+    fi
     echo "  Specify7 API   svc/specify7-backend         → localhost:8000"
     kubectl port-forward svc/specify7-backend 8000:8000 >/dev/null 2>&1 &
     _PF_PIDS+=($!)
@@ -64,16 +90,35 @@ _pf_forward_backend() {
 
 _pf_forward_oracle() {
     if ! command -v socat &>/dev/null; then
-        echo "  ⚠ socat not found – skipping Oracle proxies"
+        echo "  ⚠ socat not found – skipping Oracle proxies (localhost:1553 / :1554)"
+        echo "     Oracle DBs live outside the cluster; this script uses socat to tunnel them."
+        echo "     Install:  macOS: brew install socat    Debian/Ubuntu: sudo apt install socat"
+        echo "     Alternative: run flows on the cluster worker, or VPN + point ORACLE_*_HOST at the DB."
         return
     fi
-    echo "  Oracle PROD    dbora-musit-prod03.uio.no:1553  → localhost:1553"
-    socat TCP-LISTEN:1553,fork,reuseaddr TCP:dbora-musit-prod03.uio.no:1553 &
-    _PF_PIDS+=($!)
+    if _pf_tcp_port_listening 1553; then
+        echo "  Oracle PROD    dbora-musit-prod03.uio.no:1553  → localhost:1553 (already in use – skip)"
+    else
+        echo "  Oracle PROD    dbora-musit-prod03.uio.no:1553  → localhost:1553"
+        socat TCP-LISTEN:1553,fork,reuseaddr TCP:dbora-musit-prod03.uio.no:1553 &
+        _PF_PIDS+=($!)
+    fi
 
-    echo "  Oracle TEST    dbora-musit-utv03.uio.no:1553   → localhost:1554"
-    socat TCP-LISTEN:1554,fork,reuseaddr TCP:dbora-musit-utv03.uio.no:1553 &
-    _PF_PIDS+=($!)
+    if _pf_tcp_port_listening 1554; then
+        echo "  Oracle TEST    dbora-musit-utv03.uio.no:1553   → localhost:1554 (already in use – skip)"
+    else
+        echo "  Oracle TEST    dbora-musit-utv03.uio.no:1553   → localhost:1554"
+        socat TCP-LISTEN:1554,fork,reuseaddr TCP:dbora-musit-utv03.uio.no:1553 &
+        _PF_PIDS+=($!)
+    fi
+}
+
+_pf_targets_include_prefect() {
+    local t
+    for t in "${_pf_targets[@]}"; do
+        [[ "$t" == "all" || "$t" == "prefect" ]] && return 0
+    done
+    return 1
 }
 
 pf_stop() {
@@ -82,7 +127,6 @@ pf_stop() {
         kill "$pid" 2>/dev/null
     done
     _PF_PIDS=()
-    _PF_PREFECT_STARTED=false
     unset PREFECT_API_URL
     echo "Done."
 }
@@ -106,7 +150,7 @@ for _pf_t in "${_pf_targets[@]}"; do
     esac
 done
 
-if $_PF_PREFECT_STARTED; then
+if _pf_targets_include_prefect && _pf_tcp_port_listening 4200; then
     export PREFECT_API_URL="http://localhost:4200/api"
     echo ""
     echo "  export PREFECT_API_URL=$PREFECT_API_URL"
