@@ -15,7 +15,6 @@ This is Phase 1.4 of the migration strategy.
 from __future__ import annotations
 
 import json
-import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -23,7 +22,7 @@ from datetime import datetime, timezone
 from prefect import flow, task, get_run_logger
 
 from flows.lib.migration_report_s3 import (
-    SPECIFY7_APP_USERS_BRUKARAR,
+    REPORT_CATEGORY_APP_USERS_BRUKARAR,
     migration_report_s3_key,
 )
 from flows.lib.migration_report_upload import upload_migration_report_json_task
@@ -363,9 +362,8 @@ def migrate_users_flow(
             logger.warning(f"  {err}")
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    prefix = os.getenv("S3_PREFIX", "oracle-schema").strip("/")
     report = _user_migration_report_dict(ts, oracle_env, dry_run, result)
-    s3_key = migration_report_s3_key(prefix, SPECIFY7_APP_USERS_BRUKARAR, ts)
+    s3_key = migration_report_s3_key(REPORT_CATEGORY_APP_USERS_BRUKARAR, ts)
     uploaded = upload_migration_report_json_task(report, s3_key)
     if uploaded:
         logger.info("Uploaded report artifacts:")

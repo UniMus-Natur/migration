@@ -15,7 +15,7 @@ This means you do **not** need to rebuild the image for normal code changes; com
 1. Helm release with Prefect enabled and secret injection configured.
 2. A `dev-process` work pool in Prefect.
 3. Valid Oracle credentials in `secrets.existingSecret` (e.g. `specify-secret`).
-4. **S3 report uploads:** Flows such as **Migrate Users** and **Migrate MUSIT Actors** only write `report.json` to the bucket when **`S3_BUCKET`** is set in that same secret (plus S3/MinIO credentials and optional `S3_PREFIX`). If `S3_BUCKET` is absent, runs succeed but **`report_uploaded`** in the flow result is **`false`** — see [Migration reports on S3](migration_s3_reports.md#troubleshooting-nothing-appeared-in-the-bucket).
+4. **S3 report uploads:** Flows such as **Migrate Users** and **Migrate MUSIT Actors** only write `report.json` when **`S3_BUCKET`** is set (plus S3/MinIO credentials). Reports use **`S3_MIGRATION_REPORTS_PREFIX`** (default `migration-reports`), not **`S3_PREFIX`** / `oracle-schema`. If `S3_BUCKET` is absent, runs succeed but **`report_uploaded`** is **`false`** — see [Migration reports on S3](migration_s3_reports.md#troubleshooting-nothing-appeared-in-the-bucket).
 5. Migration image containing runtime dependencies:
    - `prefect`
    - `python-oracledb` with Oracle Instant Client for thick mode

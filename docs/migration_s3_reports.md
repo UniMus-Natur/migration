@@ -6,32 +6,40 @@ nav_order: 9
 
 # Migration reports on S3
 
-Prefect flows that write migration summaries use a **shared bucket** (`S3_BUCKET`) and a **shared layout** under your optional prefix (`S3_PREFIX`, default `oracle-schema`). Implementations call helpers in `flows/lib/migration_report_s3.py`.
+Prefect flows that write migration summaries use a **shared bucket** (`S3_BUCKET`). Report keys use a **dedicated prefix** controlled by **`S3_MIGRATION_REPORTS_PREFIX`** (default **`migration-reports`**). They do **not** use **`S3_PREFIX`** (`oracle-schema`), so migration JSON stays separate from Oracle schema snapshot artifacts.
+
+Implementations call helpers in `flows/lib/migration_report_s3.py`.
 
 ## Layout
 
 All JSON reports live under:
 
 ```text
-{S3_PREFIX}/migration-reports/{category-path}/{YYYYMMDDTHHMMSSZ}/report.json
+{S3_MIGRATION_REPORTS_PREFIX}/{category-folder}/{YYYYMMDDTHHMMSSZ}/report.json
 ```
 
-- **`migration-reports`** — Single umbrella folder for anything that is a “migration run result” (easy to browse, lifecycle, and IAM).
-- **`{category-path}`** — Human-readable path describing **target system** + **source** (not a random code name).
-- **`{YYYYMMDDTHHMMSSZ}`** — UTC run timestamp (same format as before).
-- **`report.json`** — One canonical filename per run so tools can always fetch the same object name inside the run folder.
+Default when `S3_MIGRATION_REPORTS_PREFIX` is unset:
+
+```text
+migration-reports/{category-folder}/{YYYYMMDDTHHMMSSZ}/report.json
+```
+
+- **`S3_MIGRATION_REPORTS_PREFIX`** — Optional. Override to nest under a team or environment segment (e.g. `prod/migration-reports`). Empty values fall back to `migration-reports`.
+- **`{category-folder}`** — One segment per flow type (constant in code).
+- **`{YYYYMMDDTHHMMSSZ}`** — UTC run timestamp.
+- **`report.json`** — Canonical filename inside the run folder.
 
 ### Current categories
 
-| Flow | `category-path` constant (in code) | Phase |
-|------|-------------------------------------|--------|
-| [Migrate Users](user_migration_report.md) | `specify7/application-users-usd-metadata-brukarar` | 1.4 |
-| [MUSIT collection agents](migrate_musit_agents.md) | `specify7/collection-agents-musit-actor-person-name` | 1.1 |
+| Flow | Constant in code | Folder segment | Phase |
+|------|-------------------|----------------|--------|
+| [Migrate Users](user_migration_report.md) | `REPORT_CATEGORY_APP_USERS_BRUKARAR` | `application-users-usd-metadata-brukarar` | 1.4 |
+| [MUSIT collection agents](migrate_musit_agents.md) | `REPORT_CATEGORY_MUSIT_COLLECTION_AGENTS` | `collection-agents-musit-actor-person-name` | 1.1 |
 
-**Example keys** (prefix `oracle-schema`, time `20260410T150000Z`):
+**Example keys** (default prefix, time `20260410T150000Z`):
 
-- `s3://$BUCKET/oracle-schema/migration-reports/specify7/application-users-usd-metadata-brukarar/20260410T150000Z/report.json`
-- `s3://$BUCKET/oracle-schema/migration-reports/specify7/collection-agents-musit-actor-person-name/20260410T150000Z/report.json`
+- `s3://$BUCKET/migration-reports/application-users-usd-metadata-brukarar/20260410T150000Z/report.json`
+- `s3://$BUCKET/migration-reports/collection-agents-musit-actor-person-name/20260410T150000Z/report.json`
 
 ## Report JSON conventions
 
@@ -50,23 +58,27 @@ Flow-specific counters and arrays follow (see the per-flow docs).
 
 ## Adding a new flow
 
-1. Add a new path constant under `MIGRATION_REPORTS_ROOT` in `flows/lib/migration_report_s3.py` (descriptive `specify7/…` or future top-level segment).
+1. Add a new **`REPORT_CATEGORY_*`** string constant in `flows/lib/migration_report_s3.py` (single folder name, no extra product prefixes).
 2. Build the report dict with `report_version`, `flow`, `migration_phase`, plus flow-specific fields.
-3. Upload with `migration_report_s3_key(prefix, YOUR_CONSTANT, ts)` and filename `report.json`.
+3. Upload with `migration_report_s3_key(YOUR_CONSTANT, ts)` and filename `report.json`.
 4. Register the path in this document.
 
 ## Historical note
 
-Older runs may still exist under `{S3_PREFIX}/user-migration/…/migration_report.json` or `{S3_PREFIX}/musit-agent-migration/…`. New uploads use the layout above.
+Older uploads may exist under:
+
+- `{S3_PREFIX}/user-migration/…/migration_report.json`
+- `{S3_PREFIX}/musit-agent-migration/…`
+- `{S3_PREFIX}/migration-reports/specify7/…/report.json` (intermediate layout)
+
+New uploads use `{S3_MIGRATION_REPORTS_PREFIX}/…` as above.
 
 ## Troubleshooting: “nothing appeared in the bucket”
 
-1. **`S3_BUCKET` must be set on the Prefect worker pod.** Report uploads run inside a dedicated **`upload_migration_report_json_task`** (same worker context as Oracle/Django tasks). If `S3_BUCKET` is missing or blank, uploads are **skipped** (the flow still completes). The Prefect UI result includes `report_uploaded: false` and an empty `uploaded` list. Check **task run logs** for `upload-migration-report-json` — you should see an **`INFO`** line starting with **`MIGRATION_REPORT_SKIP`** when the bucket is unset (warnings are easy to miss if the UI filters log levels).
-2. **In-cluster worker:** The dev worker loads env from `secrets.existingSecret` (`envFrom`). Ensure that Kubernetes `Secret` contains **`S3_BUCKET`** (and credentials such as `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` or `AWS_*`, plus `S3_ENDPOINT_URL` if you use MinIO). A local `.env` on your laptop is **not** injected into the pod automatically.
-3. **Look under the new prefix:** Objects are under  
-   `{S3_PREFIX}/migration-reports/specify7/…/<timestamp>/report.json`  
-   not the old `user-migration/` paths.
-4. **If upload fails** (permissions, network policy, wrong endpoint), the flow run should **fail** with a boto `ClientError` — check the run’s exception and worker logs.
+1. **`S3_BUCKET` must be set on the Prefect worker pod.** Report uploads run inside **`upload_migration_report_json_task`**. If `S3_BUCKET` is missing or blank, uploads are **skipped**. Check task logs for **`MIGRATION_REPORT_SKIP`**.
+2. **In-cluster worker:** Ensure the Kubernetes `Secret` contains **`S3_BUCKET`** and S3 credentials. A local `.env` is **not** injected into the pod automatically.
+3. **Look under `migration-reports/`** (or your `S3_MIGRATION_REPORTS_PREFIX`), not under `oracle-schema/…` for these reports.
+4. **If upload fails**, the flow run should **fail** with a boto `ClientError` — check the run’s exception and worker logs.
 
 After a successful upload, logs include a line like  
 `Uploading … report to s3://<bucket>/<key>`.

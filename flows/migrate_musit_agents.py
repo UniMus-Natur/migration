@@ -14,7 +14,6 @@ into a single Specify Agent is not implemented here — see docs/migrate_musit_a
 
 from __future__ import annotations
 
-import os
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
@@ -22,7 +21,7 @@ from datetime import date, datetime, timezone
 from prefect import flow, get_run_logger, task
 
 from flows.lib.migration_report_s3 import (
-    SPECIFY7_COLLECTION_AGENTS_ACTOR,
+    REPORT_CATEGORY_MUSIT_COLLECTION_AGENTS,
     migration_report_s3_key,
 )
 from flows.lib.migration_report_upload import upload_migration_report_json_task
@@ -92,6 +91,23 @@ class MusitAgentMigrationResult:
     schemas_processed: list[str] = field(default_factory=list)
 
 
+# Cap error strings persisted (avoid huge task results / reports).
+_MAX_ERROR_LINES = 200
+
+# Dry-run / live progress INFO every N rows (per-row detail is DEBUG only).
+_PROGRESS_LOG_EVERY = 5000
+
+
+@dataclass
+class MusitAgentRunOutcome:
+    """Small return value from the combined extract+load task (no giant row list)."""
+
+    result: MusitAgentMigrationResult
+    oracle_actors_extracted: int
+    oracle_rows_per_schema: dict[str, int]
+    oracle_actor_type_counts: dict[str, int]
+
+
 def _sql_for_schema(schema: str) -> str:
     if schema not in _ALLOWED_SCHEMAS:
         raise ValueError(f"Unsupported MUSIT schema: {schema}")
@@ -122,143 +138,188 @@ def _sql_for_schema(schema: str) -> str:
     """
 
 
-@task(retries=2, retry_delay_seconds=5)
-def extract_musit_actors(oracle_env: str, schemas: list[str]) -> list[MusitActorRow]:
-    logger = get_run_logger()
-    config = get_oracle_config_from_env(oracle_env)
-    connection = create_oracle_connection(config)
-    out: list[MusitActorRow] = []
+def _row_from_raw(schema: str, cols: list[str], raw: tuple) -> MusitActorRow:
+    row = dict(zip(cols, raw))
+    return MusitActorRow(
+        schema=schema,
+        actor_id=int(row["actor_id"]),
+        actor_type=int(row["actor_type"]) if row.get("actor_type") is not None else None,
+        actorname=row.get("actorname"),
+        birthdate=row.get("birthdate"),
+        deathdate=row.get("deathdate"),
+        email_address=row.get("email_address"),
+        institution=row.get("institution"),
+        note=row.get("note"),
+        person_given_name=row.get("person_given_name"),
+        person_surname=row.get("person_surname"),
+        person_middle_name=row.get("person_middle_name"),
+        title=row.get("title"),
+    )
+
+
+def _process_one_musit_actor_row(
+    row: MusitActorRow,
+    *,
+    division,
+    dry_run: bool,
+    logger,
+    result: MusitAgentMigrationResult,
+    processed_count: int,
+) -> None:
+    from specifyweb.specify.models import Agent
+
+    marker = _remarks_marker(row.schema, row.actor_id)
+    existing = Agent.objects.filter(remarks=marker).first()
+    if existing is not None:
+        result.agents_skipped += 1
+        return
+
+    agent_type = musit_actor_type_to_specify_agent_type(row.actor_type)
+    first = _trunc(row.person_given_name, 50)
+    last = _trunc(row.person_surname, 256)
+    if agent_type == 1 and not (first or last):
+        last = _trunc(row.actorname, 256) or "(unknown)"
+    if agent_type == 0 and not last:
+        last = _trunc(row.actorname, 256) or "(organization)"
+
+    email = _trunc(row.email_address, 50)
+    title = _trunc(row.title, 50)
+    middle = _trunc(row.person_middle_name, 50)
+
+    remarks_parts = [marker]
+    if row.institution:
+        remarks_parts.append(f"institution={_trunc(row.institution, 200)}")
+    if row.note:
+        remarks_parts.append(f"oracle_note={_trunc(row.note, 500)}")
+    remarks = "; ".join(remarks_parts)
+
+    dob = row.birthdate
+    dod = row.deathdate
+    if isinstance(dob, datetime):
+        dob = dob.date()
+    if isinstance(dod, datetime):
+        dod = dod.date()
+
+    if dry_run:
+        logger.debug(
+            f"[DRY RUN] Would create Agent schema={row.schema} ACTOR_ID={row.actor_id} "
+            f"type={agent_type} name={first or ''} {last}"
+        )
+        result.agents_created += 1
+        if processed_count % _PROGRESS_LOG_EVERY == 0:
+            logger.info(
+                f"[DRY RUN] progress: {processed_count} actors processed "
+                f"(would create {result.agents_created}, skip {result.agents_skipped})"
+            )
+        return
+
     try:
-        for schema in schemas:
-            if schema not in _ALLOWED_SCHEMAS:
-                raise ValueError(f"Unsupported schema: {schema}")
-            sql = _sql_for_schema(schema)
-            with connection.cursor() as cur:
-                cur.execute(sql)
-                cols = [d[0].lower() for d in cur.description]
-                for raw in cur.fetchall():
-                    row = dict(zip(cols, raw))
-                    out.append(
-                        MusitActorRow(
-                            schema=schema,
-                            actor_id=int(row["actor_id"]),
-                            actor_type=int(row["actor_type"])
-                            if row.get("actor_type") is not None
-                            else None,
-                            actorname=row.get("actorname"),
-                            birthdate=row.get("birthdate"),
-                            deathdate=row.get("deathdate"),
-                            email_address=row.get("email_address"),
-                            institution=row.get("institution"),
-                            note=row.get("note"),
-                            person_given_name=row.get("person_given_name"),
-                            person_surname=row.get("person_surname"),
-                            person_middle_name=row.get("person_middle_name"),
-                            title=row.get("title"),
-                        )
-                    )
-            logger.info(f"Fetched {sum(1 for r in out if r.schema == schema)} rows from {schema}.ACTOR")
-    finally:
-        connection.close()
-    logger.info(f"Total MUSIT ACTOR rows extracted: {len(out)}")
-    return out
+        agent = Agent(
+            agenttype=agent_type,
+            firstname=first,
+            lastname=last or "(unknown)",
+            middleinitial=middle,
+            title=title,
+            email=email,
+            dateofbirth=dob,
+            dateofdeath=dod,
+            division=division,
+            specifyuser=None,
+            remarks=remarks,
+        )
+        agent.save()
+        result.agents_created += 1
+        if processed_count % _PROGRESS_LOG_EVERY == 0:
+            logger.info(
+                f"Live progress: {processed_count} actors processed "
+                f"(created {result.agents_created}, skipped {result.agents_skipped})"
+            )
+    except Exception as exc:
+        msg = f"Error migrating {row.schema}.ACTOR_ID={row.actor_id}: {exc}"
+        logger.error(msg)
+        if len(result.errors) < _MAX_ERROR_LINES:
+            result.errors.append(msg)
+        elif len(result.errors) == _MAX_ERROR_LINES:
+            result.errors.append(
+                f"... further errors omitted (cap {_MAX_ERROR_LINES}); see worker logs"
+            )
 
 
-@task(retries=1, retry_delay_seconds=3)
-def load_musit_actors_to_specify(
-    rows: list[MusitActorRow],
+@task(retries=1, retry_delay_seconds=5)
+def extract_and_load_musit_agents_task(
+    oracle_env: str,
+    schemas: list[str],
     dry_run: bool = True,
-) -> MusitAgentMigrationResult:
+) -> MusitAgentRunOutcome:
+    """Extract ACTOR rows from Oracle and load into Specify in one task.
+
+    Avoids returning ~250k ``MusitActorRow`` objects across a Prefect task boundary
+    (large result serialization and memory). Logs at INFO every
+    ``_PROGRESS_LOG_EVERY`` rows instead of per row.
+    """
+    setup_django()
     logger = get_run_logger()
-    from specifyweb.specify.models import Agent, Division
+    from specifyweb.specify.models import Division
 
     division = Division.objects.first()
     if division is None:
         raise RuntimeError("No Division found in Specify — the database must be initialized first")
 
+    for s in schemas:
+        if s not in _ALLOWED_SCHEMAS:
+            raise ValueError(f"Unsupported schema: {s}")
+
     result = MusitAgentMigrationResult()
-    seen_schemas: set[str] = set()
+    type_counts: Counter[int | None] = Counter()
+    rows_per_schema: Counter[str] = Counter()
+    total = 0
 
-    for row in rows:
-        seen_schemas.add(row.schema)
-        marker = _remarks_marker(row.schema, row.actor_id)
-        existing = Agent.objects.filter(remarks=marker).first()
-        if existing is not None:
-            result.agents_skipped += 1
-            continue
+    config = get_oracle_config_from_env(oracle_env)
+    connection = create_oracle_connection(config)
+    try:
+        for schema in schemas:
+            sql = _sql_for_schema(schema)
+            with connection.cursor() as cur:
+                cur.execute(sql)
+                cols = [d[0].lower() for d in cur.description]
+                schema_count = 0
+                for raw in cur:
+                    total += 1
+                    schema_count += 1
+                    row = _row_from_raw(schema, cols, raw)
+                    type_counts[row.actor_type] += 1
+                    rows_per_schema[row.schema] += 1
+                    _process_one_musit_actor_row(
+                        row,
+                        division=division,
+                        dry_run=dry_run,
+                        logger=logger,
+                        result=result,
+                        processed_count=total,
+                    )
+            logger.info(f"Finished scanning {schema}.ACTOR ({schema_count} rows)")
+    finally:
+        connection.close()
 
-        agent_type = musit_actor_type_to_specify_agent_type(row.actor_type)
-        first = _trunc(row.person_given_name, 50)
-        last = _trunc(row.person_surname, 256)
-        if agent_type == 1 and not (first or last):
-            last = _trunc(row.actorname, 256) or "(unknown)"
-        if agent_type == 0 and not last:
-            last = _trunc(row.actorname, 256) or "(organization)"
+    result.schemas_processed = sorted(schemas)
 
-        email = _trunc(row.email_address, 50)
-        title = _trunc(row.title, 50)
-        middle = _trunc(row.person_middle_name, 50)
-
-        remarks_parts = [marker]
-        if row.institution:
-            remarks_parts.append(f"institution={_trunc(row.institution, 200)}")
-        if row.note:
-            remarks_parts.append(f"oracle_note={_trunc(row.note, 500)}")
-        remarks = "; ".join(remarks_parts)
-
-        dob = row.birthdate
-        dod = row.deathdate
-        if isinstance(dob, datetime):
-            dob = dob.date()
-        if isinstance(dod, datetime):
-            dod = dod.date()
-
-        if dry_run:
-            logger.info(
-                f"[DRY RUN] Would create Agent schema={row.schema} ACTOR_ID={row.actor_id} "
-                f"type={agent_type} name={first or ''} {last}"
-            )
-            result.agents_created += 1
-            continue
-
-        try:
-            agent = Agent(
-                agenttype=agent_type,
-                firstname=first,
-                lastname=last or "(unknown)",
-                middleinitial=middle,
-                title=title,
-                email=email,
-                dateofbirth=dob,
-                dateofdeath=dod,
-                division=division,
-                specifyuser=None,
-                remarks=remarks,
-            )
-            agent.save()
-            result.agents_created += 1
-            logger.info(f"Created Agent id={agent.id} for {row.schema}.ACTOR_ID={row.actor_id}")
-        except Exception as exc:
-            msg = f"Error migrating {row.schema}.ACTOR_ID={row.actor_id}: {exc}"
-            logger.error(msg)
-            result.errors.append(msg)
-
-    result.schemas_processed = sorted(seen_schemas)
-    return result
-
-
-def _actor_type_counts(rows: list[MusitActorRow]) -> dict[str, int]:
-    c = Counter(r.actor_type for r in rows)
-    ordered: dict[str, int] = {}
-    for k in sorted(c.keys(), key=lambda x: (x is None, x if x is not None else 0)):
+    actor_type_ordered: dict[str, int] = {}
+    for k in sorted(type_counts.keys(), key=lambda x: (x is None, x if x is not None else 0)):
         key = "null" if k is None else str(k)
-        ordered[key] = c[k]
-    return ordered
+        actor_type_ordered[key] = type_counts[k]
 
+    logger.info(
+        f"MUSIT agent extract+load task done: total_oracle_rows={total}, "
+        f"agents_created={result.agents_created}, skipped={result.agents_skipped}, "
+        f"errors={len(result.errors)}"
+    )
 
-def _rows_per_schema(rows: list[MusitActorRow]) -> dict[str, int]:
-    c = Counter(r.schema for r in rows)
-    return dict(sorted(c.items()))
+    return MusitAgentRunOutcome(
+        result=result,
+        oracle_actors_extracted=total,
+        oracle_rows_per_schema=dict(sorted(rows_per_schema.items())),
+        oracle_actor_type_counts=actor_type_ordered,
+    )
 
 
 def _musit_agent_report_dict(
@@ -266,9 +327,9 @@ def _musit_agent_report_dict(
     oracle_env: str,
     dry_run: bool,
     musit_schemas: list[str],
-    oracle_rows: list[MusitActorRow],
-    result: MusitAgentMigrationResult,
+    outcome: MusitAgentRunOutcome,
 ) -> dict:
+    r = outcome.result
     return {
         "report_version": 1,
         "flow": "migrate_musit_agents",
@@ -277,14 +338,14 @@ def _musit_agent_report_dict(
         "oracle_env": oracle_env,
         "dry_run": dry_run,
         "musit_schemas": list(musit_schemas),
-        "oracle_actors_extracted": len(oracle_rows),
-        "oracle_rows_per_schema": _rows_per_schema(oracle_rows),
-        "oracle_actor_type_counts": _actor_type_counts(oracle_rows),
-        "agents_created": result.agents_created,
-        "agents_skipped": result.agents_skipped,
+        "oracle_actors_extracted": outcome.oracle_actors_extracted,
+        "oracle_rows_per_schema": outcome.oracle_rows_per_schema,
+        "oracle_actor_type_counts": outcome.oracle_actor_type_counts,
+        "agents_created": r.agents_created,
+        "agents_skipped": r.agents_skipped,
         "agents_linked": 0,
-        "schemas_processed": result.schemas_processed,
-        "errors": result.errors,
+        "schemas_processed": r.schemas_processed,
+        "errors": r.errors,
     }
 
 
@@ -326,8 +387,8 @@ def migrate_musit_agents_flow(
 
     setup_django()
 
-    rows = extract_musit_actors(oracle_env, list(musit_schemas))
-    result = load_musit_actors_to_specify(rows, dry_run=dry_run)
+    outcome = extract_and_load_musit_agents_task(oracle_env, list(musit_schemas), dry_run)
+    result = outcome.result
 
     logger.info(
         f"MUSIT agent migration complete: created={result.agents_created}, "
@@ -335,9 +396,8 @@ def migrate_musit_agents_flow(
     )
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    prefix = os.getenv("S3_PREFIX", "oracle-schema").strip("/")
-    report = _musit_agent_report_dict(ts, oracle_env, dry_run, musit_schemas, rows, result)
-    s3_key = migration_report_s3_key(prefix, SPECIFY7_COLLECTION_AGENTS_ACTOR, ts)
+    report = _musit_agent_report_dict(ts, oracle_env, dry_run, musit_schemas, outcome)
+    s3_key = migration_report_s3_key(REPORT_CATEGORY_MUSIT_COLLECTION_AGENTS, ts)
     uploaded = upload_migration_report_json_task(report, s3_key)
     for uri in uploaded:
         logger.info(f"Uploaded report: {uri}")
@@ -345,7 +405,7 @@ def migrate_musit_agents_flow(
     return {
         "agents_created": result.agents_created,
         "agents_skipped": result.agents_skipped,
-        "oracle_actors_extracted": len(rows),
+        "oracle_actors_extracted": outcome.oracle_actors_extracted,
         "errors": result.errors,
         "schemas_processed": result.schemas_processed,
         "uploaded": uploaded,

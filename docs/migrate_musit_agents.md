@@ -27,6 +27,10 @@ Strategic background and table lists: [**Oracle Schema Overview — Persons, Age
 - **Prefect name:** `Migrate MUSIT Actors`
 - **Phase:** 1.1 (shared **collection** `Agent` rows before specimen migration).
 
+### Implementation note (memory and Prefect)
+
+Oracle returns on the order of **hundreds of thousands** of `ACTOR` rows. The flow uses a **single Prefect task** (`extract_and_load_musit_agents_task`) that streams rows from Oracle and applies the load in the same process, instead of returning a giant Python list across a task boundary (which would force Prefect to **serialize** the full result and roughly **double memory** use). **Dry-run** progress is logged at **INFO** every 5 000 rows; per-row lines are **DEBUG** only so the worker is not flooded with hundreds of thousands of log events (which can overwhelm log backends and look like a crash). The dev worker pod has a **1 Gi** memory limit in the default chart; if live (`dry_run: false`) runs OOM, raise `prefect.devWorker.resources.limits.memory` in Helm.
+
 ### Source
 
 For each selected schema, the flow reads **`ACTOR`** and joins **`PERSON_NAME`**:
@@ -63,7 +67,9 @@ Specify **`Agent`** via Django ORM:
 
 When `S3_BUCKET` is set, a JSON summary is uploaded to:
 
-`{S3_PREFIX}/migration-reports/specify7/collection-agents-musit-actor-person-name/<timestamp>/report.json`
+`{S3_MIGRATION_REPORTS_PREFIX}/collection-agents-musit-actor-person-name/<timestamp>/report.json`
+
+(Default prefix: `migration-reports` — see [**Migration reports on S3**](migration_s3_reports.md); not under `oracle-schema`.)
 
 The payload mirrors the user-migration style: shared metadata (`report_version`, `flow`, `migration_phase`, `generated_at_utc`, `oracle_env`, `dry_run`) plus flow-specific counts and diagnostics. See [**Migration reports on S3**](migration_s3_reports.md).
 
