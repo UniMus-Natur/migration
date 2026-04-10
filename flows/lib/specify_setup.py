@@ -45,16 +45,29 @@ def setup_django() -> None:
         except ImportError:
             pass
 
-    # Specify's settings/__init__.py requires build_version.py and
-    # secret_key.py to exist.  These are normally created by `make` (or by
-    # the Dockerfile), but a fresh git clone won't have them.
     _ensure_specify_build_stubs(specify_dir)
+    _patch_sqlalchemy_mapper()
 
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "specifyweb.settings")
 
     import django
     django.setup()
-    _DJANGO_INITIALIZED = True
+
+
+def _patch_sqlalchemy_mapper() -> None:
+    """Shim ``sqlalchemy.orm.mapper`` for SQLAlchemy 2.x.
+
+    Specify's ``stored_queries`` module calls the classical
+    ``orm.mapper()`` API that was removed in SQLAlchemy 2.0.
+    Prefect 3 requires SQLAlchemy 2, so we bridge the gap with
+    ``registry.map_imperatively`` which has the same signature.
+    """
+    import sqlalchemy
+    if not sqlalchemy.__version__.startswith("2"):
+        return
+    from sqlalchemy.orm import registry
+    _registry = registry()
+    sqlalchemy.orm.mapper = _registry.map_imperatively
 
 
 def _ensure_specify_build_stubs(specify_dir: str) -> None:
