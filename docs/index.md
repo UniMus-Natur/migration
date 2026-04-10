@@ -19,6 +19,7 @@ This documentation covers the planning, architecture, and execution of migrating
 - [**Database Fields**](database_fields.md): Auto-generated schema reference and ERD.
 - [**Oracle Schema Overview**](oracle_schema_overview.md): Deep analysis and grouping of the legacy source schemas and tables.
 - [**Migration Strategy (Phased)**](migration_strategy.md): Strategy for merging shared data and iteratively migrating datasets to Specify 7.
+- [**User migration report**](user_migration_report.md): `migration_report.json` from the Migrate Users Prefect flow (Phase 1.4).
 - [**Migration (ETL Technical)**](migration.md): ETL pipeline implementation details from Oracle to MariaDB.
 - [**NIRD Application Text**](nird_application.md): Text used in the Sigma2/NIRD application.
 - [**Specify + Feide SSO**](specify_feide_sso.md): Feide OIDC integration notes, onboarding model, and rollout guidance.

@@ -205,6 +205,8 @@ Two sub-categories worth distinguishing:
 2. Match or create the corresponding `Agent` (from Step 1.1) via name/email.
 3. Map `GRUPPE.MUSEUM` → Specify `Collection` access.
 
+The Prefect flow that performs the load writes a JSON summary artifact, **`migration_report.json`** (counts, errors, and a museum-group inventory). Field definitions, S3 layout, and how to interpret dry-run vs live runs are documented in [**User migration report**](user_migration_report.md).
+
 ---
 
 ### Phase 2 — Specimen Migration (one dataset at a time)
