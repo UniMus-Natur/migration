@@ -8,7 +8,7 @@ boto3
 # Database Drivers
 oracledb
 mysqlclient
-sqlalchemy
+SQLAlchemy>=1.4,<2
 
 # Data Analysis & Interactive Tools
 pandas
