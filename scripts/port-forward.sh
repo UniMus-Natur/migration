@@ -4,9 +4,9 @@ set -e
 # Port-forward cluster services and proxy Oracle databases to localhost.
 #
 # Usage:
-#   ./port-forward.sh              # forward everything
-#   ./port-forward.sh mariadb      # forward only specific targets
-#   ./port-forward.sh prefect db   # combine shortcuts
+#   scripts/port-forward.sh              # forward everything
+#   scripts/port-forward.sh mariadb      # forward only specific targets
+#   scripts/port-forward.sh prefect db   # combine shortcuts
 #
 # Targets:
 #   mariadb    MariaDB         localhost:3306
