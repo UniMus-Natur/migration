@@ -57,6 +57,23 @@ So this block is a **catalogue of legacy group labels by museum**, not a record 
 - **`users_created` == `agents_created` and `agents_linked` == 0` with `dry_run: true`** — Normal for a successful dry run: every non-skipped user would get one agent, nothing is linked in the database yet.
 - **`users_skipped` > 0** — Target Specify DB already contained some usernames; re-runs are idempotent for those accounts.
 - **`errors` non-empty** — Inspect messages; usernames appear in the formatted error strings from the flow.
+- **`users_created` > `agents_created` on a live run** — Can happen when `SpecifyUser.save()` succeeds but `Agent.save()` raises (for example column length limits on name or email). Django saves are not wrapped in a single database transaction per user in the current flow, so an orphan `SpecifyUser` without a linked `Agent` may exist for that Oracle account until it is fixed or removed manually.
+
+## Recorded outcome: first production load (2026-04-10)
+
+The following summarizes a **live** migration report generated at **`20260410T145733Z`** (`oracle_env`: **PROD**, `dry_run`: **false**). The same structural `group_to_museum_mapping` as in dry-run exports appeared; it is omitted here because it is large and only serves as a legacy group inventory.
+
+| Field | Value |
+|--------|--------|
+| `users_created` | 2361 |
+| `users_skipped` | 2 |
+| `agents_created` | 2360 |
+| `agents_linked` | 2360 |
+| `errors` | 2 |
+
+**Interpretation.** **2360** accounts received a full **SpecifyUser + Agent** pair (`agents_linked` matches **2360**). **Two** Oracle users were **skipped** because matching Specify usernames already existed. **Two** inserts **failed** with MariaDB **“Data too long”** for **`FirstName`** and **`EMail`** respectively. Those two source rows are **test or dummy** application accounts, not part of the real user population; **not migrating them is acceptable**, and the run is treated as an **operational success** for Phase 1.4.
+
+**Reconciling `users_created` (2361) with `agents_created` (2360).** One failure occurred **after** the login row was stored but **before** the person `Agent` row succeeded, which increments `users_created` but not `agents_created`. If the database should contain no login without an agent, remove or repair that stray `SpecifyUser` (or adjust Oracle/Specify field lengths and re-run for that account only).
 
 ## Data sensitivity
 
