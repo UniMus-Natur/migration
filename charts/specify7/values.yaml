@@ -67,34 +67,37 @@ persistence:
   mainSubPath: ""
 
 # Secret Management
+#
+# Credentials flow:
+#   mariadb.auth.*          → MariaDB subchart creates the DB user/password.
+#   secret-config.yaml      → Helm-generated Python settings with env-var overrides.
+#   secrets.existingSecret  → Optional K8s Secret injected as env vars into all pods.
+#
+# Quick start with a .env file:
+#   kubectl create secret generic my-app-secret --from-env-file=.env
+#   Then set:
+#     secrets.existingSecret: my-app-secret
+#     mariadb.auth.existingSecret: my-app-secret
 secrets:
-  # If defined, inject env vars from this existing Secret (e.g. from a .env file)
   existingSecret: ""
 
-# Database Credentials & Settings
+# Specify7 Application Settings
+#
+# Database credentials are NOT duplicated here — they live under mariadb.auth
+# and are referenced directly from the templates.  The fields below cover only
+# the non-database application config.
 specify:
   database:
-    name: "specify"
-    # When mariadb.enabled=true, host is typically "{{ .Release.Name }}-mariadb"
-    # We will handle this logic in secret-config.yaml or you can hardcode it here.
-    # For now, we assume the user will set this or we default to the subchart service name.
-    host: ""
+    host: ""   # auto-set to <release>-mariadb when mariadb.enabled=true
     port: 3306
-  user:
-    masterName: "bn_specify" # Default user for bitnami/mariadb is usually 'bn_myapp' or custom
-    masterPassword: "password"
-  admin:
-    username: "admin"
-    password: "password"
   secretKey: "change-me-in-production"
+  attachmentKey: "change-me"
   debug: true
-  # Django host/origin security settings.
   allowedHosts:
     - "*"
   csrfTrustedOrigins:
     - "https://*"
     - "http://*"
-  assetServerKey: "change-me"
 
 # Asset Server Configuration
 assetServer:
@@ -126,7 +129,12 @@ redis:
       # Redis is used as a broker/cache here, persistence might not be strictly needed for this use case
       # or should be enabled for reliability. Keeping false for simplicity/dev.
 
-# MariaDB Sub-chart Configuration (Bitnami)
+# MariaDB Sub-chart (Bitnami)
+#
+# These are the single source of truth for database credentials.
+# secret-config.yaml references mariadb.auth.* directly so there is no
+# duplication.  When using an existingSecret the Secret must contain keys
+# "mariadb-root-password" and "mariadb-password" (Bitnami's fixed names).
 mariadb:
   enabled: true
   auth:
@@ -134,18 +142,10 @@ mariadb:
     username: "bn_specify"
     password: "password"
     rootPassword: "root-password"
+    existingSecret: ""
   primary:
     persistence:
       enabled: true
-      # size: 8Gi # Ignored when existingClaim is used
-      # Use global existingClaim/subPath if defined manually here,
-      # or we rely on the user to populate these in values.yaml correctly.
-      # existingClaim: ""
-      # subPath: "MariaDB"
-      # Since we want to support both modes, we'll leave these empty by default in values.yaml
-      # and let the user override them (like in staging.values.yaml) or we can link them template-wise?
-      # Bitnami charts don't support "global.persistence" inheritance automatically usually.
-      # So we should expose them in values.yaml for clarity.
       existingClaim: ""
       subPath: ""
     resources:

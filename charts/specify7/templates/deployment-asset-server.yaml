@@ -46,7 +46,7 @@ spec:
             - name: SERVER_PORT
               value: "80"
             - name: ATTACHMENT_KEY
-              value: {{ .Values.specify.assetServerKey | quote }}
+              value: {{ .Values.specify.attachmentKey | quote }}
             - name: DEBUG_MODE
               value: "false"
           {{- if .Values.secrets.existingSecret }}
