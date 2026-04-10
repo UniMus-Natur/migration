@@ -16,7 +16,7 @@ The report captures **run metadata**, **aggregate counts**, **per-user error mes
 
 1. **Extract** — Users, memberships, and groups are read from `USD_METADATA.BRUKARAR`, `BRUKERNAVN_GRUPPE`, and `GRUPPE`.
 2. **Load** — For each Oracle user, the flow either skips (existing `SpecifyUser` with the same username), simulates creation (`dry_run=True`), or creates `SpecifyUser` and `Agent` via the Django ORM (`dry_run=False`).
-3. **Report** — The flow builds a JSON object and, when `S3_BUCKET` is set, uploads it with `upload_file_with_compat_retry` to object storage. If `S3_BUCKET` is unset, nothing is uploaded; the Prefect run return value still includes the same counters and error list.
+3. **Report** — The flow builds a JSON object and, when `S3_BUCKET` is set (non-empty), uploads it with `upload_file_with_compat_retry` to object storage. If `S3_BUCKET` is unset, nothing is uploaded; the Prefect run return value still includes the same counters and error list, plus **`report_uploaded`: `false`** and an empty **`uploaded`** list (see flow logs for a warning).
 
 S3 object key (timestamp is UTC at upload time; shared layout with other flows):
 

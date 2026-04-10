@@ -295,8 +295,15 @@ def _build_agent_remarks(ou: OracleUser) -> str:
 # ---------------------------------------------------------------------------
 
 def _upload_report(result: MigrationResult, oracle_env: str, dry_run: bool) -> list[str]:
-    bucket = os.getenv("S3_BUCKET")
+    log = get_run_logger()
+    bucket = (os.getenv("S3_BUCKET") or "").strip()
     if not bucket:
+        log.warning(
+            "S3_BUCKET is not set (or empty): skipping migration report upload. "
+            "Set S3_BUCKET and S3 credentials on the process running this flow "
+            "(e.g. Kubernetes secret envFrom for the Prefect dev worker) to write "
+            "report.json under migration-reports/…"
+        )
         return []
 
     prefix = os.getenv("S3_PREFIX", "oracle-schema").strip("/")
@@ -322,8 +329,10 @@ def _upload_report(result: MigrationResult, oracle_env: str, dry_run: bool) -> l
     with tempfile.TemporaryDirectory(prefix="user-migration-") as tmp:
         out = Path(tmp) / "report.json"
         out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        uri = f"s3://{bucket}/{key}"
+        log.info(f"Uploading user migration report to {uri}")
         upload_file_with_compat_retry(str(out), bucket, key)
-        uploaded.append(f"s3://{bucket}/{key}")
+        uploaded.append(uri)
 
     return uploaded
 
@@ -389,4 +398,5 @@ def migrate_users_flow(
         "agents_linked": result.agents_linked,
         "errors": result.errors,
         "uploaded": uploaded,
+        "report_uploaded": bool(uploaded),
     }

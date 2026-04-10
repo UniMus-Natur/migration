@@ -271,8 +271,13 @@ def _upload_report(
     musit_schemas: list[str],
     oracle_rows: list[MusitActorRow],
 ) -> list[str]:
-    bucket = os.getenv("S3_BUCKET")
+    log = get_run_logger()
+    bucket = (os.getenv("S3_BUCKET") or "").strip()
     if not bucket:
+        log.warning(
+            "S3_BUCKET is not set (or empty): skipping MUSIT agent migration report upload. "
+            "Set S3_BUCKET and S3 credentials on the process running this flow."
+        )
         return []
 
     prefix = os.getenv("S3_PREFIX", "oracle-schema").strip("/")
@@ -301,8 +306,10 @@ def _upload_report(
     with tempfile.TemporaryDirectory(prefix="musit-agent-migration-") as tmp:
         out = Path(tmp) / "report.json"
         out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        uri = f"s3://{bucket}/{key}"
+        log.info(f"Uploading MUSIT agent migration report to {uri}")
         upload_file_with_compat_retry(str(out), bucket, key)
-        uploaded.append(f"s3://{bucket}/{key}")
+        uploaded.append(uri)
 
     return uploaded
 
@@ -364,4 +371,5 @@ def migrate_musit_agents_flow(
         "errors": result.errors,
         "schemas_processed": result.schemas_processed,
         "uploaded": uploaded,
+        "report_uploaded": bool(uploaded),
     }

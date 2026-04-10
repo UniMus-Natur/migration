@@ -58,3 +58,15 @@ Flow-specific counters and arrays follow (see the per-flow docs).
 ## Historical note
 
 Older runs may still exist under `{S3_PREFIX}/user-migration/…/migration_report.json` or `{S3_PREFIX}/musit-agent-migration/…`. New uploads use the layout above.
+
+## Troubleshooting: “nothing appeared in the bucket”
+
+1. **`S3_BUCKET` must be set where the flow runs.** If it is missing or blank, uploads are **skipped** (the flow still completes). The Prefect UI result includes `report_uploaded: false` and an empty `uploaded` list. Check **flow run logs** for a warning starting with `S3_BUCKET is not set`.
+2. **In-cluster worker:** The dev worker loads env from `secrets.existingSecret` (`envFrom`). Ensure that Kubernetes `Secret` contains **`S3_BUCKET`** (and credentials such as `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` or `AWS_*`, plus `S3_ENDPOINT_URL` if you use MinIO). A local `.env` on your laptop is **not** injected into the pod automatically.
+3. **Look under the new prefix:** Objects are under  
+   `{S3_PREFIX}/migration-reports/specify7/…/<timestamp>/report.json`  
+   not the old `user-migration/` paths.
+4. **If upload fails** (permissions, network policy, wrong endpoint), the flow run should **fail** with a boto `ClientError` — check the run’s exception and worker logs.
+
+After a successful upload, logs include a line like  
+`Uploading … report to s3://<bucket>/<key>`.
