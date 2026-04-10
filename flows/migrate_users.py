@@ -17,10 +17,8 @@ from __future__ import annotations
 import json
 import os
 import re
-import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
 
 from prefect import flow, task, get_run_logger
 
@@ -28,11 +26,11 @@ from flows.lib.migration_report_s3 import (
     SPECIFY7_APP_USERS_BRUKARAR,
     migration_report_s3_key,
 )
+from flows.lib.migration_report_upload import upload_migration_report_json_task
 from flows.lib.oracle_connectivity import (
     create_oracle_connection,
     get_oracle_config_from_env,
 )
-from flows.lib.s3_connectivity import upload_file_with_compat_retry
 from flows.lib.specify_setup import setup_django
 
 
@@ -294,23 +292,13 @@ def _build_agent_remarks(ou: OracleUser) -> str:
 # Artifact upload
 # ---------------------------------------------------------------------------
 
-def _upload_report(result: MigrationResult, oracle_env: str, dry_run: bool) -> list[str]:
-    log = get_run_logger()
-    bucket = (os.getenv("S3_BUCKET") or "").strip()
-    if not bucket:
-        log.warning(
-            "S3_BUCKET is not set (or empty): skipping migration report upload. "
-            "Set S3_BUCKET and S3 credentials on the process running this flow "
-            "(e.g. Kubernetes secret envFrom for the Prefect dev worker) to write "
-            "report.json under migration-reports/…"
-        )
-        return []
-
-    prefix = os.getenv("S3_PREFIX", "oracle-schema").strip("/")
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    key = migration_report_s3_key(prefix, SPECIFY7_APP_USERS_BRUKARAR, ts)
-
-    report = {
+def _user_migration_report_dict(
+    ts: str,
+    oracle_env: str,
+    dry_run: bool,
+    result: MigrationResult,
+) -> dict:
+    return {
         "report_version": 1,
         "flow": "migrate_users",
         "migration_phase": "1.4",
@@ -324,17 +312,6 @@ def _upload_report(result: MigrationResult, oracle_env: str, dry_run: bool) -> l
         "errors": result.errors,
         "group_to_museum_mapping": result.group_mapping,
     }
-
-    uploaded = []
-    with tempfile.TemporaryDirectory(prefix="user-migration-") as tmp:
-        out = Path(tmp) / "report.json"
-        out.write_text(json.dumps(report, indent=2), encoding="utf-8")
-        uri = f"s3://{bucket}/{key}"
-        log.info(f"Uploading user migration report to {uri}")
-        upload_file_with_compat_retry(str(out), bucket, key)
-        uploaded.append(uri)
-
-    return uploaded
 
 
 # ---------------------------------------------------------------------------
@@ -385,7 +362,11 @@ def migrate_users_flow(
         for err in result.errors:
             logger.warning(f"  {err}")
 
-    uploaded = _upload_report(result, oracle_env, dry_run)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    prefix = os.getenv("S3_PREFIX", "oracle-schema").strip("/")
+    report = _user_migration_report_dict(ts, oracle_env, dry_run, result)
+    s3_key = migration_report_s3_key(prefix, SPECIFY7_APP_USERS_BRUKARAR, ts)
+    uploaded = upload_migration_report_json_task(report, s3_key)
     if uploaded:
         logger.info("Uploaded report artifacts:")
         for uri in uploaded:

@@ -14,13 +14,10 @@ into a single Specify Agent is not implemented here — see docs/migrate_musit_a
 
 from __future__ import annotations
 
-import json
 import os
-import tempfile
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
-from pathlib import Path
 
 from prefect import flow, get_run_logger, task
 
@@ -28,11 +25,11 @@ from flows.lib.migration_report_s3 import (
     SPECIFY7_COLLECTION_AGENTS_ACTOR,
     migration_report_s3_key,
 )
+from flows.lib.migration_report_upload import upload_migration_report_json_task
 from flows.lib.oracle_connectivity import (
     create_oracle_connection,
     get_oracle_config_from_env,
 )
-from flows.lib.s3_connectivity import upload_file_with_compat_retry
 from flows.lib.specify_setup import setup_django
 
 # Only schemas present in our Oracle inventory and used for specimen events.
@@ -264,27 +261,15 @@ def _rows_per_schema(rows: list[MusitActorRow]) -> dict[str, int]:
     return dict(sorted(c.items()))
 
 
-def _upload_report(
-    result: MusitAgentMigrationResult,
+def _musit_agent_report_dict(
+    ts: str,
     oracle_env: str,
     dry_run: bool,
     musit_schemas: list[str],
     oracle_rows: list[MusitActorRow],
-) -> list[str]:
-    log = get_run_logger()
-    bucket = (os.getenv("S3_BUCKET") or "").strip()
-    if not bucket:
-        log.warning(
-            "S3_BUCKET is not set (or empty): skipping MUSIT agent migration report upload. "
-            "Set S3_BUCKET and S3 credentials on the process running this flow."
-        )
-        return []
-
-    prefix = os.getenv("S3_PREFIX", "oracle-schema").strip("/")
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    key = migration_report_s3_key(prefix, SPECIFY7_COLLECTION_AGENTS_ACTOR, ts)
-
-    report = {
+    result: MusitAgentMigrationResult,
+) -> dict:
+    return {
         "report_version": 1,
         "flow": "migrate_musit_agents",
         "migration_phase": "1.1",
@@ -301,17 +286,6 @@ def _upload_report(
         "schemas_processed": result.schemas_processed,
         "errors": result.errors,
     }
-
-    uploaded = []
-    with tempfile.TemporaryDirectory(prefix="musit-agent-migration-") as tmp:
-        out = Path(tmp) / "report.json"
-        out.write_text(json.dumps(report, indent=2), encoding="utf-8")
-        uri = f"s3://{bucket}/{key}"
-        log.info(f"Uploading MUSIT agent migration report to {uri}")
-        upload_file_with_compat_retry(str(out), bucket, key)
-        uploaded.append(uri)
-
-    return uploaded
 
 
 @flow(
@@ -360,7 +334,11 @@ def migrate_musit_agents_flow(
         f"skipped={result.agents_skipped}, errors={len(result.errors)}"
     )
 
-    uploaded = _upload_report(result, oracle_env, dry_run, musit_schemas, rows)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    prefix = os.getenv("S3_PREFIX", "oracle-schema").strip("/")
+    report = _musit_agent_report_dict(ts, oracle_env, dry_run, musit_schemas, rows, result)
+    s3_key = migration_report_s3_key(prefix, SPECIFY7_COLLECTION_AGENTS_ACTOR, ts)
+    uploaded = upload_migration_report_json_task(report, s3_key)
     for uri in uploaded:
         logger.info(f"Uploaded report: {uri}")
 
