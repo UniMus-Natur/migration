@@ -52,6 +52,16 @@ export PREFECT_API_URL=http://127.0.0.1:4200/api
 prefect deploy --all
 ```
 
+**Non-interactive deploys:** This repo includes a root [`prefect.toml`](../prefect.toml) with `[cli] prompt = false`, so Prefect loads **`PREFECT_CLI_PROMPT=false`** when your shell’s current working directory is the project root (see `prefect config view`). You should not get per-deployment confirmation prompts. If you run Prefect from elsewhere, either `cd` into the repo first, use an explicit flag, or set the variable for that shell:
+
+```bash
+prefect deploy --no-prompt --all
+# or
+PREFECT_CLI_PROMPT=false prefect deploy --all
+```
+
+To persist the setting in a **Prefect profile** instead of `prefect.toml`, use `prefect config set PREFECT_CLI_PROMPT=false` (writes to the active profile; see [Settings and profiles](https://docs.prefect.io/v3/concepts/settings-and-profiles)).
+
 5. Run PROD connectivity check (Oracle + S3 preflight):
 
 ```bash

@@ -24,6 +24,10 @@ from pathlib import Path
 
 from prefect import flow, task, get_run_logger
 
+from flows.lib.migration_report_s3 import (
+    SPECIFY7_APP_USERS_BRUKARAR,
+    migration_report_s3_key,
+)
 from flows.lib.oracle_connectivity import (
     create_oracle_connection,
     get_oracle_config_from_env,
@@ -297,9 +301,12 @@ def _upload_report(result: MigrationResult, oracle_env: str, dry_run: bool) -> l
 
     prefix = os.getenv("S3_PREFIX", "oracle-schema").strip("/")
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    base = f"{prefix}/user-migration/{ts}" if prefix else f"user-migration/{ts}"
+    key = migration_report_s3_key(prefix, SPECIFY7_APP_USERS_BRUKARAR, ts)
 
     report = {
+        "report_version": 1,
+        "flow": "migrate_users",
+        "migration_phase": "1.4",
         "generated_at_utc": ts,
         "oracle_env": oracle_env,
         "dry_run": dry_run,
@@ -313,9 +320,8 @@ def _upload_report(result: MigrationResult, oracle_env: str, dry_run: bool) -> l
 
     uploaded = []
     with tempfile.TemporaryDirectory(prefix="user-migration-") as tmp:
-        out = Path(tmp) / "migration_report.json"
+        out = Path(tmp) / "report.json"
         out.write_text(json.dumps(report, indent=2), encoding="utf-8")
-        key = f"{base}/migration_report.json"
         upload_file_with_compat_retry(str(out), bucket, key)
         uploaded.append(f"s3://{bucket}/{key}")
 

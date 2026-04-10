@@ -61,9 +61,29 @@ Specify **`Agent`** via Django ORM:
 
 ### Report artifact
 
-When `S3_BUCKET` is set, a JSON summary is uploaded to  
-`{S3_PREFIX}/musit-agent-migration/<timestamp>/musit_agent_migration_report.json`  
-(fields: `generated_at_utc`, `oracle_env`, `dry_run`, `agents_created`, `agents_skipped`, `schemas_processed`, `errors`).
+When `S3_BUCKET` is set, a JSON summary is uploaded to:
+
+`{S3_PREFIX}/migration-reports/specify7/collection-agents-musit-actor-person-name/<timestamp>/report.json`
+
+The payload mirrors the user-migration style: shared metadata (`report_version`, `flow`, `migration_phase`, `generated_at_utc`, `oracle_env`, `dry_run`) plus flow-specific counts and diagnostics. See [**Migration reports on S3**](migration_s3_reports.md).
+
+| Field | Type | Description |
+|--------|------|-------------|
+| `report_version` | integer | JSON shape version (`1`). |
+| `flow` | string | `migrate_musit_agents`. |
+| `migration_phase` | string | `1.1`. |
+| `generated_at_utc` | string | UTC folder timestamp. |
+| `oracle_env` | string | Oracle env prefix. |
+| `dry_run` | boolean | No `Agent` rows written when `true`. |
+| `musit_schemas` | array of strings | Schemas included in the run. |
+| `oracle_actors_extracted` | integer | Rows returned from Oracle for all schemas. |
+| `oracle_rows_per_schema` | object | Count of Oracle rows per schema key. |
+| `oracle_actor_type_counts` | object | Raw MUSIT `ACTOR_TYPE` counts (keys `"0"`, `"1"`, `"2"`, `"null"`). |
+| `agents_created` | integer | Agents inserted or simulated. |
+| `agents_skipped` | integer | Already present (matching `remarks` marker). |
+| `agents_linked` | integer | Always `0` here (no `SpecifyUser` on these agents). |
+| `schemas_processed` | array | Distinct schemas seen while loading. |
+| `errors` | array of strings | Per-row failures. |
 
 ## What this flow does **not** do yet
 

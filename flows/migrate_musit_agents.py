@@ -17,12 +17,17 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 from prefect import flow, get_run_logger, task
 
+from flows.lib.migration_report_s3 import (
+    SPECIFY7_COLLECTION_AGENTS_ACTOR,
+    migration_report_s3_key,
+)
 from flows.lib.oracle_connectivity import (
     create_oracle_connection,
     get_oracle_config_from_env,
@@ -245,35 +250,57 @@ def load_musit_actors_to_specify(
     return result
 
 
+def _actor_type_counts(rows: list[MusitActorRow]) -> dict[str, int]:
+    c = Counter(r.actor_type for r in rows)
+    ordered: dict[str, int] = {}
+    for k in sorted(c.keys(), key=lambda x: (x is None, x if x is not None else 0)):
+        key = "null" if k is None else str(k)
+        ordered[key] = c[k]
+    return ordered
+
+
+def _rows_per_schema(rows: list[MusitActorRow]) -> dict[str, int]:
+    c = Counter(r.schema for r in rows)
+    return dict(sorted(c.items()))
+
+
 def _upload_report(
     result: MusitAgentMigrationResult,
     oracle_env: str,
     dry_run: bool,
+    musit_schemas: list[str],
+    oracle_rows: list[MusitActorRow],
 ) -> list[str]:
     bucket = os.getenv("S3_BUCKET")
     if not bucket:
         return []
 
     prefix = os.getenv("S3_PREFIX", "oracle-schema").strip("/")
-
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    base = f"{prefix}/musit-agent-migration/{ts}" if prefix else f"musit-agent-migration/{ts}"
+    key = migration_report_s3_key(prefix, SPECIFY7_COLLECTION_AGENTS_ACTOR, ts)
 
     report = {
+        "report_version": 1,
+        "flow": "migrate_musit_agents",
+        "migration_phase": "1.1",
         "generated_at_utc": ts,
         "oracle_env": oracle_env,
         "dry_run": dry_run,
+        "musit_schemas": list(musit_schemas),
+        "oracle_actors_extracted": len(oracle_rows),
+        "oracle_rows_per_schema": _rows_per_schema(oracle_rows),
+        "oracle_actor_type_counts": _actor_type_counts(oracle_rows),
         "agents_created": result.agents_created,
         "agents_skipped": result.agents_skipped,
+        "agents_linked": 0,
         "schemas_processed": result.schemas_processed,
         "errors": result.errors,
     }
 
     uploaded = []
     with tempfile.TemporaryDirectory(prefix="musit-agent-migration-") as tmp:
-        out = Path(tmp) / "musit_agent_migration_report.json"
+        out = Path(tmp) / "report.json"
         out.write_text(json.dumps(report, indent=2), encoding="utf-8")
-        key = f"{base}/musit_agent_migration_report.json"
         upload_file_with_compat_retry(str(out), bucket, key)
         uploaded.append(f"s3://{bucket}/{key}")
 
@@ -326,13 +353,14 @@ def migrate_musit_agents_flow(
         f"skipped={result.agents_skipped}, errors={len(result.errors)}"
     )
 
-    uploaded = _upload_report(result, oracle_env, dry_run)
+    uploaded = _upload_report(result, oracle_env, dry_run, musit_schemas, rows)
     for uri in uploaded:
         logger.info(f"Uploaded report: {uri}")
 
     return {
         "agents_created": result.agents_created,
         "agents_skipped": result.agents_skipped,
+        "oracle_actors_extracted": len(rows),
         "errors": result.errors,
         "schemas_processed": result.schemas_processed,
         "uploaded": uploaded,

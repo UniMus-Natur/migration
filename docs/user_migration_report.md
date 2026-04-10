@@ -18,10 +18,12 @@ The report captures **run metadata**, **aggregate counts**, **per-user error mes
 2. **Load** — For each Oracle user, the flow either skips (existing `SpecifyUser` with the same username), simulates creation (`dry_run=True`), or creates `SpecifyUser` and `Agent` via the Django ORM (`dry_run=False`).
 3. **Report** — The flow builds a JSON object and, when `S3_BUCKET` is set, uploads it with `upload_file_with_compat_retry` to object storage. If `S3_BUCKET` is unset, nothing is uploaded; the Prefect run return value still includes the same counters and error list.
 
-Object key pattern (timestamp is UTC at upload time):
+S3 object key (timestamp is UTC at upload time; shared layout with other flows):
 
-- With prefix: `{S3_PREFIX}/user-migration/{YYYYMMDDTHHMMSSZ}/migration_report.json`
+- `{S3_PREFIX}/migration-reports/specify7/application-users-usd-metadata-brukarar/{YYYYMMDDTHHMMSSZ}/report.json`
 - Default `S3_PREFIX` if unset: `oracle-schema`
+
+See [**Migration reports on S3**](migration_s3_reports.md) for the full convention and how to add future flows.
 
 A copy saved under `schemas/migration_report.json` is useful locally but is **gitignored**; treat any checked-out path as a generated sample, not source of truth.
 
@@ -29,6 +31,9 @@ A copy saved under `schemas/migration_report.json` is useful locally but is **gi
 
 | Field | Type | Description |
 |--------|------|-------------|
+| `report_version` | integer | Schema version for this JSON shape (currently `1`). |
+| `flow` | string | Always `migrate_users` for this artifact. |
+| `migration_phase` | string | Strategy phase (`1.4`). |
 | `generated_at_utc` | string | UTC timestamp when the report file was written, format `YYYYMMDDTHHMMSSZ`. |
 | `oracle_env` | string | Flow parameter (e.g. `PROD`, `TEST`) selecting Oracle connection settings from the environment. |
 | `dry_run` | boolean | `true`: no `SpecifyUser`/`Agent` rows are persisted; counts reflect what **would** be created for users not already present. `false`: creates are attempted. |
