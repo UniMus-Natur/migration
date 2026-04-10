@@ -7,13 +7,15 @@ local settings when running outside Kubernetes, and calls ``django.setup()``.
 import os
 import sys
 
-_DJANGO_INITIALIZED = False
-
-
 def setup_django() -> None:
-    """Idempotent Django bootstrap – safe to call multiple times."""
-    global _DJANGO_INITIALIZED
-    if _DJANGO_INITIALIZED:
+    """Idempotent Django bootstrap – safe to call multiple times.
+
+    Guards on Django's own ``apps.ready`` flag so retried Prefect tasks
+    that call this again after a partial init don't hit the
+    "populate() isn't reentrant" error.
+    """
+    from django.apps import apps
+    if apps.ready:
         return
 
     # pymysql shim (only needed when mysqlclient is not available)

@@ -191,7 +191,6 @@ def load_users_to_specify(
 ) -> MigrationResult:
     """Create SpecifyUser + Agent records via the Django ORM."""
     logger = get_run_logger()
-    setup_django()
 
     from specifyweb.specify.models import Agent, Specifyuser, Division
 
@@ -347,6 +346,8 @@ def migrate_users_flow(
     """
     logger = get_run_logger()
     logger.info(f"Starting user migration (oracle_env={oracle_env}, dry_run={dry_run})")
+
+    setup_django()
 
     oracle_users = extract_oracle_users(oracle_env)
     result = load_users_to_specify(oracle_users, dry_run=dry_run)
