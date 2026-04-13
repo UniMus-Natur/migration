@@ -169,7 +169,7 @@ def reconcile_structure(config: StructureConfig, *, dry_run: bool = True) -> Rec
         discipline: Discipline,
         code: str,
         display_name: str,
-        catalognumberformatname: str | None,
+        catalognumformatname: str | None,
         *,
         dry_run_inner: bool,
         result_inner: ReconcileResult,
@@ -189,7 +189,7 @@ def reconcile_structure(config: StructureConfig, *, dry_run: bool = True) -> Rec
             result_inner.collections_created += 1
             logger.info("Would create collection: %s", code)
             return
-        fmt = (catalognumberformatname or code or "CatalogNumber").strip() or "CatalogNumber"
+        fmt = (catalognumformatname or code or "CatalogNumber").strip() or "CatalogNumber"
         if len(fmt) > 64:
             fmt = fmt[:64]
         payload = normalize_keys(
@@ -197,12 +197,15 @@ def reconcile_structure(config: StructureConfig, *, dry_run: bool = True) -> Rec
                 "discipline_id": discipline.id,
                 "code": norm_code(code),
                 "collectionname": norm_name(display_name) or norm_code(code),
-                "catalognumberformatname": fmt,
+                # Field name on Collection model is catalognumformatname (no "ber").
+                "catalognumformatname": fmt,
                 "isembeddedcollectingevent": False,
             }
         )
         try:
-            setup_api.create_collection(payload, run_fix_schema_config_async=True)
+            # run_fix_schema_config_async=False: run synchronously here rather than
+            # queuing a Celery task (same approach as setup_database_task).
+            setup_api.create_collection(payload, run_fix_schema_config_async=False)
         except setup_api.SetupError as e:
             result_inner.errors.append(
                 f"collection {code!r} (discipline {discipline.name!r}): {e}"
