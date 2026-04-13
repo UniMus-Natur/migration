@@ -66,6 +66,7 @@ def sync_specify_structure_flow(
     logger.info("Loading structure config from %s", path)
     config = load_structure_config(path)
 
+    # Must run before reconcile_structure (imports specifyweb lazily there).
     setup_django()
     result = reconcile_structure(config, dry_run=dry_run)
 
