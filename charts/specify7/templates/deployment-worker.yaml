@@ -64,13 +64,50 @@ spec:
               value: "$(DB_PORT)"
               {{- end }}
             - name: DATABASE_NAME
+              {{- if .Values.mariadb.enabled }}
+              value: "{{ .Values.mariadb.auth.database }}"
+              {{- else }}
               value: "$(DB_NAME)"
+              {{- end }}
             - name: MASTER_NAME
+              {{- if .Values.mariadb.enabled }}
+              value: "{{ .Values.mariadb.auth.username }}"
+              {{- else }}
               value: "$(DB_USER)"
+              {{- end }}
             - name: MASTER_PASSWORD
+              {{- if .Values.mariadb.enabled }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mariadb.auth.existingSecret }}
+                  key: mariadb-password
+              {{- else }}
               value: "$(DB_PASSWORD)"
+              {{- end }}
             - name: MYSQL_ROOT_PASSWORD
+              {{- if .Values.mariadb.enabled }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mariadb.auth.existingSecret }}
+                  key: mariadb-root-password
+              {{- else }}
               value: "$(DB_PASSWORD)"
+              {{- end }}
+            - name: APP_USER_NAME
+              {{- if .Values.mariadb.enabled }}
+              value: "{{ .Values.mariadb.auth.username }}"
+              {{- else }}
+              value: "$(DB_USER)"
+              {{- end }}
+            - name: APP_USER_PASSWORD
+              {{- if .Values.mariadb.enabled }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mariadb.auth.existingSecret }}
+                  key: mariadb-password
+              {{- else }}
+              value: "$(DB_PASSWORD)"
+              {{- end }}
           {{- if .Values.secrets.existingSecret }}
           envFrom:
             - secretRef:
