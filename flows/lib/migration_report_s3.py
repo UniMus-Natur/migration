@@ -17,6 +17,7 @@ _DEFAULT_REPORTS_ROOT = "migration-reports"
 # One folder segment per flow type (under ``S3_MIGRATION_REPORTS_PREFIX``).
 REPORT_CATEGORY_APP_USERS_BRUKARAR = "application-users-usd-metadata-brukarar"
 REPORT_CATEGORY_MUSIT_COLLECTION_AGENTS = "collection-agents-musit-actor-person-name"
+REPORT_CATEGORY_SPECIFY_STRUCTURE_SYNC = "specify-structure-sync"
 
 
 def migration_reports_s3_root() -> str:

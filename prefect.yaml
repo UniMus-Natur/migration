@@ -73,3 +73,15 @@ deployments:
     work_pool:
       name: dev-process
       work_queue_name: default
+
+  - name: sync-specify-structure-dev
+    version: 1.0.0
+    tags: ["specify", "structure", "staging", "dev"]
+    description: "Post-bootstrap: create missing divisions/disciplines/collections from YAML (idempotent)"
+    entrypoint: flows/sync_specify_structure.py:sync_specify_structure_flow
+    parameters:
+      config_path: "config/specify_structure/unimus_natur.yaml"
+      dry_run: true
+    work_pool:
+      name: dev-process
+      work_queue_name: default

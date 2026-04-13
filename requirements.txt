@@ -11,3 +11,4 @@ mysqlclient
 
 # Data Analysis & Interactive Tools
 pandas
+pyyaml>=6,<7

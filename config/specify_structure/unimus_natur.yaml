@@ -1,0 +1,40 @@
+# Desired Specify 7 hierarchy (post-bootstrap: institution already exists).
+# Sync with: flows/sync_specify_structure.py
+#
+# institution_name: must match an existing Institution row.
+# divisions / disciplines / collections: additive only (create-if-missing).
+
+institution_name: "UniMus:Natur"
+
+divisions:
+  - name: Biology
+    disciplines:
+      - name: Karplanter Moser
+        type: botany
+        collections:
+          - { code: NHM, name: NHM }
+          - { code: UM, name: UM }
+          - { code: UTM, name: UTM }
+          - { code: VM, name: VM }
+          - { code: NBH, name: NBH }
+      - name: Alger
+        type: botany
+      - name: Lav Sopp
+        type: botany
+      - name: Insekter
+        type: entomology
+      - name: Marine invertebrater
+        type: invertebrate zoology
+      - name: Pattedyr
+        type: vertebrate zoology
+      - name: Fugl
+        type: vertebrate zoology
+      - name: Fisk og herptiler
+        type: vertebrate zoology
+
+  - name: Geology/paleontology
+    disciplines:
+      - name: Geologi
+        type: geology
+      - name: Paleontologi
+        type: invertpaleo
