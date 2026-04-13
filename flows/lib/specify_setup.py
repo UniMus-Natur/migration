@@ -40,8 +40,19 @@ def setup_django() -> None:
 
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "specifyweb.settings")
 
-    import django
-    django.setup()
+    # Specify loads some JSON via paths relative to the ``specify7`` directory
+    # (e.g. ``uniqueness_rules.open('specifyweb/backend/...')``). Prefect workers
+    # usually cwd to the repo root, so temporarily chdir for ``django.setup()``.
+    _prev_cwd = os.getcwd()
+    try:
+        os.chdir(specify_dir)
+        import django
+        django.setup()
+    finally:
+        try:
+            os.chdir(_prev_cwd)
+        except OSError:
+            pass
 
 
 def _patch_sqlalchemy_mapper() -> None:
