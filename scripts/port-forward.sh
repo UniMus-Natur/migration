@@ -21,6 +21,9 @@
 #
 # Requires: kubectl. For Oracle tunnels: socat (install: brew install socat | apt install socat)
 
+# Capture scripts directory at source time so oracle_sql() can find oracle_sql.py
+_PF_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+
 # Guard: warn if not sourced
 _pf_sourced=false
 if [[ "${BASH_SOURCE[0]}" != "$0" ]] 2>/dev/null; then
@@ -121,6 +124,18 @@ _pf_targets_include_prefect() {
     return 1
 }
 
+# Run SQL on Oracle PROD (default) or TEST via the port-forwarded localhost tunnel.
+#
+#   oracle_sql "SELECT sysdate FROM dual"
+#   echo "SELECT * FROM some_table WHERE ROWNUM <= 10" | oracle_sql
+#   oracle_sql --env test "SELECT 1 FROM dual"
+#   oracle_sql --csv "SELECT owner, table_name FROM dba_tables WHERE ROWNUM <= 20"
+#   oracle_sql --list-schemas
+#
+oracle_sql() {
+    python3 "$_PF_SCRIPT_DIR/oracle_sql.py" "$@"
+}
+
 pf_stop() {
     echo "Shutting down port-forwards..."
     for pid in "${_PF_PIDS[@]}"; do
@@ -158,3 +173,4 @@ fi
 
 echo ""
 echo "Forwards running in background. Run 'pf_stop' to tear down."
+echo "Oracle SQL helper available: oracle_sql [--env prod|test] [--csv] \"<SQL>\""
