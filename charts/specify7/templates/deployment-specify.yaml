@@ -93,6 +93,26 @@ spec:
               value: {{ .Release.Name }}-redis-master
             - name: WEB_CONCURRENCY
               value: "4"
+            - name: DATABASE_HOST
+              {{- if .Values.mariadb.enabled }}
+              value: "{{ .Release.Name }}-mariadb"
+              {{- else }}
+              value: "$(DB_HOST)"
+              {{- end }}
+            - name: DATABASE_PORT
+              {{- if .Values.mariadb.enabled }}
+              value: "3306"
+              {{- else }}
+              value: "$(DB_PORT)"
+              {{- end }}
+            - name: DATABASE_NAME
+              value: "$(DB_NAME)"
+            - name: MASTER_NAME
+              value: "$(DB_USER)"
+            - name: MASTER_PASSWORD
+              value: "$(DB_PASSWORD)"
+            - name: MYSQL_ROOT_PASSWORD
+              value: "$(DB_PASSWORD)"
           {{- if .Values.secrets.existingSecret }}
           envFrom:
             - secretRef:
