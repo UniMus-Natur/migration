@@ -98,6 +98,23 @@ The payload mirrors the user-migration style: shared metadata (`report_version`,
 - **Cross-schema deduplication** — the same human could exist in botany and entomology `ACTOR` with different IDs; both rows become two Specify agents unless you merge manually or extend the flow.
 - **Linking to `SpecifyUser`** created by **`migrate_users`** — user migration still creates its own `Agent` per login; reconciling login `Agent` with an existing MUSIT `ACTOR` `Agent` is future work.
 
+## Recorded outcome: first production load (2026-04-10)
+
+The following summarizes the **live** run against Oracle PROD (`dry_run: false`) executed on **2026-04-10**.
+
+Both schemas were processed in a single flow run. Botany processing ran approximately 12:10–20:12 UTC; entomology followed immediately, 20:12–21:11 UTC (~9 hours total elapsed).
+
+| Field | Value |
+|-------|-------|
+| `oracle_actors_extracted` (total) | 250,274 |
+| `oracle_rows_per_schema` — `MUSIT_BOTANIKK_FELLES` | 235,124 |
+| `oracle_rows_per_schema` — `MUSIT_ZOOLOGI_ENTOMOLOGI` | 15,150 |
+| `agents_created` | 250,274 |
+| `agents_skipped` | 0 |
+| `errors` | 0 |
+
+**All extracted actors mapped to Specify `agenttype` 1 (Person).** There were no organisation (`ACTOR_TYPE` 1 or 2) rows in either schema. No duplicate markers were encountered (clean first-time load). The run is treated as an operational success for Phase 1.1.
+
 ## Deployment
 
 Registered in `prefect.yaml` as **`migrate-musit-agents-dev`** (see that file for `work_pool` / parameters). Run from the CLI with `PREFECT_API_URL` pointed at your server, for example:

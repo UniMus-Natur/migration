@@ -35,11 +35,13 @@ migration-reports/{category-folder}/{YYYYMMDDTHHMMSSZ}/report.json
 |------|-------------------|----------------|--------|
 | [Migrate Users](user_migration_report.md) | `REPORT_CATEGORY_APP_USERS_BRUKARAR` | `application-users-usd-metadata-brukarar` | 1.4 |
 | [MUSIT collection agents](migrate_musit_agents.md) | `REPORT_CATEGORY_MUSIT_COLLECTION_AGENTS` | `collection-agents-musit-actor-person-name` | 1.1 |
+| [Specify structure sync](sync_specify_structure.md) | `REPORT_CATEGORY_SPECIFY_STRUCTURE_SYNC` | `specify-structure-sync` | post-bootstrap |
 
-**Example keys** (default prefix, time `20260410T150000Z`):
+**Example keys** (default prefix):
 
-- `s3://$BUCKET/migration-reports/application-users-usd-metadata-brukarar/20260410T150000Z/report.json`
-- `s3://$BUCKET/migration-reports/collection-agents-musit-actor-person-name/20260410T150000Z/report.json`
+- `s3://$BUCKET/migration-reports/application-users-usd-metadata-brukarar/20260410T145733Z/report.json`
+- `s3://$BUCKET/migration-reports/collection-agents-musit-actor-person-name/20260410T211100Z/report.json`
+- `s3://$BUCKET/migration-reports/specify-structure-sync/20260413T072900Z/report.json`
 
 ## Report JSON conventions
 

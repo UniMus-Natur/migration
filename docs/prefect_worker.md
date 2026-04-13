@@ -6,7 +6,7 @@ This runbook describes the current Prefect workflow for rapid in-cluster develop
 
 - `prefect-server` runs inside the namespace and exposes API/UI on port `4200`.
 - `prefect-dev-worker` runs as a long-lived worker pod using work pool `dev-process` (`process` type).
-- Deployments in `prefect.yaml` run `git_clone` on each flow run, so code is pulled from Git (branch `add-prefect`) instead of baked `/app` source.
+- Deployments in `prefect.yaml` run `git_clone` on each flow run, so code is pulled from Git (branch `dev`) instead of baked `/app` source.
 
 This means you do **not** need to rebuild the image for normal code changes; commit and push is enough.
 
@@ -45,7 +45,7 @@ source .venv/bin/activate
 export PREFECT_API_URL=http://127.0.0.1:4200/api
 ```
 
-3. Commit and push code changes to `add-prefect` (the branch configured in `prefect.yaml`).
+3. Commit and push code changes to `dev` (the branch configured in `prefect.yaml`).
 
 4. Register/update deployment:
 
@@ -66,7 +66,7 @@ To persist the setting in a **Prefect profile** instead of `prefect.toml`, use `
 5. Run PROD connectivity check (Oracle + S3 preflight):
 
 ```bash
-prefect deployment run "Oracle Connectivity Prod Check/oracle-connectivity-prod-dev"
+prefect deployment run "Infrastructure Prod Check/infrastructure-prod-check-dev"
 ```
 
 Optional: run Oracle schema snapshot export (uploads JSON/CSV to S3):
@@ -77,6 +77,14 @@ prefect deployment run "Oracle Schema Snapshot/oracle-schema-snapshot-dev"
 
 Schema snapshot artifacts include `schema_catalog.json`, CSV extracts, and `schema.dbml`.
 
+Optional: sync Specify hierarchy from YAML (post-bootstrap, idempotent; default is dry run):
+
+```bash
+prefect deployment run "Sync Specify structure/sync-specify-structure-dev" --param dry_run=false
+```
+
+See [Specify structure sync](sync_specify_structure.md) for the YAML format and recorded outcomes.
+
 Optional: migrate MUSIT **`ACTOR`** + **`PERSON_NAME`** into Specify **`Agent`** (Phase 1.1; default is dry run):
 
 ```bash
@@ -84,6 +92,14 @@ prefect deployment run "Migrate MUSIT Actors/migrate-musit-agents-dev"
 ```
 
 See [MUSIT collection agents migration](migrate_musit_agents.md) for parameters and scope.
+
+Optional: migrate application users from Oracle `USD_METADATA` into Specify **`SpecifyUser`** + **`Agent`** (Phase 1.4; default is dry run):
+
+```bash
+prefect deployment run "Migrate Users/migrate-users-dev" --param dry_run=false
+```
+
+See [User migration report](user_migration_report.md) for the report format and recorded outcomes.
 
 6. Inspect results:
 
