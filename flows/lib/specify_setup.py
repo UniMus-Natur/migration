@@ -37,22 +37,47 @@ def setup_django() -> None:
 
     _ensure_specify_settings(specify_dir)
     _patch_sqlalchemy_mapper()
+    _patch_specify_cwd_open(specify_dir)
 
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "specifyweb.settings")
 
-    # Specify loads some JSON via paths relative to the ``specify7`` directory
-    # (e.g. ``uniqueness_rules.open('specifyweb/backend/...')``). Prefect workers
-    # usually cwd to the repo root, so temporarily chdir for ``django.setup()``.
-    _prev_cwd = os.getcwd()
-    try:
-        os.chdir(specify_dir)
-        import django
-        django.setup()
-    finally:
-        try:
-            os.chdir(_prev_cwd)
-        except OSError:
-            pass
+    import django
+    django.setup()
+
+
+def _patch_specify_cwd_open(specify_dir: str) -> None:
+    """Redirect Specify's CWD-relative ``open()`` calls to absolute paths.
+
+    Upstream ``specify7`` opens a handful of JSON files with bare relative
+    paths (e.g. ``open('specifyweb/backend/businessrules/uniqueness_rules.json')``).
+    Those happen to work when the process CWD is the ``specify7`` directory
+    (as in Docker / manage.py), but fail in Prefect workers whose CWD is the
+    repo root.  We intercept those specific paths and resolve them against
+    ``specify_dir`` so we don't have to modify the upstream submodule.
+    """
+    import builtins
+
+    # Map each known bad relative path → absolute path within specify7/.
+    _SPECIFY_RELATIVE_PATHS: dict[str, str] = {
+        "specifyweb/backend/businessrules/uniqueness_rules.json": os.path.join(
+            specify_dir,
+            "specifyweb", "backend", "businessrules", "uniqueness_rules.json",
+        ),
+        "specifyweb/frontend/js_src/lib/components/DataModel/uniqueFields.json": os.path.join(
+            specify_dir,
+            "specifyweb", "frontend", "js_src", "lib", "components", "DataModel", "uniqueFields.json",
+        ),
+    }
+
+    _real_open = builtins.open
+
+    def _patched_open(file, *args, **kwargs):
+        resolved = _SPECIFY_RELATIVE_PATHS.get(str(file))
+        if resolved is not None:
+            return _real_open(resolved, *args, **kwargs)
+        return _real_open(file, *args, **kwargs)
+
+    builtins.open = _patched_open  # type: ignore[assignment]
 
 
 def _patch_sqlalchemy_mapper() -> None:
