@@ -190,6 +190,8 @@ PLACE → INDEXED_LOCALITY (named locality)
 
 There are **three overlapping categories** of "people" in the source schema, each mapping to a different concept in Specify 7. They need to be migrated and then cross-linked.
 
+> **Implemented flows:** application users from `USD_METADATA.BRUKARAR` → `flows/migrate_users.py` (see [**User migration report**](user_migration_report.md)). MUSIT `ACTOR` + `PERSON_NAME` (botany + entomology schemas) → `flows/migrate_musit_agents.py` (see [**MUSIT collection agents migration**](migrate_musit_agents.md)).
+
 ### Category 1 — Biological Agents (Collectors, Determiners, Authors)
 
 **Target in Specify 7:** `Agent` (SpecifyAgent table)

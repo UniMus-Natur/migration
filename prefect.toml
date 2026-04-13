@@ -1,0 +1,4 @@
+# Project-local Prefect settings (see https://docs.prefect.io/v3/concepts/settings-and-profiles)
+# Disables interactive CLI prompts for `prefect deploy` etc. when run from this repo.
+[cli]
+prompt = false

@@ -24,6 +24,16 @@ Institution
 
 **Key rule:** `Agent`, `Geography`, and `Taxon` records are shared across all collections. A `CollectionObject` in "Karplanter" and one in "Mosses" can point to the *same* `Agent` (collector) and the *same* `Taxon` node. This is exactly what we want — but it means these shared tables must be fully in place before any specimen migration begins.
 
+### Infrastructure-as-code: hierarchy YAML
+
+After the database has been bootstrapped once (institution and first guided setup), additional divisions, disciplines, and collections can be kept in version control and applied idempotently:
+
+- **Config:** [`config/specify_structure/unimus_natur.yaml`](../config/specify_structure/unimus_natur.yaml) (edit or add sibling files per environment).
+- **Flow:** [`flows/sync_specify_structure.py`](../flows/sync_specify_structure.py) — Prefect entrypoint `sync_specify_structure_flow`. Uses the same `DB_*` environment variables as other Specify flows (via [`flows/lib/specify_setup.py`](../flows/lib/specify_setup.py)). Default is `dry_run: true`; set `dry_run: false` only when applying to a target database intentionally.
+- **Deployment:** `sync-specify-structure-dev` in [`prefect.yaml`](../prefect.yaml).
+
+Reports are written under the `specify-structure-sync` category in the migration-reports S3 prefix when `S3_BUCKET` is set (same pattern as other migration flows).
+
 ---
 
 ## Dataset Groups (Collections in Specify 7)
@@ -73,6 +83,8 @@ Each step is both a migration and a **validation checkpoint** — see "Validatio
 **Source:** `MUSIT_BOTANIKK_FELLES.ACTOR` + `PERSON_NAME` + `GROUPMEMBERSHIP` + `AUTHORSTRINGS`  
 **Also:** `USD_BOTANIKK_*.PERSONER`, `USD_BOTANIKK_*.AUTORPERSON`, `USD_NAT_TAXAREG.AUTORPERSON`  
 **Target:** Specify `Agent` table
+
+An implemented subset — MUSIT **`ACTOR`** + **`PERSON_NAME`** for **`MUSIT_BOTANIKK_FELLES`** and **`MUSIT_ZOOLOGI_ENTOMOLOGI`** — is loaded by the Prefect flow **`migrate_musit_agents_flow`** (`flows/migrate_musit_agents.py`). Scope, idempotency, and gaps (USD persons, authors, deduplication) are documented in [**MUSIT collection agents migration**](migrate_musit_agents.md).
 
 **Merge strategy:**
 1. Start with MUSIT `ACTOR` as canonical — it has the most structured data (birth/death, ORCID, institution).
@@ -204,6 +216,8 @@ Two sub-categories worth distinguishing:
 1. For each row in `BRUKARAR`: create a `SpecifyUser`.
 2. Match or create the corresponding `Agent` (from Step 1.1) via name/email.
 3. Map `GRUPPE.MUSEUM` → Specify `Collection` access.
+
+The Prefect flow that performs the load writes a JSON summary artifact, **`migration_report.json`** (counts, errors, and a museum-group inventory). Field definitions, S3 layout, and how to interpret dry-run vs live runs are documented in [**User migration report**](user_migration_report.md).
 
 ---
 

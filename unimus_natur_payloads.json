@@ -1,0 +1,130 @@
+[
+    {
+        "endpoint": "/api/setup/setup_database/",
+        "description": "Initial setup: Creates Institution, first Division (Biology), first Discipline (Karplanter Moser), and first Collection (NHM).",
+        "payload": {
+            "institution": {
+                "name": "UniMus:Natur",
+                "issinglegeographytree": true
+            },
+            "storageTreeDef": {
+                "name": "Storage Tree",
+                "preload": false
+            },
+            "division": {
+                "name": "Biology"
+            },
+            "discipline": {
+                "name": "Karplanter Moser",
+                "type": "botany"
+            },
+            "geographyTreeDef": {
+                "name": "Geography",
+                "preload": false
+            },
+            "taxonTreeDef": {
+                "name": "Taxon",
+                "preload": false
+            },
+            "collection": {
+                "name": "NHM",
+                "code": "NHM"
+            },
+            "specifyUser": {
+                "username": "admin",
+                "email": "admin@unimus.no",
+                "password": "change-me",
+                "first_name": "Admin",
+                "last_name": "User"
+            }
+        }
+    },
+    {
+        "endpoint": "/api/setup/create_collection/",
+        "description": "Add remaining Collections to Karplanter Moser discipline.",
+        "payloads": [
+            { "collection": { "name": "UM", "code": "UM" }, "discipline": { "name": "Karplanter Moser", "type": "botany" } },
+            { "collection": { "name": "UTM", "code": "UTM" }, "discipline": { "name": "Karplanter Moser", "type": "botany" } },
+            { "collection": { "name": "VM", "code": "VM" }, "discipline": { "name": "Karplanter Moser", "type": "botany" } },
+            { "collection": { "name": "NBH", "code": "NBH" }, "discipline": { "name": "Karplanter Moser", "type": "botany" } }
+        ]
+    },
+    {
+        "endpoint": "/api/setup/create_discipline_and_trees/",
+        "description": "Create remaining Biology Disciplines (collections can be added dynamically later via create_collection).",
+        "payloads": [
+            {
+                "division": { "name": "Biology" },
+                "discipline": { "name": "Alger", "type": "botany" },
+                "geographyTreeDef": { "name": "Geography", "preload": false },
+                "taxonTreeDef": { "name": "Taxon", "preload": false }
+            },
+            {
+                "division": { "name": "Biology" },
+                "discipline": { "name": "Lav Sopp", "type": "botany" },
+                "geographyTreeDef": { "name": "Geography", "preload": false },
+                "taxonTreeDef": { "name": "Taxon", "preload": false }
+            },
+            {
+                "division": { "name": "Biology" },
+                "discipline": { "name": "Insekter", "type": "entomology" },
+                "geographyTreeDef": { "name": "Geography", "preload": false },
+                "taxonTreeDef": { "name": "Taxon", "preload": false }
+            },
+            {
+                "division": { "name": "Biology" },
+                "discipline": { "name": "Marine invertebrater", "type": "invertebrate zoology" },
+                "geographyTreeDef": { "name": "Geography", "preload": false },
+                "taxonTreeDef": { "name": "Taxon", "preload": false }
+            },
+            {
+                "division": { "name": "Biology" },
+                "discipline": { "name": "Pattedyr", "type": "vertebrate zoology" },
+                "geographyTreeDef": { "name": "Geography", "preload": false },
+                "taxonTreeDef": { "name": "Taxon", "preload": false }
+            },
+            {
+                "division": { "name": "Biology" },
+                "discipline": { "name": "Fugl", "type": "vertebrate zoology" },
+                "geographyTreeDef": { "name": "Geography", "preload": false },
+                "taxonTreeDef": { "name": "Taxon", "preload": false }
+            },
+            {
+                "division": { "name": "Biology" },
+                "discipline": { "name": "Fisk og herptiler", "type": "vertebrate zoology" },
+                "geographyTreeDef": { "name": "Geography", "preload": false },
+                "taxonTreeDef": { "name": "Taxon", "preload": false }
+            }
+        ]
+    },
+    {
+        "endpoint": "/api/setup/create_division/",
+        "description": "Create the second Division: Geology/paleontology.",
+        "payload": {
+            "division": {
+                "name": "Geology/paleontology"
+            },
+            "institution": {
+                "name": "UniMus:Natur"
+            }
+        }
+    },
+    {
+        "endpoint": "/api/setup/create_discipline_and_trees/",
+        "description": "Create the Geology/paleontology Disciplines. Type must map to one of the constants used internally by specify.",
+        "payloads": [
+            {
+                "division": { "name": "Geology/paleontology" },
+                "discipline": { "name": "Geologi", "type": "geology" },
+                "geographyTreeDef": { "name": "Geography", "preload": false },
+                "taxonTreeDef": { "name": "Taxon", "preload": false }
+            },
+            {
+                "division": { "name": "Geology/paleontology" },
+                "discipline": { "name": "Paleontologi", "type": "invertpaleo" },
+                "geographyTreeDef": { "name": "Geography", "preload": false },
+                "taxonTreeDef": { "name": "Taxon", "preload": false }
+            }
+        ]
+    }
+]

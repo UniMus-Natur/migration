@@ -1,6 +1,6 @@
 # Add your local requirements below
 # Dependencies for cluster orchestration
-prefect
+prefect>=3,<4
 # Prefect 3.x expects newer jsonschema than Specify pin
 jsonschema>=4.24,<5
 boto3
@@ -8,7 +8,7 @@ boto3
 # Database Drivers
 oracledb
 mysqlclient
-sqlalchemy
 
 # Data Analysis & Interactive Tools
 pandas
+pyyaml>=6,<7

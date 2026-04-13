@@ -27,7 +27,7 @@ spec:
           image: "{{ .Values.prefect.devWorker.image.repository }}:{{ .Values.prefect.devWorker.image.tag }}"
           imagePullPolicy: {{ .Values.prefect.devWorker.image.pullPolicy }}
           workingDir: /app
-          command: ["python", "-m", "prefect", "worker", "start"]
+          command: ["prefect", "worker", "start"]
           args:
             - --pool
             - {{ .Values.prefect.devWorker.workPool }}

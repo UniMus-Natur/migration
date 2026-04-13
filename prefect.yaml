@@ -37,3 +37,51 @@ deployments:
     work_pool:
       name: dev-process
       work_queue_name: default
+
+  - name: oracle-feide-field-profile-dev
+    version: 1.0.0
+    tags: ["oracle", "prod", "feide", "exploration", "dev"]
+    description: "Profile USD_METADATA.BRUKARAR.FEIDE and upload anonymized aggregates to S3"
+    entrypoint: flows/oracle_feide_field_profile.py:oracle_feide_field_profile_flow
+    work_pool:
+      name: dev-process
+      work_queue_name: default
+
+  - name: migrate-users-dev
+    version: 1.0.0
+    tags: ["oracle", "specify", "users", "migration", "dev"]
+    description: "Phase 1.4: Migrate MUSIT application users (BRUKARAR/GRUPPE) to Specify SpecifyUser + Agent"
+    entrypoint: flows/migrate_users.py:migrate_users_flow
+    parameters:
+      oracle_env: "PROD"
+      dry_run: true
+    work_pool:
+      name: dev-process
+      work_queue_name: default
+
+  - name: migrate-musit-agents-dev
+    version: 1.0.0
+    tags: ["oracle", "specify", "agents", "migration", "dev"]
+    description: "Phase 1.1: Migrate MUSIT ACTOR+PERSON_NAME (botany/entomology) to Specify Agent"
+    entrypoint: flows/migrate_musit_agents.py:migrate_musit_agents_flow
+    parameters:
+      oracle_env: "PROD"
+      dry_run: true
+      musit_schemas:
+        - MUSIT_BOTANIKK_FELLES
+        - MUSIT_ZOOLOGI_ENTOMOLOGI
+    work_pool:
+      name: dev-process
+      work_queue_name: default
+
+  - name: sync-specify-structure-dev
+    version: 1.0.0
+    tags: ["specify", "structure", "staging", "dev"]
+    description: "Post-bootstrap: create missing divisions/disciplines/collections from YAML (idempotent)"
+    entrypoint: flows/sync_specify_structure.py:sync_specify_structure_flow
+    parameters:
+      config_path: "config/specify_structure/unimus_natur.yaml"
+      dry_run: true
+    work_pool:
+      name: dev-process
+      work_queue_name: default
