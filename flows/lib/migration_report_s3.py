@@ -18,6 +18,7 @@ _DEFAULT_REPORTS_ROOT = "migration-reports"
 REPORT_CATEGORY_APP_USERS_BRUKARAR = "application-users-usd-metadata-brukarar"
 REPORT_CATEGORY_MUSIT_COLLECTION_AGENTS = "collection-agents-musit-actor-person-name"
 REPORT_CATEGORY_SPECIFY_STRUCTURE_SYNC = "specify-structure-sync"
+REPORT_CATEGORY_NORTAXA_DISCIPLINE_TREES = "nortaxa-discipline-trees"
 
 
 def migration_reports_s3_root() -> str:

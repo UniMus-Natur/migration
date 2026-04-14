@@ -1,0 +1,453 @@
+---
+layout: default
+title: Oracle botany datasets (MUSIT & USD)
+nav_order: 11
+---
+
+# Oracle botany datasets (MUSIT & USD)
+
+This page documents how **botany-related “datasets”** appear in Oracle **production**: the unified MUSIT layer (`MUSIT_BOTANIKK_FELLES`), **legacy USD** per-museum botany schemas, **Darwin Core–style views** (`V_DARWINCORE`), **vascular (karplanter)** subsets, and other botany-related schemas. It complements the broader [Oracle schema overview](oracle_schema_overview.md).
+
+## What is **USD** vs **MUSIT**? (one database, two layers)
+
+They are **not** two different databases you pick between—they are **different Oracle users (schemas)** inside the **same** Oracle instance MUSIT uses today.
+
+| Name | Meaning | Role today |
+|------|-----------|------------|
+| **USD** | *Universitetsmuseenes Samlingsdata* — the **older** per-museum collection applications and their table design (`FUNNETIKETT`, `EKSEMPLAR`, … in `USD_BOTANIKK_*`, plus shared `USD_FELLES`, `USD_METADATA`, …). | **Legacy but still real data**: specimens and shared resources often **originated** here. MUSIT did not throw that away; the newer model **wraps** and **imports** from it (see `LEGACY_EVENT` and migration notes in the [schema overview](oracle_schema_overview.md)). Lots of `USD_*` objects are **noise for Specify** (translations, old backups), but the **core botany USD schemas are not a dead end** for historical specimen rows—they are the row-level source behind much of what MUSIT shows. |
+| **MUSIT** | The **newer** application stack: event-sourced `MUSEUM_OBJECT` / `EVENT` / … in schemas like `MUSIT_BOTANIKK_FELLES`. | **Primary target for mapping to Specify** for current collection logic. |
+
+So: **USD is not “crap” in the sense of unused Oracle**—it is the **old CMS data model** still sitting beside MUSIT. For your work, **prefer `MUSIT_*` for structure**, and touch **`USD_*` when you need legacy fields, DwC views (`V_DARWINCORE`), or shared tables** (media, users, taxon registry).
+
+## MUSIT schemas in Oracle (full `MUSIT%` list)
+
+In Oracle, a **schema** is a **user**. Names below are **`USERNAME` from `ALL_USERS`** where `username LIKE 'MUSIT%'`, ordered alphabetically (prod snapshot; your account only sees users Oracle exposes to you—re-run the query if you need an authoritative list):
+
+| Schema name |
+|-------------|
+| `MUSITDMU` |
+| `MUSIT_ADB_IMPORT` |
+| `MUSIT_ADB_USER_SKRIV` |
+| `MUSIT_BOTANIKK_ALGE` |
+| `MUSIT_BOTANIKK_ALGE_FOTO` |
+| `MUSIT_BOTANIKK_ALGE_HIS` |
+| `MUSIT_BOTANIKK_FELLES` |
+| `MUSIT_BOTANIKK_FELLES_FOTO` |
+| `MUSIT_BOTANIKK_FELLES_HIS` |
+| `MUSIT_BOTANIKK_LAV` |
+| `MUSIT_BOTANIKK_LAV_FOTO` |
+| `MUSIT_BOTANIKK_LAV_HIS` |
+| `MUSIT_BOTANIKK_LOAN` |
+| `MUSIT_BOTANIKK_LOAN_HIS` |
+| `MUSIT_BOTANIKK_MOSE` |
+| `MUSIT_BOTANIKK_MOSE_FOTO` |
+| `MUSIT_BOTANIKK_MOSE_HIS` |
+| `MUSIT_BOTANIKK_SOPP` |
+| `MUSIT_BOTANIKK_SOPP_FOTO` |
+| `MUSIT_BOTANIKK_SOPP_HIS` |
+| `MUSIT_COORDINATE` |
+| `MUSIT_COORDINATE_HIS` |
+| `MUSIT_COORDINATE_UTILS` |
+| `MUSIT_DARWIN_CORE_IMPORT` |
+| `MUSIT_HERB_IMPORT` |
+| `MUSIT_MAPPING` |
+| `MUSIT_MAPPING_READ` |
+| `MUSIT_MEDIA_USER_OPPLASTING` |
+| `MUSIT_NATHIST_COORDINATES` |
+| `MUSIT_NATHIST_DUMMY` |
+| `MUSIT_NATHIST_FELLES` |
+| `MUSIT_NATHIST_GIS` |
+| `MUSIT_NAT_GIS_USER` |
+| `MUSIT_PLACENAMES` |
+| `MUSIT_PUBLIC_POPULATE_USER` |
+| `MUSIT_PUBLIC_USER_LES` |
+| `MUSIT_ROLE_ADMIN` |
+| `MUSIT_TEST_1` |
+| `MUSIT_ZOOLOGI_ENTOMOLOGI` |
+| `MUSIT_ZOOLOGI_ENTOMOLOGI_FOTO` |
+| `MUSIT_ZOOLOGI_ENTOMOLOGI_HIS` |
+
+**How to read the names**
+
+- **`MUSIT_BOTANIKK_FELLES`** — shared **botany** “core” MUSIT model (the one migration focuses on first).
+- **`MUSIT_BOTANIKK_{MOSE,LAV,SOPP,ALGE}`** (+ `*_FOTO`, `*_HIS`) — **discipline- or workflow-specific** botany satellites (moss, lichen, fungi, algae), history, photos—not duplicate “random” DBs; they support those domains.
+- **`MUSIT_ZOOLOGI_ENTOMOLOGI`*** — entomology MUSIT stack (same `_FOTO` / `_HIS` pattern).
+- **`MUSIT_NATHIST_*`, `MUSIT_COORDINATE*`, `MUSIT_PLACENAMES`, `MUSIT_DARWIN_CORE_IMPORT`, `MUSIT_HERB_IMPORT`, …** — **infrastructure / GIS / import / public read** helpers, not specimen “core” like `FELLES`.
+- **`MUSIT_ROLE_ADMIN`**, **`MUSIT_*USER*`**, **`MUSIT_MAPPING*`** — **security, mapping, service accounts**.
+
+Refresh:
+
+```sql
+SELECT username FROM all_users WHERE username LIKE 'MUSIT%' ORDER BY 1
+```
+
+## Storage model (MUSIT botany)
+
+There is **no** dedicated `DATASET` table in `MUSIT_BOTANIKK_FELLES`. Logical grouping uses columns on **`OBJECT_ATTRIBUTES`**, keyed by **`OBJECT_ID`** to **`MUSEUM_OBJECT`** (same pattern as in the schema overview: central object + attributes row).
+
+| Column | Type (approx.) | Role |
+|--------|----------------|------|
+| `OBJECT_ATTRIBUTES.DATASET` | `VARCHAR2(512)` | Optional label for a named dataset / collection group (expedition, herbarium subset, etc.). |
+| `OBJECT_ATTRIBUTES.PROJECT_NAME` | `VARCHAR2(512)` | Optional project or expedition name; used much more often than `DATASET` for free-text grouping. |
+
+Other columns on `OBJECT_ATTRIBUTES` (registration dates, UUID, workflow flags, etc.) are documented at table level in [Oracle schema overview — Family 2](oracle_schema_overview.md#family-2--musit-schemas-event-sourced-structured).
+
+## Scale (prod snapshot)
+
+Figures below come from **one** live query against Oracle PROD; counts drift as data changes.
+
+| Measure | Approximate value |
+|---------|-------------------|
+| Rows in `MUSIT_BOTANIKK_FELLES.OBJECT_ATTRIBUTES` | ~2.0M |
+| Distinct **non-empty** `DATASET` values | **12** |
+| Rows with null or blank `DATASET` | ~1.98M |
+| Distinct **non-empty** `PROJECT_NAME` values | **~1.5k** |
+
+Interpretation: **`DATASET` is sparsely populated**; most botany objects in MUSIT are **not** partitioned by that field. **`PROJECT_NAME`** carries more of the human-readable “which project / expedition” dimension.
+
+### Example distinct `DATASET` values (prod)
+
+These names appeared as the full distinct set when `DATASET` was non-null (again, subject to change in live DB):
+
+- Macaronesia  
+- Berg California, Berg Australia, Berg Macaronesia  
+- Typer  
+- Tristan da Cunha, Burma, Tirich Mir  
+- Herbarium Antarcticum, Bhanu  
+- Plus occasional one-offs (e.g. test or historical label rows)
+
+Re-run the SQL below to refresh the list and counts.
+
+## Legacy USD botany (“datasets” as schemas)
+
+Before / beside the unified MUSIT layer, **per-museum botany** lived in separate Oracle **schemas** (each acts like a siloed “dataset” in infrastructure terms):
+
+| Schema | Code (informal) | ~Tables (prod) |
+|--------|-----------------|----------------|
+| `USD_BOTANIKK_TRONDHEIM` | TRH | 81 |
+| `USD_BOTANIKK_TROMSO` | TMS | 78 |
+| `USD_BOTANIKK_BERGEN` | BRG | 66 |
+| `USD_BOTANIKK_SVALBARD` | SVA | 73 |
+
+These four are the **main operational USD herbarium** schemas referenced in the migration docs. Oracle **also** defines additional botany-related users (backups, tests, admin, organism-specific MUSIT apps, etc.). The list below comes from `ALL_USERS` (prod snapshot; your account may not have `SELECT` on all of them):
+
+| Pattern | Examples (not exhaustive) |
+|---------|----------------------------|
+| **MUSIT botany satellites** | `MUSIT_BOTANIKK_MOSE`, `MUSIT_BOTANIKK_LAV`, `MUSIT_BOTANIKK_SOPP`, `MUSIT_BOTANIKK_ALGE`, plus matching `*_FOTO`, `*_HIS`, `MUSIT_BOTANIKK_LOAN` |
+| **USD extras** | `USD_BOTANIKK_B1` … `B5`, `USD_BOTANIKK_REGADM`, `USD_BOTANIKK_SOPP`, `USD_BOTANIKK_TEST`, `USD_BOTANIKK_TESTBRUKER`, `USD_BOTANIKK_TRHBACK3`, `USD_BOTANIKK_TRONDHEIMBACK` |
+| **DiGIR legacy** | `DIGIR_MUSIT` (e.g. view `V_DIGIR_DARWIN`) |
+
+```sql
+SELECT username FROM all_users
+ WHERE username LIKE 'MUSIT%BOTAN%' OR username LIKE 'USD%BOTAN%'
+ ORDER BY 1
+```
+
+See [Oracle schema overview — Family 1](oracle_schema_overview.md#family-1--usd-schemas-legacy-per-museum).
+
+### IPT `main` vs Oracle (your DwC-shaped SQL)
+
+If you run SQL against **`FROM main`** with columns like `InstitutionCode`, `CollectionCode`, `CatalogNumber`, `ScientificName`, …, that is almost certainly **not** Oracle: IPT’s publishing stack often uses an **SQLite** (or similar) database where the export table is literally named **`main`** (or the IPT resource DB). Oracle has **no** standard `main` table for that purpose.
+
+The **closest Oracle equivalent** in the USD botany schemas is the view **`V_DARWINCORE`** (English column names) and **`V_DARWINCORE_NORSK`** (Norwegian labels). **`TAXA_BESTEMMELSE_DARWINCORE`** also exists per museum for taxon/determination–oriented DwC-style exports.
+
+**`V_DARWINCORE` exists** on `USD_BOTANIKK_TRONDHEIM`, `USD_BOTANIKK_TROMSO`, and `USD_BOTANIKK_BERGEN`. It was **not** present under `USD_BOTANIKK_SVALBARD` in the same metadata query (Svalbard still has many `*_KARPLANTER` / `TAXA_*` views—check `ALL_VIEWS` there for current exports).
+
+Example columns on **`USD_BOTANIKK_TROMSO.V_DARWINCORE`** (compare to your IPT query):
+
+| Oracle `V_DARWINCORE` | Typical IPT / DwC name you used |
+|----------------------|----------------------------------|
+| `INSTITUTIONCODE` | `InstitutionCode` |
+| `COLLECTIONCODE` | `CollectionCode` |
+| `CATALOGNUMBER` | `CatalogNumber` |
+| `SCIENTIFICNAME`, `KINGDOM`, `PHYLUM`, … | same idea |
+| `KLASSENAVN` | `Class` |
+| `ORDENSNAVN` | `Order` |
+| `PHOTOURL` | often mapped to `associatedMedia` / `URL` |
+| `COLLECTORNUMBER` | related to `FieldNumber` / collector fields (verify per resource) |
+
+Inspect the full projection:
+
+```sql
+SELECT column_name FROM all_tab_columns
+ WHERE owner = 'USD_BOTANIKK_TROMSO' AND table_name = 'V_DARWINCORE'
+ ORDER BY column_id
+```
+
+The view text starts from **`FUNNETIKETT`** / specimen logic (e.g. `reg_nr` as catalog number); use `ALL_VIEWS.TEXT` (or your SQL client’s “view SQL”) for the exact join graph.
+
+### Vascular plants (**karplanter**) in USD
+
+Norwegian **karplanter** = vascular plants. In USD botany, vascular material is **not** always the same as “all rows in `FUNNETIKETT`”:
+
+- **Tromsø, Bergen, Svalbard** expose views such as **`FUNNETIKETT_KARPLANTER`**, **`EKSEMPLAR_KARPLANTER`**, **`ETIKETT_KARPLANTER`**, **`BESTEMMELSE_KARPLANTER`**, **`TAXA_KARPLANTER`**, etc. These are the supported way to stay on **vascular** subsets (alongside parallel `*_MOSE`, `*_LAV`, `*_SOPP`, … views where they exist).
+- **Trondheim (`USD_BOTANIKK_TRONDHEIM`)** is different at **label** level: every `FUNNETIKETT` row appears in **`FUNNETIKETT_MOSE`** or **`FUNNETIKETT_LAV`** (moss + lichen; counts sum to the full `FUNNETIKETT` total). There is **no** `FUNNETIKETT_KARPLANTER` object in that schema. For **vascular** material tied to Trondheim, expect it in **another museum’s USD schema** and/or in **`MUSIT_BOTANIKK_FELLES`**, not in `USD_BOTANIKK_TRONDHEIM`’s moss/lichen USD split.
+
+**Example — vascular-like rows from the DwC view (Tromsø):** restrict `V_DARWINCORE` to labels that appear in **`FUNNETIKETT_KARPLANTER`** (join on catalog number / `FUNNETIKETT.REG_NR` is how one successful count was built; confirm edge cases such as leading zeros):
+
+```sql
+SELECT v.*
+  FROM usd_botanikk_tromso.v_darwincore v
+ WHERE EXISTS (
+   SELECT 1
+     FROM usd_botanikk_tromso.funnetikett_karplanter k
+     JOIN usd_botanikk_tromso.funnetikett f ON f.etikett_id = k.etikett_id
+    WHERE TO_CHAR(f.reg_nr) = TO_CHAR(v.catalognumber)
+ )
+```
+
+Adjust owner literals for **Bergen** or **Svalbard** as needed.
+
+### MUSIT vascular herbarium in Oracle (`DIGIR_MUSIT` / `V_DC_*_VASCULAR`)
+
+The **curated vascular-plant Darwin Core export** used operationally (e.g. IPT-style SQL) is **`DIGIR_MUSIT.V_DC_O_VASCULAR`** and siblings—not `MUSIT_BOTANIKK_FELLES.V_*` alone.
+
+**What the view actually is**
+
+`ALL_VIEWS` text for `V_DC_O_VASCULAR` (and `V_DC_TRH_VASCULAR`, `V_DC_TROM_VASCULAR`, …) is the same pattern:
+
+- **`FROM dc_vascular_felles t WHERE t.institutioncode = '<code>'`**
+- Plus columns from `t`, and **`pkg_tools.get_aggregated_elevation_VASC(t.object_id)`** for aggregated verbatim elevation (package in **`DIGIR_MUSIT`**).
+
+So the **physical row store** behind the export is the object **`DC_VASCULAR_FELLES`** in schema **`DIGIR_MUSIT`**: one table (or materialized object) holding **pre-flattened DwC fields** for **vascular** herbarium rows, partitioned logically by **`INSTITUTIONCODE`**. Each public view is a thin filter:
+
+| View | `INSTITUTIONCODE` filter |
+|------|---------------------------|
+| `DIGIR_MUSIT.V_DC_O_VASCULAR` | `O` |
+| `DIGIR_MUSIT.V_DC_TRH_VASCULAR` | `TRH` |
+| `DIGIR_MUSIT.V_DC_TROM_VASCULAR` | `TROM` |
+| `DIGIR_MUSIT.V_DC_BG_VASCULAR` | `BG` |
+| `DIGIR_MUSIT.V_DC_SVG_VASCULAR` | `SVG` |
+| `DIGIR_MUSIT.V_DC_KMN_VASCULAR` | `KMN` |
+
+**Linking into `MUSIT_BOTANIKK_FELLES` for “more than the view”**
+
+The DwC view does **not** expose `OBJECT_ID` in `ALL_TAB_COLUMNS`, but the underlying `dc_vascular_felles` row **does** supply `t.object_id` inside the view definition (for the elevation package). Ways to reach the live MUSIT model:
+
+1. **UUID (works with typical app grants)** — the view includes **`UUID`**. Join to **`MUSIT_BOTANIKK_FELLES.OBJECT_ATTRIBUTES`** on `LOWER(TRIM(oa.uuid)) = LOWER(TRIM(v.uuid))`, then to **`MUSEUM_OBJECT`** on `oa.object_id = mo.object_id`. From there you can walk **`EVENT_MUSEUM_OBJECT`**, **`PLACE`**, **`CLASSIFICATION_EVENT`**, etc.
+
+2. **Direct `OBJECT_ID`** — if your DB user can `SELECT` from **`DIGIR_MUSIT.DC_VASCULAR_FELLES`**, use `object_id` and join straight to **`MUSIT_BOTANIKK_FELLES.MUSEUM_OBJECT`**. If you get `ORA-00942` on the base table, ask a DBA for **`SELECT` on `DIGIR_MUSIT.DC_VASCULAR_FELLES`** (or for the view definition / ETL source job that fills it).
+
+**Example join shell**
+
+```sql
+SELECT v.catalognumber, v.scientificname, mo.object_id, mo.identifier_string
+  FROM digir_musit.v_dc_o_vascular v
+  JOIN musit_botanikk_felles.object_attributes oa
+    ON LOWER(TRIM(oa.uuid)) = LOWER(TRIM(v.uuid))
+  JOIN musit_botanikk_felles.museum_object mo ON mo.object_id = oa.object_id
+ WHERE v.uuid IS NOT NULL
+ FETCH FIRST 20 ROWS ONLY
+```
+
+For **MUSIT**-side reporting beyond DwC, prefer joins from **`V_DC_*_VASCULAR`** or **`DC_VASCULAR_FELLES`** into **`MUSIT_BOTANIKK_FELLES`** as above; the older `MUSIT_BOTANIKK_FELLES.V_*` views are a different read-model family (search / admin UI), not the same as this DiGIR vascular slice.
+
+### Core specimen tables (row counts, prod snapshot)
+
+Each schema follows the same **USD botany** pattern: **`FUNNETIKETT`** (label / gathering record), **`EKSEMPLAR`** (physical specimen), **`BESTEMMELSE`** (determinations), plus geography, persons, media, etc. Approximate **row counts** from one live query:
+
+| Code | `FUNNETIKETT` | `EKSEMPLAR` | `BESTEMMELSE` |
+|------|---------------|-------------|----------------|
+| TRH | ~174k | ~215k | ~258k |
+| TMS | ~253k | ~257k | ~304k |
+| BRG | ~193k | ~193k | ~229k |
+| SVA | ~25k | ~36k | ~38k |
+
+A **migration “dataset”** can be defined as coarse as **one entire schema** (export everything for that herbarium’s USD botany), or finer-grained using the dimensions below.
+
+### What you can extract (logical dataset dimensions)
+
+These are **not** separate tables named “dataset”; they are **columns and foreign keys** you can `GROUP BY` or filter on when splitting exports.
+
+1. **Museum / schema (always)**  
+   The schema name is the strongest boundary: TRH, TMS, BRG, SVA are independent USD installations.
+
+2. **`FUNNETIKETT.PROSJEKT_NAVN` (free text)**  
+   Optional project or campaign label on the **find label** row. Cardinality **varies a lot by museum** (examples from prod):
+   - **TRH:** almost all rows blank; a single bulk import label dominated non-blank rows (e.g. “Holienimport fra NLD” on ~13k rows).
+   - **TMS:** only a **few** distinct values (e.g. digitization / facsimile-style names such as “LavFaksimilier”, “MoseKarasjok”, “SoppFaksimilier”).
+   - **BRG:** **five** distinct non-empty values, all **Foto***-prefixed (large photo-digitization batches: e.g. FotoFlisa, FotoKarasjok, …).
+   - **SVA:** **more** distinct values (~15 in the snapshot), often **expedition / author / locality** phrasing (Svalbard field campaigns, thesis data collections, etc.).
+
+   Use this when you need **human-named slices** inside one museum.
+
+3. **`FUNNETIKETT.ORGANISME_TYPE` (coarse taxon habit)**  
+   Example on **TRH:** mostly **Mose** vs **Lav** (two large populations). Useful for **taxonomic group** splits within a schema, not fine species-level datasets.
+
+4. **`FUNNETIKETT.FUNNTYPE_ID` → `FUNNTYPE` (lookup)**  
+   Intended specimen / record **type** classification. The **`FUNNTYPE` lookup table can be empty** in a given schema while `FUNNTYPE_ID` is still populated (e.g. NULL vs a small set of IDs). Treat as **optional** metadata; verify `SELECT COUNT(*) FROM <schema>.FUNNTYPE` before relying on labels.
+
+5. **`FUNNETIKETT.INNSAMLINGSMETODE_ID` → `INNSAMLINGSMETODE`**  
+   Collecting **method** (`INNSAMLINGSMETODE.INNSAMLINGSMETODE` is the name column). In **TRH** prod snapshot, **`INNSAMLINGSMETODE_ID` was 100% NULL** on `FUNNETIKETT`, so that dimension **does not slice TRH** data today; other museums may populate it—check per schema.
+
+6. **`EKSEMPLAR` + `EKSEMPLAR_TYPE_ID`**  
+   Physical specimen **kinds** (via type lookup). Good for **excluding non-sheet material** or grouping by preparation type when the lookups are maintained.
+
+7. **Linked subsystems (same schema)**  
+   Determinations (`BESTEMMELSE` + taxon tables), localities (`GEOREG`, `KOORDINATSETT`, …), collectors (`LEGSAMLER`, `PERSONER`), attachments (`BILDE` flags / media paths)—all can define **technical** extract slices (e.g. “records with coordinates”, “type specimens only”) using the same core keys (`ETIKETT_ID`, etc.). See the [Family 1 table list](oracle_schema_overview.md#family-1--usd-schemas-legacy-per-museum).
+
+### SQL recipes (USD)
+
+Use your normal Oracle access path (for example `oracle_sql` after [port forwarding and credentials](dev_container.md#4-database-proxies-port-forwarding)).
+
+**Do not** end statements with `;` when using `python-oracledb` `execute()` (including `oracle_sql`): Oracle returns `ORA-00933`. The `oracle_sql` helper strips **one** trailing semicolon for convenience.
+
+### List all non-empty `DATASET` values and object counts
+
+```sql
+SELECT TRIM(dataset) AS dataset, COUNT(*) AS object_count
+  FROM musit_botanikk_felles.object_attributes
+ WHERE dataset IS NOT NULL
+   AND TRIM(dataset) IS NOT NULL
+ GROUP BY TRIM(dataset)
+ ORDER BY dataset
+```
+
+### List `PROJECT_NAME` values (e.g. top by volume)
+
+```sql
+SELECT TRIM(project_name) AS project_name, COUNT(*) AS object_count
+  FROM musit_botanikk_felles.object_attributes
+ WHERE project_name IS NOT NULL
+   AND TRIM(project_name) IS NOT NULL
+ GROUP BY TRIM(project_name)
+ ORDER BY object_count DESC
+ FETCH FIRST 50 ROWS ONLY
+```
+
+### Count objects with no `DATASET` label
+
+```sql
+SELECT COUNT(*) AS objects_without_dataset
+  FROM musit_botanikk_felles.object_attributes
+ WHERE dataset IS NULL OR TRIM(dataset) IS NULL
+```
+
+### USD: list non-empty `PROSJEKT_NAVN` for one museum schema
+
+Replace the owner literal with `USD_BOTANIKK_TRONDHEIM`, `USD_BOTANIKK_TROMSO`, `USD_BOTANIKK_BERGEN`, or `USD_BOTANIKK_SVALBARD`.
+
+```sql
+SELECT TRIM(prosjekt_navn) AS prosjekt, COUNT(*) AS funnetikett_count
+  FROM usd_botanikk_trondheim.funnetikett
+ WHERE prosjekt_navn IS NOT NULL
+   AND TRIM(prosjekt_navn) IS NOT NULL
+ GROUP BY TRIM(prosjekt_navn)
+ ORDER BY funnetikett_count DESC
+```
+
+### USD: `ORGANISME_TYPE` split (example: Trondheim)
+
+```sql
+SELECT TRIM(organisme_type) AS organisme_type, COUNT(*) AS cnt
+  FROM usd_botanikk_trondheim.funnetikett
+ GROUP BY TRIM(organisme_type)
+ ORDER BY cnt DESC NULLS LAST
+```
+
+## Oracle → Specify (exploration): images and other migratable columns
+
+This section is an **inventory only** (no ETL): where **image / file** data lives, and which Oracle columns are useful when you eventually map **MUSIT / DiGIR** into Specify **`CollectionObject`**, **`CollectingEvent`**, **`Determination`**, **`Locality`**, **`Agent`**, **`Attachment`**, etc.
+
+### 1. Images and files
+
+| Source | What you get | Notes for Specify `Attachment` |
+|--------|----------------|----------------------------------|
+| **`DIGIR_MUSIT.V_DC_*_VASCULAR.IMAGE_URI`** | Populated on many rows (e.g. ~979k non-empty for `V_DC_O_VASCULAR` in one count). | Values are **not full `https://…` URLs** in DB text; they match the **numeric id** used by the public image endpoint (same value as **`MEDIAGRUPPE_ENHETS_ID`** for that specimen’s media group). Use them to build the **Unimus URL** below. |
+| **`MUSIT_BOTANIKK_FELLES.MUSEUM_OBJECT.MEDIAGRUPPE_ENHETS_ID`** | ~1.7M objects carry a media-group id. | Same id as **`IMAGE_URI`** / **`id=`** in **`web_hent_bilde.php`** (see [Public web image URL](#public-web-image-url-unimus-felles)). Join to **`USD_FELLES.MEDIA_FIL`** on **`MEDIAGRUPPE_ENHETS_ID`** for **`OPPRINNELIG_FILNAVN`**, **`ORIGINAL_KILDEHENVISNING`**, **`BILDE` / BLOB columns**, **`MEDIA_TYPE`**, **`TITTEL`**, **`FORMAT`**, etc. Multiple `MEDIA_FIL` rows per group = versions / pages. |
+| **`USD_FELLES.MEDIA__PATHS`** | **`KATALOG_STI`**, **`ORIG_STI`**, schema keys (`SKJEMA_NAVN`). | **Filesystem / archive roots** on museum storage (e.g. `/usit/...`, `/usit/musitprod/...`). Specify usually needs **copied files + HTTPS** or a **separate asset pipeline**; paths are still the authoritative link between DB and file. |
+| **`MUSIT_BOTANIKK_FELLES.REFERENCE_DOCUMENT`** | **`DOCUMENT_FILE`**, **`DOCUMENT_TEXT`**, **`DOCUMENT_TITLE`**, **`DOCUMENT_REFERENCE`**. | PDFs / scans linked as documents (often via **`DOCUMENT_OBJECT`** / **`EVENT_DOCUMENT`** to `OBJECT_ID` / `EVENT_ID`). |
+| **`MUSIT_BOTANIKK_FELLES.V_COUNT_PHOTO`** | **`OBJECT_ID`**, **`PHOTO_COUNT`**. | Quick “has N photos” flag; resolve files via **`MEDIAGRUPPE_ENHETS_ID`** + `USD_FELLES` as above. |
+| **`MUSIT_BOTANIKK_FELLES.ACTOR.URL`**, **`URL_NOTE`** | Person / org web links. | Map to **`Agent`** URL fields where appropriate (not specimen attachments). |
+
+The [schema overview](oracle_schema_overview.md) already flags **`USD_FELLES`** as the primary **media / attachment** store for migration.
+
+#### Public web image URL (Unimus / `felles`) {: #public-web-image-url-unimus-felles}
+
+The **legacy MUSIT web UI** serves specimen images through a single PHP endpoint on **`www.unimus.no`**. The query parameter **`id`** is the Oracle **media group** identifier:
+
+```text
+https://www.unimus.no/felles/bilder/web_hent_bilde.php?id=<MEDIAGRUPPE_ENHETS_ID>&type=jpeg
+```
+
+| Query part | Meaning |
+|------------|---------|
+| **`id`** | **`USD_FELLES.MEDIAGRUPPE_ENHET.MEDIAGRUPPE_ENHETS_ID`** and **`MUSIT_BOTANIKK_FELLES.MUSEUM_OBJECT.MEDIAGRUPPE_ENHETS_ID`** (one group → one “hero” image stream in the UI). |
+| **`type`** | Output format served to the browser (example: **`jpeg`** for a web-friendly derivative). Other values may exist (e.g. master **`tif`**); confirm per use case in the UI or by trial. |
+
+**Worked example (vascular herbarium sheet, TRH)**
+
+| Item | Value |
+|------|--------|
+| **`MUSEUM_OBJECT.OBJECT_ID`** | `187950` |
+| **`MUSEUM_OBJECT.IDENTIFIER_STRING`** | `TRH-V-241112` |
+| **`MUSEUM_OBJECT.MEDIAGRUPPE_ENHETS_ID`** | `14893715` |
+| **`USD_FELLES.MEDIAGRUPPE_ENHET.MEDIAGRUPPE_UUID`** | `da66e10a-d2f5-4cc3-a8ed-593ca23a8b96` |
+| **`USD_FELLES.MEDIAGRUPPE_ENHET.FILMNR_NEGATIVNR`** | `TRH-V-241112-01.tif` (default / “negative” filename on the group) |
+| **`FREMVISNINGS_MEDIAFIL_ID`** | `22747455` → preferred **`MEDIA_FIL`** row for display. |
+| **Public URL (verified)** | `https://www.unimus.no/felles/bilder/web_hent_bilde.php?id=14893715&type=jpeg` |
+
+**`USD_FELLES.MEDIA_FIL`** for `MEDIAGRUPPE_ENHETS_ID = 14893715` (scalar fields only): three rows — large master **`TRH-V-241112-01.tif`** (`MEDIAFIL_ID` `22747445`, ~31 MB), and two smaller JPEGs under **`ID_I_SAMLING`** `MUSIT_BOTANIKK_FELLES_FOTO_14661224.jpg` / `…25.jpg` with different **`MEDIA_VERSJONSTYPE_ID`** (derivatives / thumbnails). The PHP endpoint abstracts which file is returned for a given **`type`**.
+
+**Migration / Specify**
+
+- For **`Attachment.attachmentlocation`** (or equivalent), you can store this **stable public URL** as long as Unimus keeps serving it, **or** copy the file to your own CDN and store the new URL.
+- **`OBJECT_ATTRIBUTES.UUID`** is often **`NULL`** on older rows; the **media group id** (and **`MEDIAGRUPPE_UUID`**) are still sufficient to address images without DiGIR.
+- **`DIGIR_MUSIT.V_DC_*_VASCULAR.IMAGE_URI`** lines up with the same **`id=`** semantics when the export row is tied to the same media group.
+
+### 2. Identity, cataloguing, and collection grouping (Specify `CollectionObject` / `Collection`)
+
+| Oracle | Tables / views | Specify-ish role |
+|--------|------------------|--------------------|
+| Catalog / DwC triple | **`DIGIR_MUSIT.V_DC_*`**: `INSTITUTIONCODE`, `COLLECTIONCODE`, `CATALOGNUMBER`, `PREVIOUSCATALOGNUMBER`, `UUID` | `CollectionObject.catalogNumber`, `uniqueidentifier` / `guid`, `AltCatalogNumber`; join UUID → **`OBJECT_ATTRIBUTES.UUID`**. |
+| Internal id | **`MUSEUM_OBJECT.OBJECT_ID`** | Stable primary key for joins (not necessarily stored in Specify; use in **`oracle_to_specify_map`**). |
+| Human label | **`MUSEUM_OBJECT.IDENTIFIER_STRING`**, **`LONG_NAME`**, **`IDENTIFIER_NUM`** | `CollectionObject` text fields / remarks / “name” depending on policy. |
+| Workflow | **`OBJECT_ATTRIBUTES`**: `IS_REG`, `IS_CORRECTED`, `IS_APPROVED`, `REG_USER`, `KORR_USER`, `APPROVE_USER`, dates, `OBJECT_STATE`, `OBJECT_WITHHELD` | Provenance + “embargo-like” flags → Specify `Visibility` / `Embargo*` / `Remarks` / custom fields. |
+| Dataset / project | **`OBJECT_ATTRIBUTES.DATASET`**, **`PROJECT_NAME`** | Collection batch / `projectnumber` / remarks (see [earlier sections](#storage-model-musit-botany)). |
+| Type | **`MUSEUM_OBJECT.MUSEUM_OBJECT_TYPE`** → **`TYPES`** | Object kind (herbarium sheet vs place etc.). |
+| Parent / hierarchy | **`MUSEUM_OBJECT.PARENT_OBJECT_ID`**, **`OBJECT_HIERARCHY`** | Container / duplicate / “same sheet” semantics (`SAME_SHEET_AS`, `DUBLETTES` on attributes). |
+
+### 3. Collecting event, locality, geography (Specify `CollectingEvent` / `Locality`)
+
+| Oracle | Tables / views | Role |
+|--------|----------------|------|
+| When / text | **`TIMESPAN`**: `FROM_DATE`, `TO_DATE`, `TIME_AS_TEXT`, `UNCERTAIN` | Collecting date + precision. |
+| Event shell | **`EVENT`**: `EVENT_ID`, `EVENTNAME`, `EVENT_TYPE`, `TIMESPAN_ID` | Link via **`EVENT_MUSEUM_OBJECT`** to `OBJECT_ID`. |
+| Field event | **`COLLECTING_EVENT`**: `COLLECTIONTYPE_ID`, `LEGNAME_ORIG`, `AGG_PERSONNAMES` | Collector aggregation + “plant collecting” type (see [migration_strategy](migration_strategy.md) for intended `COLLECTIONTYPE_ID` meaning). |
+| Place | **`PLACE`**: `PLACE_ID`, `PLACE_NAME_AGG` | Locality string; drill via **`PLACE_*`** junction tables to **`ADMINISTRATIVE_PLACE`**, **`INDEXED_LOCALITY`**, **`STORING_PLACE`**, **`ECOLOGY_PLACE`**, etc. |
+| Coordinates | **`KOORDINATE_PLACE`**: lat/long, UTM/MGRS, datum, precision, sources, verbatim strings | `Locality` / `CollectingEvent` geo fields; DiGIR view already flattens many DwC geo columns for vascular exports. |
+| DwC extras on export | **`V_DC_*`**: locality, country, county, elevation, depth, `ORIGINAL_KOORDINAT_STRENG`, `KOORDINATKILDE`, `BIOGEOREGION`, `DATASETNAME`, … | Good for parity with IPT; cross-check against normalized **`PLACE`** / **`KOORDINATE_PLACE`** when you need authoritative MUSIT values. |
+
+### 4. Taxonomy and determinations (Specify `Determination` / `Taxon`)
+
+| Oracle | Tables | Role |
+|--------|--------|------|
+| Current ID event | **`CLASSIFICATION_EVENT`** → **`CLASSIFICATION_TERM`**, **`CLASSIFICATION_TAXON`** → **`TAXON`** → **`LATIN_NAMES`** | Determination + scientific name; **`ADB_TAXON_ID`** links Artsdatabanken (NorTaxa strategy in [migration_strategy](migration_strategy.md)). |
+| Type status | **`TYPIFICATION_EVENT`**, **`TYPE_SPECIMEN`** | Type specimen / typification. |
+| DwC-style ranks on export | **`V_DC_*`**: kingdom … species, `SCIENTIFICNAMEAUTHOR`, `IDENTIFICATION*` columns, Norwegisk taxon ids (`NRIKEID` … `NARTID`) | IPT parity + bridge to NorTaxa. |
+
+### 5. People and agents (Specify `Agent`)
+
+| Oracle | Tables | Role |
+|--------|--------|------|
+| Actors | **`ACTOR`**, **`PERSON_NAME`**, **`PERSON_INFORMATION`**, **`GROUPMEMBERSHIP`** | Collectors, determiners, organisations (`migrate_musit_agents` scope). |
+| Event roles | **`EVENT_ROLE_ACTOR`**, **`EVENT_ROLE_PERSON_NAME`** | Who did collecting, ID, loans, etc. |
+| DwC | **`V_DC_*`**: `COLLECTOR`, `IDENTIFIEDBY`, `RECORDEDBYID`, `IDENTIFIEDBYID` | String + ORCID/Wikidata-style ids (your SQL already normalises separators). |
+
+### 6. Identifiers, notes, literature, legacy (misc. Specify fields)
+
+| Oracle | Tables | Role |
+|--------|--------|------|
+| Barcodes / other ids | **`IDENTIFIER_ASSIGNMENT`** (`EVENT_ID` or `OBJECT_ID`, `IDENTIFIER_STRING`, `IDENTIFIER_TYPE`) | `CollectionObject` alt numbers / preparations / identifier table patterns. |
+| Free text | **`NOTE`**, **`MUSEUM_OBJECT_NOTE`**, **`EVENT_NOTE`**, **`OBJECT_ATTRIBUTES.ANALYSIS_REQUEST`** | `Remarks`, attachment notes, workbench text fields. |
+| Literature | **`REFERENCE_DOCUMENT`** + event links | `ReferenceWork` / citations depending on model. |
+| Full legacy blob | **`LEGACY_EVENT.LEGACY_DATA`** (JSON) | Extra DwC-style keys not normalised into MUSIT tables (good for gap-fill and auditing). |
+
+### 7. Specify-side targets (reminder)
+
+Core Specify tables touched by a typical herbarium migration include **`collectionobject`** (catalog numbers, GUID, field number, remarks, `CollectingEventID`, `CollectionID`, … — see `Collectionobject` in `specify7/specifyweb/specify/models.py`), **`collectingevent`**, **`locality`**, **`determination`**, **`taxon`**, **`agent`**, and **`attachment`** / **`collectionobjectattachment`** (`attachmentlocation`, `origfilename`, `title`, `ispublic`, …). Map Oracle columns above into those after you fix **one** canonical rule for **files** (path + filename + MIME from `MEDIA_FIL` + `MEDIA__PATHS`).
+
+## Related tooling
+
+- **`scripts/oracle_sql.py`** / shell function **`oracle_sql`** after `source scripts/port-forward.sh` — see module docstring for thick client (Instant Client) on macOS.
+- **`scripts/port-forward.sh`** — Oracle tunnel via cluster pod; see comments in the script.

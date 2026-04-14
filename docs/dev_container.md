@@ -65,29 +65,24 @@ kubectl exec -it "$POD_NAME" -- bash
 
 ## 4. Database Proxies (Port Forwarding)
 
-To access Oracle or cluster MariaDB from your local machine (for tools like DBeaver/DbGate), use the included helper script.
-
-### Inside the Runtime Pod:
-Start the proxies. This binds `socat` to the pod's ports.
+From your laptop, Oracle is normally reachable only from the cluster network. Use `scripts/port-forward.sh` from a clone of this repo on your machine: it picks the `prefect-dev-worker` pod (migration image, includes `socat`), runs `socat` **inside** that pod toward the Oracle hosts, then `kubectl port-forward` exposes `1553` / `1554` on your localhost. MariaDB and other in-cluster services use regular service port-forwards in the same script.
 
 ```bash
-# Forward Oracle (Prod: 1553, Test: 1553)
-./scripts/proxy_db.sh oracle
-
-# Forward Cluster MariaDB (3306)
-./scripts/proxy_db.sh mariadb
+# In your repo checkout (uses current kubectl context / namespace)
+source scripts/port-forward.sh db
+# or everything:  source scripts/port-forward.sh
 ```
 
-### From Local Machine:
-Forward the pod's ports to your localhost.
+Optional: `export PF_ORACLE_PROXY_POD=<pod-name>` if you are not using the default `component=prefect-dev-worker` selector.
 
-```bash
-kubectl port-forward $POD_NAME 1553:1553 3306:3306
-```
+### Connect (local):
+*   **Oracle PROD**: `localhost:1553`
+*   **Oracle TEST**: `localhost:1554`
+*   **MariaDB**: `localhost:3306` (when included in the same `source` invocation)
 
-### Connect:
-*   **Oracle**: `localhost:1553`
-*   **MariaDB**: `localhost:3306`
+Tear down: `pf_stop` in that shell.
+
+For SQL from the terminal after forwarding: `oracle_sql "SELECT sysdate FROM dual"` (see `scripts/oracle_sql.py` for thick-mode / Instant Client requirements on your laptop).
 
 ## 5. Running Migration Flows
 

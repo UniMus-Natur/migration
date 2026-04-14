@@ -85,3 +85,17 @@ deployments:
     work_pool:
       name: dev-process
       work_queue_name: default
+
+  - name: nortaxa-discipline-trees-dev
+    version: 1.0.0
+    tags: ["nortaxa", "taxonomy", "dwca", "dev"]
+    description: "Download Artsnavnebase NorTaxa DwC-A; slice taxon.txt per Specify Discipline (ORM + hard-coded roots)"
+    entrypoint: flows/nortaxa_discipline_trees.py:nortaxa_discipline_trees_flow
+    parameters:
+      download: true
+      keep_unpack_dir: false
+      merge_into_specify: false
+      merge_dry_run: true
+    work_pool:
+      name: dev-process
+      work_queue_name: default

@@ -9,17 +9,22 @@
 #   pf_stop                                     # tear down when done
 #
 # Safe to source again: skips any localhost port that already has a listener
-# (avoids duplicate kubectl/socat and keeps pf_stop tracking intact).
+# (avoids duplicate kubectl port-forwards and keeps pf_stop tracking intact).
 #
 # Targets:
 #   mariadb    MariaDB         localhost:3306
 #   prefect    Prefect UI/API  localhost:4200  (+ sets PREFECT_API_URL)
 #   backend    Specify7 API    localhost:8000
-#   oracle     Oracle prod+test via socat  localhost:1553 / localhost:1554
+#   oracle     Oracle prod+test  localhost:1553 / :1554  (socat inside cluster pod + kubectl port-forward)
 #   db         shorthand for mariadb + oracle
 #   all        everything (default)
 #
-# Requires: kubectl. For Oracle tunnels: socat (install: brew install socat | apt install socat)
+# Requires: kubectl. Oracle DB hosts are only reachable from the cluster; this script starts socat in
+# the Prefect dev-worker pod (migration image), then port-forwards those pod ports to localhost.
+#
+# Optional env:
+#   PF_ORACLE_PROXY_POD         pod name (default: first pod with label component=prefect-dev-worker)
+#   PF_ORACLE_PROXY_CONTAINER   container name (default: dev-worker)
 
 # Capture scripts directory at source time so oracle_sql() can find oracle_sql.py
 _PF_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
@@ -92,28 +97,36 @@ _pf_forward_backend() {
 }
 
 _pf_forward_oracle() {
-    if ! command -v socat &>/dev/null; then
-        echo "  ⚠ socat not found – skipping Oracle proxies (localhost:1553 / :1554)"
-        echo "     Oracle DBs live outside the cluster; this script uses socat to tunnel them."
-        echo "     Install:  macOS: brew install socat    Debian/Ubuntu: sudo apt install socat"
-        echo "     Alternative: run flows on the cluster worker, or VPN + point ORACLE_*_HOST at the DB."
+    local pod ct phase
+    ct="${PF_ORACLE_PROXY_CONTAINER:-dev-worker}"
+    pod="${PF_ORACLE_PROXY_POD:-}"
+    if [[ -z "$pod" ]]; then
+        pod=$(kubectl get pods -l component=prefect-dev-worker -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+    fi
+    if [[ -z "$pod" ]]; then
+        echo "  ⚠ Oracle: no proxy pod (label component=prefect-dev-worker)."
+        echo "     Enable chart values prefect.devWorker.enabled, or: export PF_ORACLE_PROXY_POD=<pod>"
         return
     fi
-    if _pf_tcp_port_listening 1553; then
-        echo "  Oracle PROD    dbora-musit-prod03.uio.no:1553  → localhost:1553 (already in use – skip)"
-    else
-        echo "  Oracle PROD    dbora-musit-prod03.uio.no:1553  → localhost:1553"
-        socat TCP-LISTEN:1553,fork,reuseaddr TCP:dbora-musit-prod03.uio.no:1553 &
-        _PF_PIDS+=($!)
+    phase=$(kubectl get pod "$pod" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+    if [[ "$phase" != "Running" ]]; then
+        echo "  ⚠ Oracle: pod $pod is not Running (status.phase=${phase:-unknown})"
+        return
     fi
 
-    if _pf_tcp_port_listening 1554; then
-        echo "  Oracle TEST    dbora-musit-utv03.uio.no:1553   → localhost:1554 (already in use – skip)"
-    else
-        echo "  Oracle TEST    dbora-musit-utv03.uio.no:1553   → localhost:1554"
-        socat TCP-LISTEN:1554,fork,reuseaddr TCP:dbora-musit-utv03.uio.no:1553 &
-        _PF_PIDS+=($!)
+    if _pf_tcp_port_listening 1553 || _pf_tcp_port_listening 1554; then
+        echo "  Oracle PROD+TEST  localhost:1553 / :1554 (already in use – skip)"
+        return
     fi
+
+    echo "  Oracle PROD+TEST  pod/$pod ($ct) → localhost:1553 / :1554"
+    kubectl exec "$pod" -c "$ct" -- bash -c \
+        'socat TCP-LISTEN:1553,fork,reuseaddr TCP:dbora-musit-prod03.uio.no:1553 & socat TCP-LISTEN:1554,fork,reuseaddr TCP:dbora-musit-utv03.uio.no:1553 & wait' \
+        </dev/null &
+    _PF_PIDS+=($!)
+    sleep 1
+    kubectl port-forward "pod/$pod" 1553:1553 1554:1554 >/dev/null 2>&1 &
+    _PF_PIDS+=($!)
 }
 
 _pf_targets_include_prefect() {
@@ -173,4 +186,5 @@ fi
 
 echo ""
 echo "Forwards running in background. Run 'pf_stop' to tear down."
-echo "Oracle SQL helper available: oracle_sql [--env prod|test] [--csv] \"<SQL>\""
+echo "Oracle SQL helper: oracle_sql [--env prod|test] [--csv] \"<SQL>\""
+echo "  PROD needs Oracle Instant Client (thick mode) on this machine — see scripts/oracle_sql.py"

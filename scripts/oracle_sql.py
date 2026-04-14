@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Run SQL on Oracle PROD/TEST via port-forwarded localhost.
 
-Requires: source scripts/port-forward.sh first (sets up localhost tunnels).
+Requires: source scripts/port-forward.sh first (starts socat inside a cluster pod, then
+kubectl port-forward so your machine only talks to localhost).
 
-  Tunnel mapping:
-    PROD  localhost:1553  ← dbora-musit-prod03.uio.no:1553
-    TEST  localhost:1554  ← dbora-musit-utv03.uio.no:1553
+  Tunnel mapping (cluster reaches Oracle; your laptop does not need DB network access):
+    PROD  localhost:1553  ← pod:1553  ← socat → dbora-musit-prod03.uio.no:1553
+    TEST  localhost:1554  ← pod:1554  ← socat → dbora-musit-utv03.uio.no:1553
 
 Usage:
   oracle_sql "SELECT sysdate FROM dual"
@@ -214,6 +215,9 @@ def main() -> None:
     if not sql:
         parser.print_help()
         sys.exit(1)
+
+    # OCI/cursor.execute() rejects trailing ';' (SQL*Plus terminator, not part of the statement).
+    sql = sql.strip().rstrip(";").strip()
 
     mode = _init_oracle_client()
     print(f"[oracle_sql] env={args.env.upper()}  localhost:{_LOCAL_PORTS[args.env]}  mode={mode}", file=sys.stderr)

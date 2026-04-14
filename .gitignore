@@ -9,3 +9,4 @@ specify7_venv/
 .cursor
 **/*.layout.json
 schemas/migration_report.json
+data/
