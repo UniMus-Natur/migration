@@ -61,9 +61,11 @@ _MARINE_INVERTEBRATER = NorTaxaSliceSpec(root_taxon_ids=("1",), subtract_subtree
 _PATTEDYR = NorTaxaSliceSpec(root_taxon_ids=("293",))  # Mammalia
 _FUGL = NorTaxaSliceSpec(root_taxon_ids=("252",))  # Aves
 
-# Fisk og herptiler: jawed/jawless fish classes + amphibians + reptiles.
+# Fisk og herptiler: fish (incl. jawless / cartilaginous / lobe-finned) + amphibians + reptiles.
+# Under Vertebrata (127715) v1.270 also has Myxini and Holocephali as classes — include them so the
+# slice is not only Actinopterygii + Elasmobranchii + lampreys (Cephalaspidomorphi).
 _FISK_HERPTILER = NorTaxaSliceSpec(
-    root_taxon_ids=("197", "330", "275", "277", "243", "325"),
+    root_taxon_ids=("197", "330", "275", "277", "243", "325", "289", "323"),
 )
 
 # Paleontologi: kingdom-level coverage for fossil taxon names.
