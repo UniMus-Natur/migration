@@ -13,12 +13,23 @@
 
 - Rows with ``taxonomicStatus`` synonym (and other non-valid statuses) are **not** inserted in
   this version; only ``valid`` (or blank) rows are merged. Synonyms can be added in a follow-up.
-- Inserts run in dependency order (parent NorTaxa ids resolved before children). DwC rows with an
-  empty ``parentNameUsageID`` attach under the Specify tree **root** (``parent`` is null).
+- Inserts run in dependency order. The DwC slice TSV includes **all ancestors** up to the root of
+  the full NorTaxa file (see ``expand_keep_with_ancestors``), so parents resolve under **Life**
+  without attaching phyla directly to the discipline root. If a ``parentNameUsageID`` is missing
+  from the slice TSV entirely, the row is inserted under **Life** as a last resort (counted in
+  ``reparented_out_of_slice_to_root``).
 - If a DwC ``taxonRank`` has no matching :class:`~specifyweb.specify.models.Taxontreedefitem`
   ``Name`` for that discipline tree, the row is skipped and counted.
 - The same ``TaxonTreeDef`` is only merged **once** per flow run (first discipline wins); a second
   discipline sharing the same tree is skipped with a note in the merge summary.
+
+**Living / pre-imported taxa**
+
+- Any ``Taxon`` in the tree with ``taxonomicserialnumber`` matching the DwC id is linked into the
+  merge map regardless of ``source`` (re-import safe).
+- If no serial match but a row exists with the same ``parent``, ``name``, and ``rankid`` and a
+  **blank** ``taxonomicserialnumber``, it is **adopted**: NorTaxa provenance fields are set without
+  creating a duplicate (covers taxa created by earlier migrations).
 
 **Tree bootstrap**
 
@@ -150,6 +161,48 @@ def build_rank_name_to_item(treedef_id: int) -> dict[str, Any]:
     return rank_map
 
 
+def _try_adopt_existing_taxon(
+    *,
+    treedef_id: int,
+    parent: Any,
+    name: str,
+    rankid: int,
+    tid: str,
+    export_stamp: str,
+    dry_run: bool,
+) -> tuple[Any | None, bool]:
+    """If a pre-existing child matches parent+name+rank with no NorTaxa serial, adopt it.
+
+    Returns ``(taxon_or_none, adopted)``.
+    """
+    from django.db.models import Q
+
+    from specifyweb.specify.models import Taxon
+
+    serial = _trunc(tid, 50)
+    blank_serial = Q(taxonomicserialnumber__isnull=True) | Q(taxonomicserialnumber__exact="")
+    cand = (
+        Taxon.objects.filter(
+            definition_id=treedef_id,
+            parent_id=parent.id,
+            name=name,
+            rankid=rankid,
+        )
+        .filter(blank_serial)
+        .first()
+    )
+    if cand is None:
+        return None, False
+    if dry_run:
+        return cand, True
+    cand.source = NORTAXA_SOURCE
+    cand.taxonomicserialnumber = serial
+    cand.text1 = export_stamp
+    cand.yesno1 = True
+    cand.save(update_fields=["source", "taxonomicserialnumber", "text1", "yesno1", "version"])
+    return cand, True
+
+
 def rank_item_for_dwc_row(row: dict[str, str], rank_map: dict[str, Any]) -> Any | None:
     raw = (row.get("taxonRank") or "").strip().lower()
     if not raw:
@@ -173,6 +226,8 @@ class MergeStats:
     skipped_unknown_rank: int = 0
     skipped_missing_parent: int = 0
     skipped_no_tree_root: int = 0
+    reparented_out_of_slice_to_root: int = 0
+    adopted_pre_existing: int = 0
     errors: list[str] = field(default_factory=list)
 
 
@@ -217,11 +272,11 @@ def merge_nortaxa_tsv_into_discipline_tree(
         )
         return stats
 
-    # --- NorTaxa rows already in Specify for this tree (keyed by export taxon id)
-    existing = Taxon.objects.filter(
-        definition_id=treedef_id,
-        source=NORTAXA_SOURCE,
-        taxonomicserialnumber__in=list(current_ids),
+    # --- Taxa already in Specify keyed by DwC taxon id (any source — safe re-runs on live DB)
+    existing = (
+        Taxon.objects.filter(definition_id=treedef_id, taxonomicserialnumber__in=list(current_ids))
+        .exclude(taxonomicserialnumber__isnull=True)
+        .exclude(taxonomicserialnumber__exact="")
     )
     nortaxa_to_taxon: dict[str, Any] = {}
     for t in existing:
@@ -235,11 +290,11 @@ def merge_nortaxa_tsv_into_discipline_tree(
             source=NORTAXA_SOURCE,
         ).exclude(taxonomicserialnumber__isnull=True).exclude(taxonomicserialnumber__exact="")
         orphan_qs = orphan_qs.exclude(taxonomicserialnumber__in=current_ids)
+        # Any row with this DwC id in the slice (any source) gets refreshed — safe on re-runs.
         present_qs = Taxon.objects.filter(
             definition_id=treedef_id,
-            source=NORTAXA_SOURCE,
             taxonomicserialnumber__in=list(current_ids),
-        )
+        ).exclude(taxonomicserialnumber__isnull=True).exclude(taxonomicserialnumber__exact="")
 
         if dry_run:
             stats.orphans_marked = orphan_qs.count()
@@ -313,10 +368,20 @@ def merge_nortaxa_tsv_into_discipline_tree(
         for row in pending:
             tid = (row.get("taxonID") or "").strip()
             pid = (row.get("parentNameUsageID") or "").strip()
-            if pid and pid not in nortaxa_to_taxon:
-                still.append(row)
-                continue
-            parent = root if not pid else nortaxa_to_taxon.get(pid)
+            if not pid:
+                parent = root
+                reparent_missing_dwc_parent = False
+            elif pid not in nortaxa_to_taxon:
+                if pid not in current_ids:
+                    # Parent id not in this slice TSV (broken DwC / edge) — attach to Life.
+                    parent = root
+                    reparent_missing_dwc_parent = True
+                else:
+                    still.append(row)
+                    continue
+            else:
+                parent = nortaxa_to_taxon[pid]
+                reparent_missing_dwc_parent = False
             if parent is None:
                 still.append(row)
                 continue
@@ -328,8 +393,26 @@ def merge_nortaxa_tsv_into_discipline_tree(
             if not name:
                 stats.skipped_unknown_rank += 1
                 continue
+            if reparent_missing_dwc_parent:
+                stats.reparented_out_of_slice_to_root += 1
             fullname = _trunc(row.get("scientificName"), 512) or name
             author = _trunc(row.get("scientificNameAuthorship"), 128)
+
+            adopted_obj, adopted = _try_adopt_existing_taxon(
+                treedef_id=treedef_id,
+                parent=parent,
+                name=name,
+                rankid=di.rankid,
+                tid=tid,
+                export_stamp=export_stamp,
+                dry_run=dry_run,
+            )
+            if adopted:
+                stats.adopted_pre_existing += 1
+                nortaxa_to_taxon[tid] = adopted_obj
+                progressed += 1
+                continue
+
             if dry_run:
                 stats.inserted += 1
                 progressed += 1
@@ -388,5 +471,7 @@ def merge_stats_to_dict(s: MergeStats) -> dict[str, Any]:
         "skipped_unknown_rank": s.skipped_unknown_rank,
         "skipped_missing_parent": s.skipped_missing_parent,
         "skipped_no_tree_root": s.skipped_no_tree_root,
+        "reparented_out_of_slice_to_root": s.reparented_out_of_slice_to_root,
+        "adopted_pre_existing": s.adopted_pre_existing,
         "errors": s.errors,
     }

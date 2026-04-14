@@ -26,6 +26,39 @@ from flows.lib.nortaxa_discipline_root_specs import NorTaxaSliceSpec
 ARTSNAVNEBASE_ARCHIVE_URL = "https://ipt.artsdatabanken.no/archive.do?r=artsnavnebase"
 
 
+def expand_keep_with_ancestors(
+    by_id: Mapping[str, dict[str, str]],
+    keep: set[str],
+    *,
+    excluded_descendant_ids: set[str] | None = None,
+) -> set[str]:
+    """Add every ``parentNameUsageID`` chain from each taxon in ``keep`` (up to empty parent).
+
+    Stops when the next parent is in ``excluded_descendant_ids`` (e.g. Chordata for a
+    ``Animalia minus Chordata`` slice) so subtracted subtrees are not pulled back in.
+    """
+    excluded = excluded_descendant_ids or set()
+    expanded: set[str] = set(keep)
+    for start_tid in keep:
+        cur = start_tid
+        chain_seen: set[str] = set()
+        while cur:
+            if cur in chain_seen:
+                break
+            chain_seen.add(cur)
+            row = by_id.get(cur)
+            if not row:
+                break
+            pid = (row.get("parentNameUsageID") or "").strip()
+            if not pid:
+                break
+            if pid in excluded:
+                break
+            expanded.add(pid)
+            cur = pid
+    return expanded
+
+
 def _ensure_csv_field_limit() -> None:
     csv.field_size_limit(min(2**31 - 1, max(csv.field_size_limit(), 8_000_000)))
 
@@ -251,7 +284,18 @@ def run_slice_for_specify_disciplines(
     artifacts: list[dict] = []
     for did, dname, divid, divname, spec in discipline_jobs:
         warns = missing_root_warnings(by_id, spec)
-        keep = compute_keep_ids(children, spec)
+        keep_descendants = compute_keep_ids(children, spec)
+        excluded_subtrees: set[str] = set()
+        for sid in spec.subtract_subtree_taxon_ids:
+            s = str(sid).strip()
+            if s:
+                excluded_subtrees |= subtree_taxon_ids([s], children)
+        n_desc = len(keep_descendants)
+        keep = expand_keep_with_ancestors(
+            by_id,
+            keep_descendants,
+            excluded_descendant_ids=excluded_subtrees,
+        )
         subset = filter_taxon_rows(rows, keep)
         base = discipline_artifact_basename(did, dname)
         fname = f"{base}.tsv"
@@ -265,6 +309,8 @@ def run_slice_for_specify_disciplines(
             "division_name": divname,
             "artifact": fname,
             "rows": len(subset),
+            "descendant_only_taxa": n_desc,
+            "ancestor_taxa_added": len(keep) - n_desc,
             "roots": manifest_roots_for_spec(by_id, spec),
             "root_taxon_ids": list(spec.root_taxon_ids),
             "subtract_subtree_taxon_ids": list(spec.subtract_subtree_taxon_ids),
