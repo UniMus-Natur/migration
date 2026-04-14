@@ -19,6 +19,13 @@
   ``Name`` for that discipline tree, the row is skipped and counted.
 - The same ``TaxonTreeDef`` is only merged **once** per flow run (first discipline wins); a second
   discipline sharing the same tree is skipped with a note in the merge summary.
+
+**Tree bootstrap**
+
+If a discipline has no ``taxontreedef``, or the tree has no rank-0 :class:`Taxontreedefitem`, or no
+root :class:`Taxon`, :func:`ensure_discipline_taxon_tree` creates them (mirrors Specify's tree API
+pattern: root named **Life**, ``rankid`` 0). Skipped when the flow runs with ``dry_run=True`` and
+bootstrap would be required — run with ``dry_run=False`` to create the tree and merge.
 """
 
 from __future__ import annotations
@@ -29,6 +36,87 @@ from pathlib import Path
 from typing import Any
 
 NORTAXA_SOURCE = "NorTaxa"
+
+
+def ensure_discipline_taxon_tree(discipline_id: int, *, dry_run: bool) -> dict[str, Any]:
+    """Ensure the discipline has a taxon tree def, rank-0 item, and root ``Taxon`` (``Life``).
+
+    When ``dry_run`` is True, performs no writes. If anything would need to be created, returns
+    ``dry_run_blocked: True`` so the caller can skip the merge phase for that discipline.
+    """
+    from django.db import connection
+
+    from specifyweb.specify.models import Discipline, Taxon, Taxontreedef, Taxontreedefitem
+
+    disc = Discipline.objects.filter(pk=discipline_id).first()
+    if disc is None:
+        return {"treedef_id": None, "error": "discipline_not_found"}
+
+    out: dict[str, Any] = {
+        "treedef_id": None,
+        "created_treedef": False,
+        "created_rank_item": False,
+        "created_root": False,
+        "dry_run_blocked": False,
+        "message": None,
+    }
+
+    td_id: int | None = int(disc.taxontreedef_id) if disc.taxontreedef_id else None
+
+    if td_id is None:
+        if dry_run:
+            out["dry_run_blocked"] = True
+            out["message"] = "dry_run: would create TaxonTreeDef and link to discipline"
+            return out
+        base = (disc.name or "discipline").strip() or "discipline"
+        td_name = f"NorTaxa {base}"[:64]
+        td = Taxontreedef.objects.create(name=td_name, discipline_id=disc.id)
+        Discipline.objects.filter(pk=disc.id).update(taxontreedef_id=td.id)
+        out["created_treedef"] = True
+        td_id = int(td.id)
+        disc.refresh_from_db()
+
+    assert td_id is not None
+    out["treedef_id"] = td_id
+
+    rank0 = Taxontreedefitem.objects.filter(treedef_id=td_id, rankid=0).first()
+    if rank0 is None:
+        if dry_run:
+            out["dry_run_blocked"] = True
+            out["message"] = "dry_run: would create TaxonTreeDefItem rankid=0 (Life)"
+            return out
+        rank0 = Taxontreedefitem.objects.create(
+            treedef_id=td_id,
+            rankid=0,
+            name="Life",
+            title="Life",
+            parent_id=None,
+        )
+        out["created_rank_item"] = True
+
+    root = Taxon.objects.filter(definition_id=td_id, parent_id__isnull=True).first()
+    if root is None:
+        if dry_run:
+            out["dry_run_blocked"] = True
+            out["message"] = "dry_run: would create root Taxon (Life)"
+            return out
+        root = Taxon(
+            name="Life",
+            fullname="Life",
+            isaccepted=True,
+            rankid=0,
+            parent=None,
+            definition_id=td_id,
+            definitionitem=rank0,
+            nodenumber=1,
+            highestchildnodenumber=1,
+        )
+        root.save()
+        with connection.cursor() as cur:
+            cur.execute("UPDATE taxon SET NodeNumber = 1 WHERE taxonid = %s", [root.id])
+        out["created_root"] = True
+
+    return out
 
 
 def _trunc(s: str | None, n: int) -> str:

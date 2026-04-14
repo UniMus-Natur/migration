@@ -1,10 +1,12 @@
-"""Prefect flow: NorTaxa DwC-A extract + optional merge into Specify ``Taxon`` trees.
+"""Prefect flow: NorTaxa DwC-A extract + merge into Specify ``Taxon`` trees.
 
 1. **Extract** — download/unpack IPT archive, slice ``taxon.txt`` / ``vernacularname.txt`` per
-   discipline (see ``flows.lib.nortaxa_discipline_root_specs``).
-2. **Merge** (optional) — reconcile the slice with each discipline's ``TaxonTreeDef`` using
-   ``flows.lib.nortaxa_specify_merge`` (provenance on ``source`` / ``taxonomicserialnumber`` /
-   ``text1`` / ``yesno1``).
+   discipline (``flows.lib.nortaxa_discipline_root_specs``).
+2. **Merge** — always runs after extract: ensures each discipline has a ``TaxonTreeDef`` + root
+   ``Life`` when missing (unless ``dry_run``), then merges the slice (``flows.lib.nortaxa_specify_merge``).
+
+Use ``dry_run=True`` (default) to write only TSV artifacts and **not** change Specify; use
+``dry_run=False`` to persist tree bootstrap and taxon rows (same pattern as other migration flows).
 """
 
 from __future__ import annotations
@@ -72,8 +74,8 @@ def _discipline_slice_jobs_from_specify():
 @flow(
     name="NorTaxa discipline taxon trees",
     description=(
-        "Download Artsnavnebase DwC-A; slice taxon/vernacular per Specify Discipline; optionally "
-        "merge slices into Specify Taxon trees (same flow, phase 2)."
+        "Download Artsnavnebase DwC-A; slice taxon/vernacular per discipline; merge into Specify "
+        "(single dry_run flag; creates taxon tree + root when missing)."
     ),
 )
 def nortaxa_discipline_trees_flow(
@@ -82,10 +84,9 @@ def nortaxa_discipline_trees_flow(
     dwca_dir: str | None = None,
     output_parent: str | None = None,
     keep_unpack_dir: bool = False,
-    merge_into_specify: bool = False,
-    merge_dry_run: bool = True,
+    dry_run: bool = True,
 ) -> dict:
-    """Download (optional), unpack, slice, and optionally merge NorTaxa into Specify.
+    """Download (optional), unpack, slice, then merge NorTaxa into Specify per discipline.
 
     Args:
         archive_url: IPT ``archive.do`` URL (default Artsnavnebase).
@@ -96,11 +97,9 @@ def nortaxa_discipline_trees_flow(
             repo ``data/``.
         keep_unpack_dir: When True and ``download`` is True, copy unpacked DwC-A into the run
             directory as ``dwca-unpacked/`` (otherwise the temp unpack dir is removed).
-        merge_into_specify: When True, run phase 2: merge each discipline TSV into its
-            ``Discipline.taxontreedef`` tree (requires a root ``Taxon`` and rank names compatible
-            with DwC ``taxonRank``).
-        merge_dry_run: When True with ``merge_into_specify``, compute merge counts and errors only
-            (no Specify writes except read queries for counts when marking orphans would run).
+        dry_run: When True (default), write TSV artifacts only; merge phase counts/skips DB writes
+            and does **not** bootstrap a missing taxon tree. When False, create ``TaxonTreeDef`` /
+            root ``Life`` if needed and merge taxa into Specify.
     """
     logger = get_run_logger()
     setup_django()
@@ -162,67 +161,83 @@ def nortaxa_discipline_trees_flow(
     manifest["flow"] = "nortaxa_discipline_trees"
     manifest["timestamp_utc"] = ts
     manifest["download"] = download
+    manifest["dry_run"] = dry_run
     manifest["output_dir"] = str(run_dir)
 
     export_stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     manifest["export_stamp"] = export_stamp
-    manifest["merge_into_specify"] = merge_into_specify
-    manifest["merge_dry_run"] = merge_dry_run
+
+    from specifyweb.specify.models import Discipline
+
+    from flows.lib.nortaxa_specify_merge import (
+        ensure_discipline_taxon_tree,
+        merge_nortaxa_tsv_into_discipline_tree,
+        merge_stats_to_dict,
+    )
 
     merge_summaries: list[dict] = []
-    if merge_into_specify:
-        from specifyweb.specify.models import Discipline
+    trees_merged: set[int] = set()
+    for a in manifest.get("artifacts", []):
+        did = int(a["discipline_id"])
+        disc = Discipline.objects.filter(id=did).first()
+        if disc is None:
+            merge_summaries.append({"discipline_id": did, "error": "discipline_not_found"})
+            continue
 
-        from flows.lib.nortaxa_specify_merge import merge_nortaxa_tsv_into_discipline_tree, merge_stats_to_dict
+        ens = ensure_discipline_taxon_tree(disc.id, dry_run=dry_run)
+        if ens.get("error"):
+            merge_summaries.append({"discipline_id": did, "error": ens["error"]})
+            continue
+        if ens.get("dry_run_blocked"):
+            merge_summaries.append(
+                {
+                    "discipline_id": disc.id,
+                    "discipline_name": disc.name,
+                    "skip_reason": "dry_run_tree_bootstrap_needed",
+                    "detail": ens.get("message"),
+                    "tree_bootstrap": {k: ens[k] for k in ("created_treedef", "created_rank_item", "created_root") if k in ens},
+                }
+            )
+            continue
 
-        trees_merged: set[int] = set()
-        for a in manifest.get("artifacts", []):
-            did = int(a["discipline_id"])
-            disc = Discipline.objects.filter(id=did).first()
-            if disc is None:
-                merge_summaries.append({"discipline_id": did, "error": "discipline_not_found"})
-                continue
-            td = disc.taxontreedef_id
-            if not td:
-                merge_summaries.append(
-                    {
-                        "discipline_id": disc.id,
-                        "discipline_name": disc.name,
-                        "skip_reason": "no_taxontreedef",
-                    }
-                )
-                continue
-            td_int = int(td)
-            if td_int in trees_merged:
-                merge_summaries.append(
-                    {
-                        "discipline_id": disc.id,
-                        "discipline_name": disc.name,
-                        "treedef_id": td_int,
-                        "skip_reason": "treedef_already_merged_this_run",
-                    }
-                )
-                continue
-            trees_merged.add(td_int)
-            tsv_path = run_dir / str(a["artifact"])
-            st = merge_nortaxa_tsv_into_discipline_tree(
-                discipline_id=int(disc.id),
-                discipline_name=disc.name,
-                treedef_id=td_int,
-                tsv_path=tsv_path,
-                export_stamp=export_stamp,
-                dry_run=merge_dry_run,
-                logger=logger,
+        td_int = int(ens["treedef_id"])
+        if td_int in trees_merged:
+            merge_summaries.append(
+                {
+                    "discipline_id": disc.id,
+                    "discipline_name": disc.name,
+                    "treedef_id": td_int,
+                    "skip_reason": "treedef_already_merged_this_run",
+                }
             )
-            merge_summaries.append(merge_stats_to_dict(st))
-            logger.info(
-                "Merge treedef=%s discipline=%r dry_run=%s inserted=%s orphans_marked=%s",
-                td_int,
-                disc.name,
-                merge_dry_run,
-                st.inserted,
-                st.orphans_marked,
-            )
+            continue
+        trees_merged.add(td_int)
+
+        tsv_path = run_dir / str(a["artifact"])
+        st = merge_nortaxa_tsv_into_discipline_tree(
+            discipline_id=int(disc.id),
+            discipline_name=disc.name,
+            treedef_id=td_int,
+            tsv_path=tsv_path,
+            export_stamp=export_stamp,
+            dry_run=dry_run,
+            logger=logger,
+        )
+        entry = merge_stats_to_dict(st)
+        entry["tree_bootstrap"] = {
+            k: ens[k]
+            for k in ("created_treedef", "created_rank_item", "created_root", "treedef_id")
+            if k in ens
+        }
+        merge_summaries.append(entry)
+        logger.info(
+            "Merge treedef=%s discipline=%r dry_run=%s inserted=%s orphans_marked=%s",
+            td_int,
+            disc.name,
+            dry_run,
+            st.inserted,
+            st.orphans_marked,
+        )
     manifest["merge"] = merge_summaries
 
     logger.info("Wrote %s taxon artifact(s) under %s", len(manifest.get("artifacts", [])), run_dir)

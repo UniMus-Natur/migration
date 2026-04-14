@@ -94,8 +94,7 @@ deployments:
     parameters:
       download: true
       keep_unpack_dir: false
-      merge_into_specify: false
-      merge_dry_run: true
+      dry_run: true
     work_pool:
       name: dev-process
       work_queue_name: default
