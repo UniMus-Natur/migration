@@ -24,8 +24,27 @@ class NorTaxaSliceSpec:
 
 # --- UniMus:Natur discipline names → slice (v1.270 taxon.txt) ----------------------------
 
-# Karplanter Moser: vascular plants (Tracheophyta) + mosses (Bryophyta phylum).
-_KARPLANTER_MOSER = NorTaxaSliceSpec(root_taxon_ids=("205896", "1158"))
+# Karplanter Moser: vascular land plants + mosses (Bryophyta).
+#
+# v1.270 ``taxon.txt`` has a valid ``Tracheophyta`` row (taxonID 205896) under Plantae, but **no
+# taxon uses 205896 as ``parentNameUsageID``** — vascular checklist taxa attach under other phyla
+# (Magnoliophyta, Pinophyta, Pteridophyta, etc.). Slicing on 205896 alone therefore yields an empty
+# phylum in Specify while Bryophyta (1158) is populated. Union those phyla here; re-check IDs after
+# a new DwC-A if coverage looks wrong.
+_KARPLANTER_MOSER = NorTaxaSliceSpec(
+    root_taxon_ids=(
+        "1158",  # Bryophyta
+        "1281",  # Magnoliophyta
+        "1372",  # Pinophyta
+        "1381",  # Pteridophyta
+        "138365",  # Lycopodiophyta
+        "138364",  # Equisetophyta
+        "1256",  # Cycadophyta
+        "1259",  # Ginkgophyta
+        "1265",  # Gnetophyta
+        "1378",  # Psilophyta
+    ),
+)
 
 # Alger: chromist algae + green algae (Chlorophyta).
 _ALGER = NorTaxaSliceSpec(root_taxon_ids=("819", "1191"))
