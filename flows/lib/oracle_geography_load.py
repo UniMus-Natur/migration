@@ -155,6 +155,7 @@ def _fetch_hierarchical_rows(cur: Any, owner: str) -> list[HierRow]:
 
 
 def _toposort_hierarchical(rows: list[HierRow]) -> list[HierRow]:
+    """Parents before children; ``HierRow`` is not hashable so we track ``hierarch_place_id`` in sets."""
     by_id = {r.hierarch_place_id: r for r in rows}
     ids = set(by_id)
 
@@ -164,20 +165,24 @@ def _toposort_hierarchical(rows: list[HierRow]) -> list[HierRow]:
         return {r.place_id_partof}
 
     ordered: list[HierRow] = []
-    remaining = set(rows)
+    ordered_ids: set[int] = set()
+    remaining_ids = set(by_id.keys())
     guard = 0
-    while remaining and guard < len(rows) + 5:
+    while remaining_ids and guard < len(rows) + 5:
         guard += 1
         progressed = False
-        for r in list(remaining):
-            if deps(r).issubset({x.hierarch_place_id for x in ordered} | set()):
+        for hid in list(remaining_ids):
+            r = by_id[hid]
+            if deps(r).issubset(ordered_ids):
                 ordered.append(r)
-                remaining.remove(r)
+                ordered_ids.add(hid)
+                remaining_ids.remove(hid)
                 progressed = True
         if not progressed:
-            for r in list(remaining):
-                ordered.append(r)
-                remaining.remove(r)
+            for hid in list(remaining_ids):
+                ordered.append(by_id[hid])
+                ordered_ids.add(hid)
+                remaining_ids.remove(hid)
     return ordered
 
 
