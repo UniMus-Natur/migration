@@ -3,11 +3,40 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _progress_log(msg: str, *args: Any) -> None:
+    """Prefer Prefect run logger so messages show on the flow run; fall back to std logging."""
+    try:
+        from prefect import get_run_logger
+
+        get_run_logger().info(msg, *args)
+    except Exception:
+        logger.info(msg, *args)
+
+
+def _format_duration(seconds: float) -> str:
+    if seconds != seconds or seconds < 0:  # NaN
+        return "?"
+    s = int(round(seconds))
+    if s < 60:
+        return f"{s}s"
+    if s < 3600:
+        return f"{s // 60}m{s % 60}s"
+    return f"{s // 3600}h{(s % 3600) // 60}m"
+
+
+def _eta_remaining(elapsed_s: float, done: int, total: int) -> str:
+    if done <= 0 or total <= done or elapsed_s <= 0:
+        return "…"
+    rate = elapsed_s / done
+    return _format_duration(rate * (total - done))
 
 
 def _norm_type(s: str | None) -> str:
@@ -131,7 +160,7 @@ def _fetch_hierarchical_rows(cur: Any, owner: str) -> list[HierRow]:
     o = owner.upper()
     label_col = _types_label_column_name(cur, owner)
     if label_col:
-        logger.info("Oracle geography: using %s.TYPES.%s for hierarchy type labels", o, label_col)
+        _progress_log("oracle_geography | Oracle fetch | %s.TYPES label column: %s", o, label_col)
     else:
         logger.warning(
             "Oracle geography: no known label column on %s.TYPES; using default rank mapping for all nodes",
@@ -143,6 +172,7 @@ def _fetch_hierarchical_rows(cur: Any, owner: str) -> list[HierRow]:
       FROM {o}.hierarchical_place_old h
       LEFT JOIN {o}.types t ON t.TYPE_ID = h.HIERACHICAL_TYPE
     """
+    t0 = time.perf_counter()
     cur.execute(sql)
     rows: list[HierRow] = []
     for r in cur.fetchall():
@@ -151,6 +181,12 @@ def _fetch_hierarchical_rows(cur: Any, owner: str) -> list[HierRow]:
         partof = int(r[2]) if r[2] is not None else None
         tname = r[3]
         rows.append(HierRow(hid, name, partof, tname))
+    _progress_log(
+        "oracle_geography | Oracle fetch | %s hierarchical_place_old rows=%s elapsed=%s",
+        o,
+        len(rows),
+        _format_duration(time.perf_counter() - t0),
+    )
     return rows
 
 
@@ -199,8 +235,23 @@ def load_hierarchical_geography(
     stats = GeographyLoadStats(treedef_id=treedef_id, owner=owner)
     oracle_to_geo: dict[int, int] = {}
 
+    t_load = time.perf_counter()
     rows = _fetch_hierarchical_rows(oracle_cursor, owner)
     stats.rows_read = len(rows)
+    guid_prefix = f"urn:oracle:{owner.lower()}:hpo:"
+    t_pf = time.perf_counter()
+    existing_guid_to_id: dict[str, int] = dict(
+        Geography.objects.filter(definition_id=treedef_id, guid__startswith=guid_prefix).values_list("guid", "id")
+    )
+    _progress_log(
+        "oracle_geography | geography | owner=%s | rows=%s existing_guids=%s prefetch=%s total=%s",
+        owner,
+        len(rows),
+        len(existing_guid_to_id),
+        _format_duration(time.perf_counter() - t_pf),
+        _format_duration(time.perf_counter() - t_load),
+    )
+    geo_by_pk: dict[int, Any] = {}
     rank_items = _rank_items_by_name_lower(treedef_id)
     if "municipality" not in rank_items:
         mr = ensure_municipality_rank(treedef_id, dry_run=dry_run)
@@ -213,6 +264,14 @@ def load_hierarchical_geography(
     if earth is None:
         stats.errors.append("no root Geography (Earth) for treedef")
         return stats, oracle_to_geo
+    geo_by_pk[int(earth.id)] = earth
+
+    def _geo_model(pk: int) -> Any:
+        if pk not in geo_by_pk:
+            g = Geography.objects.filter(pk=pk).first()
+            if g is not None:
+                geo_by_pk[pk] = g
+        return geo_by_pk.get(pk)
 
     def rank_for_row(r: HierRow) -> Any:
         nm = oracle_type_name_to_rank_item_name(r.type_name)
@@ -221,19 +280,49 @@ def load_hierarchical_geography(
             it = rank_items.get("county")
         return it
 
-    for r in _toposort_hierarchical(rows):
+    ordered_rows = _toposort_hierarchical(rows)
+    total_g = len(ordered_rows)
+    _progress_log(
+        "oracle_geography | geography | owner=%s | toposort done n=%s dry_run=%s — starting Specify Geography writes",
+        owner,
+        total_g,
+        dry_run,
+    )
+    if total_g == 0:
+        _progress_log("oracle_geography | geography | owner=%s | nothing to insert", owner)
+    t_loop = time.perf_counter()
+    for i, r in enumerate(ordered_rows, start=1):
+        if i == 1 or i % 500 == 0 or i == total_g:
+            elapsed = time.perf_counter() - t_loop
+            pct = 100.0 * i / total_g if total_g else 100.0
+            eta = _eta_remaining(elapsed, i, total_g)
+            _progress_log(
+                "oracle_geography | geography | owner=%s | %s/%s (%.1f%%) created=%s skipped=%s elapsed=%s eta~%s",
+                owner,
+                i,
+                total_g,
+                pct,
+                stats.geographies_created,
+                stats.geographies_skipped_existing,
+                _format_duration(elapsed),
+                eta,
+            )
         guid = f"urn:oracle:{owner.lower()}:hpo:{r.hierarch_place_id}"
         if len(guid) > 128:
             guid = guid[:128]
-        existing = Geography.objects.filter(definition_id=treedef_id, guid=guid).first()
-        if existing is not None:
-            oracle_to_geo[r.hierarch_place_id] = int(existing.id)
+        ex_id = existing_guid_to_id.get(guid)
+        if ex_id is not None:
+            oracle_to_geo[r.hierarch_place_id] = ex_id
+            if ex_id not in geo_by_pk:
+                g = Geography.objects.filter(pk=ex_id).first()
+                if g is not None:
+                    geo_by_pk[ex_id] = g
             stats.geographies_skipped_existing += 1
             continue
         parent_geo = earth
         if r.place_id_partof is not None and r.place_id_partof in oracle_to_geo:
             pid = oracle_to_geo[r.place_id_partof]
-            parent_geo = Geography.objects.filter(pk=pid).first() or earth
+            parent_geo = _geo_model(pid) or earth
         di = rank_for_row(r)
         if di is None:
             stats.errors.append(f"no rank for hierarch_place_id={r.hierarch_place_id}")
@@ -256,13 +345,25 @@ def load_hierarchical_geography(
                 guid=guid,
             )
             g.save()
-            oracle_to_geo[r.hierarch_place_id] = int(g.id)
+            gid = int(g.id)
+            oracle_to_geo[r.hierarch_place_id] = gid
+            geo_by_pk[gid] = g
+            existing_guid_to_id[guid] = gid
             stats.geographies_created += 1
         except Exception as exc:  # noqa: BLE001
             msg = f"hpo {r.hierarch_place_id}: {exc}"
             stats.errors.append(msg[:500])
             logger.warning(msg)
 
+    _progress_log(
+        "oracle_geography | geography | owner=%s | done rows=%s created=%s skipped=%s errors=%s total_elapsed=%s",
+        owner,
+        total_g,
+        stats.geographies_created,
+        stats.geographies_skipped_existing,
+        len(stats.errors),
+        _format_duration(time.perf_counter() - t_load),
+    )
     return stats, oracle_to_geo
 
 
@@ -271,7 +372,9 @@ def _deepest_geography_for_place(
     owner: str,
     place_id: int,
     oracle_hid_to_specify_geo: dict[int, int],
+    geo_rankid_by_pk: dict[int, int],
 ) -> int | None:
+    """Pick mapped ``Geography`` with highest ``rankid`` for this ``PLACE`` (no ORM in the loop)."""
     o = owner.upper()
     sql = f"""
     SELECT php.HIERACHICAL_PLACE_ID
@@ -281,7 +384,6 @@ def _deepest_geography_for_place(
     oracle_cursor.execute(sql, {"pid": place_id})
     best_geo: int | None = None
     best_rank = -1
-    from specifyweb.specify.models import Geography
 
     for (hid,) in oracle_cursor.fetchall():
         if hid is None:
@@ -289,12 +391,12 @@ def _deepest_geography_for_place(
         gid = oracle_hid_to_specify_geo.get(int(hid))
         if gid is None:
             continue
-        g = Geography.objects.filter(pk=gid).only("rankid").first()
-        if g is None:
+        rk = geo_rankid_by_pk.get(int(gid))
+        if rk is None:
             continue
-        if int(g.rankid) > best_rank:
-            best_rank = int(g.rankid)
-            best_geo = int(g.id)
+        if int(rk) > best_rank:
+            best_rank = int(rk)
+            best_geo = int(gid)
     return best_geo
 
 
@@ -377,23 +479,85 @@ def load_localities_for_referenced_places(
     max_places: int | None = None,
 ) -> LocalityLoadStats:
     """Create one ``Locality`` per (place, discipline) for referenced ``PLACE_ID`` rows."""
-    from specifyweb.specify.models import Discipline, Locality
+    from specifyweb.specify.models import Discipline, Geography, Locality
 
     from flows.lib.migration_oracle_placemap import upsert_placemap_row
 
     stats = LocalityLoadStats(owner=owner)
+    t_loc = time.perf_counter()
+    t_pids = time.perf_counter()
     pids = _iter_referenced_place_ids(oracle_cursor, owner)
     if max_places is not None:
         pids = pids[: max_places]
+    _progress_log(
+        "oracle_geography | locality | owner=%s | distinct referenced PLACE_ID count=%s (Oracle query %s)%s",
+        owner,
+        len(pids),
+        _format_duration(time.perf_counter() - t_pids),
+        f" max_places={max_places}" if max_places is not None else "",
+    )
 
     discs = [Discipline.objects.filter(pk=i).first() for i in discipline_ids]
     discs = [d for d in discs if d is not None]
 
-    for pid in pids:
+    t_gr = time.perf_counter()
+    geo_rankid_by_pk: dict[int, int] = {}
+    raw_geo_ids = list({int(x) for x in oracle_hid_to_specify_geo.values() if x is not None})
+    _chunk = 8000
+    for gi in range(0, len(raw_geo_ids), _chunk):
+        part = raw_geo_ids[gi : gi + _chunk]
+        geo_rankid_by_pk.update(dict(Geography.objects.filter(pk__in=part).values_list("id", "rankid")))
+
+    place_guid_prefix = f"urn:oracle:{owner.lower()}:place:"
+    locality_id_by_disc_guid: dict[tuple[int, str], int] = {}
+    for disc in discs:
+        for guid, lid in Locality.objects.filter(
+            discipline_id=disc.id, guid__startswith=place_guid_prefix
+        ).values_list("guid", "id"):
+            locality_id_by_disc_guid[(int(disc.id), str(guid))] = int(lid)
+
+    total_p = len(pids)
+    _progress_log(
+        "oracle_geography | locality | owner=%s | prefetches: geography_rank rows=%s (%s) existing_locality_guids=%s dry_run=%s — starting per-place loop",
+        owner,
+        len(geo_rankid_by_pk),
+        _format_duration(time.perf_counter() - t_gr),
+        len(locality_id_by_disc_guid),
+        dry_run,
+    )
+
+    if total_p == 0:
+        _progress_log(
+            "oracle_geography | locality | owner=%s | no referenced places; skipping loop (total_elapsed=%s)",
+            owner,
+            _format_duration(time.perf_counter() - t_loc),
+        )
+        return stats
+
+    t_loop = time.perf_counter()
+    for n, pid in enumerate(pids, start=1):
+        if n == 1 or n % 250 == 0 or n == total_p:
+            elapsed = time.perf_counter() - t_loop
+            pct = 100.0 * n / total_p if total_p else 100.0
+            eta = _eta_remaining(elapsed, n, total_p)
+            _progress_log(
+                "oracle_geography | locality | owner=%s | places %s/%s (%.2f%%) created=%s skipped=%s errors=%s loop_elapsed=%s eta~%s",
+                owner,
+                n,
+                total_p,
+                pct,
+                stats.localities_created,
+                stats.localities_skipped,
+                len(stats.errors),
+                _format_duration(elapsed),
+                eta,
+            )
         stats.places_seen += 1
         agg, loc_text = _fetch_place_text(oracle_cursor, owner, pid)
         coord = _fetch_first_coordinate(oracle_cursor, owner, pid)
-        geo_id = _deepest_geography_for_place(oracle_cursor, owner, pid, oracle_hid_to_specify_geo)
+        geo_id = _deepest_geography_for_place(
+            oracle_cursor, owner, pid, oracle_hid_to_specify_geo, geo_rankid_by_pk
+        )
         locality_name = (loc_text or agg or f"Place {pid}")[:1024]
         verbatim = agg[:8192] if agg else None
 
@@ -418,15 +582,16 @@ def load_localities_for_referenced_places(
             guid_loc = f"urn:oracle:{owner.lower()}:place:{pid}:d{disc.id}"
             if len(guid_loc) > 128:
                 guid_loc = guid_loc[:128]
-            existing = Locality.objects.filter(discipline_id=disc.id, guid=guid_loc).first()
-            if existing is not None:
+            loc_key = (int(disc.id), guid_loc)
+            existing_lid = locality_id_by_disc_guid.get(loc_key)
+            if existing_lid is not None:
                 stats.localities_skipped += 1
                 upsert_placemap_row(
                     source_owner=owner.upper(),
                     source_kind="place",
                     source_id=str(pid),
                     specify_geography_id=geo_id,
-                    specify_locality_id=int(existing.id),
+                    specify_locality_id=existing_lid,
                     specify_discipline_id=int(disc.id),
                     run_ts=run_ts,
                     dry_run=dry_run,
@@ -449,6 +614,7 @@ def load_localities_for_referenced_places(
                 )
                 loc.save()
                 stats.localities_created += 1
+                locality_id_by_disc_guid[loc_key] = int(loc.id)
                 upsert_placemap_row(
                     source_owner=owner.upper(),
                     source_kind="place",
@@ -462,6 +628,15 @@ def load_localities_for_referenced_places(
             except Exception as exc:  # noqa: BLE001
                 stats.errors.append(f"place {pid} disc {disc.id}: {exc}"[:500])
 
+    _progress_log(
+        "oracle_geography | locality | owner=%s | done places=%s created=%s skipped=%s errors=%s total_elapsed=%s",
+        owner,
+        stats.places_seen,
+        stats.localities_created,
+        stats.localities_skipped,
+        len(stats.errors),
+        _format_duration(time.perf_counter() - t_loc),
+    )
     return stats
 
 

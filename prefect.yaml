@@ -112,6 +112,8 @@ deployments:
         - MUSIT_ZOOLOGI_ENTOMOLOGI
       canonical_discipline_name: "Karplanter Moser"
       max_places: null
+      purge_existing_geography_for_treedef: false
+      truncate_placemap_when_purging_geography: true
     work_pool:
       name: dev-process
       work_queue_name: default

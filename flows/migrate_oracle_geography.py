@@ -7,6 +7,11 @@
 
 Parameters mirror other migration flows: ``oracle_env``, ``dry_run``, ``musit_schemas``,
 ``max_places`` (optional cap for Locality pass).
+
+Optional **purge** removes all ``Geography`` rows for the canonical treedef (e.g. setup seed
+data), nulls ``Locality.GeographyID`` for those nodes, deletes blocking ``Agentgeography`` rows,
+recreates a minimal **Earth** root, and (by default) **TRUNCATE** ``migration_oracle_placemap``.
+It does **not** delete ``Locality`` rows (specimens may still reference them).
 """
 
 from __future__ import annotations
@@ -33,6 +38,7 @@ from flows.lib.oracle_geography_load import (
     load_hierarchical_geography,
     load_localities_for_referenced_places,
 )
+from flows.lib.specify_geography_purge import purge_geography_tree_for_treedef
 from flows.lib.specify_geography_shared import link_biology_disciplines_shared_geography
 from flows.lib.specify_setup import setup_django
 
@@ -75,6 +81,8 @@ def migrate_oracle_geography_flow(
     musit_schemas: tuple[str, ...] = _DEFAULT_SCHEMAS,
     canonical_discipline_name: str = "Karplanter Moser",
     max_places: int | None = None,
+    purge_existing_geography_for_treedef: bool = False,
+    truncate_placemap_when_purging_geography: bool = True,
 ) -> dict:
     """Run geography linking, optional placemap DDL, Oracle → Specify load, upload JSON report."""
     logger = get_run_logger()
@@ -89,16 +97,36 @@ def migrate_oracle_geography_flow(
         "musit_schemas": list(musit_schemas),
         "canonical_discipline_name": canonical_discipline_name,
         "max_places": max_places,
+        "purge_existing_geography_for_treedef": purge_existing_geography_for_treedef,
+        "truncate_placemap_when_purging_geography": truncate_placemap_when_purging_geography,
     }
+    logger.info(
+        "oracle_geography | flow start | ts=%s oracle_env=%s dry_run=%s schemas=%s canonical_discipline=%s "
+        "max_places=%s purge_geography=%s truncate_placemap_on_purge=%s",
+        ts,
+        oracle_env,
+        dry_run,
+        list(musit_schemas),
+        canonical_discipline_name,
+        max_places,
+        purge_existing_geography_for_treedef,
+        truncate_placemap_when_purging_geography,
+    )
 
     inv = oracle_geography_inventory_task(oracle_env)
     manifest["inventory"] = inv
+    logger.info("oracle_geography | inventory task completed")
 
     link_res = link_biology_disciplines_shared_geography(
         canonical_discipline_name=canonical_discipline_name,
         dry_run=dry_run,
     )
     manifest["shared_geography_treedef"] = link_res
+    logger.info(
+        "oracle_geography | shared treedef | canonical_treedef_id=%s updated_disciplines=%s",
+        link_res.get("canonical_treedef_id"),
+        len(link_res.get("updated_disciplines") or []),
+    )
     if link_res.get("error"):
         logger.error("shared_geography_treedef: %s", link_res["error"])
         manifest["errors"] = [link_res["error"]]
@@ -110,6 +138,27 @@ def migrate_oracle_geography_flow(
 
     placemap_meta = ensure_placemap_table(dry_run=dry_run)
     manifest["placemap_table"] = placemap_meta
+    logger.info("oracle_geography | placemap table | %s", placemap_meta)
+
+    if purge_existing_geography_for_treedef:
+        logger.warning(
+            "oracle_geography | PURGE GeographyTreeDefID=%s dry_run=%s truncate_placemap=%s",
+            treedef_id,
+            dry_run,
+            truncate_placemap_when_purging_geography,
+        )
+        purge_meta = purge_geography_tree_for_treedef(
+            treedef_id,
+            dry_run=dry_run,
+            truncate_migration_placemap=truncate_placemap_when_purging_geography,
+        )
+        manifest["geography_purge"] = purge_meta
+        if purge_meta.get("error"):
+            logger.error("geography_purge failed: %s", purge_meta["error"])
+            manifest.setdefault("errors", []).append(purge_meta["error"])
+            s3_key = migration_report_s3_key(REPORT_CATEGORY_ORACLE_GEOGRAPHY_TO_SPECIFY, ts)
+            manifest["uploaded"] = upload_migration_report_json_task(manifest, s3_key)
+            return manifest
 
     cfg = get_oracle_config_from_env(oracle_env)
     con = create_oracle_connection(cfg)
@@ -126,6 +175,10 @@ def migrate_oracle_geography_flow(
             if o not in ("MUSIT_BOTANIKK_FELLES", "MUSIT_ZOOLOGI_ENTOMOLOGI"):
                 continue
             try:
+                logger.info(
+                    "oracle_geography | schema=%s | phase=geography (HIERARCHICAL_PLACE_OLD → Specify Geography)",
+                    o,
+                )
                 gstats, hid_map = load_hierarchical_geography(
                     oracle_cursor=ocur,
                     owner=o,
@@ -141,7 +194,17 @@ def migrate_oracle_geography_flow(
                         "errors": gstats.errors[:80],
                     }
                 )
+                logger.info(
+                    "oracle_geography | schema=%s | geography phase done | hid_map_size=%s rows_read=%s",
+                    o,
+                    len(hid_map),
+                    gstats.rows_read,
+                )
                 if not dry_run:
+                    logger.info(
+                        "oracle_geography | schema=%s | phase=locality (referenced PLACE → Locality + placemap)",
+                        o,
+                    )
                     lstats = load_localities_for_referenced_places(
                         oracle_cursor=ocur,
                         owner=o,
@@ -161,6 +224,12 @@ def migrate_oracle_geography_flow(
                             "errors": lstats.errors[:80],
                         }
                     )
+                    logger.info(
+                        "oracle_geography | schema=%s | locality phase done | places_seen=%s localities_created=%s",
+                        o,
+                        lstats.places_seen,
+                        lstats.localities_created,
+                    )
                 else:
                     loc_runs.append(
                         {
@@ -177,6 +246,7 @@ def migrate_oracle_geography_flow(
 
     manifest["geography_load"] = geo_runs
     manifest["locality_load"] = loc_runs
+    logger.info("oracle_geography | Oracle connection closed; uploading report to S3")
 
     s3_key = migration_report_s3_key(REPORT_CATEGORY_ORACLE_GEOGRAPHY_TO_SPECIFY, ts)
     uploaded = upload_migration_report_json_task(manifest, s3_key)
