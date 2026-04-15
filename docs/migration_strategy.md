@@ -126,9 +126,9 @@ MUSIT already solved this — `ADMINISTRATIVE_PLACE` was built to hold historica
 
 **Strategy:**
 
-1. **Build from MUSIT `ADMINISTRATIVE_PLACE` as-is** — do not try to normalise to current names. The `ADMPLACE_TYPE` field gives the hierarchy level; `PLACE_ID_PARTOF` gives the parent. Import the full tree including all historical nodes.
+1. **Build from MUSIT admin-place sources as-is** — do not normalise to “current” administrative names. Prefer **`ADMINISTRATIVE_PLACE`** when it is populated (`ADMPLACE_TYPE` = level, `PLACE_ID_PARTOF` = parent). In Oracle PROD checks (2026-04-15, migration reporting user), **`ADMINISTRATIVE_PLACE` was empty** while **`PLACE_HIERARCHICAL_PLACE` → `HIERARCHICAL_PLACE_OLD`** carried almost all admin names on **`PLACE`** rows; if your environment matches, import geography nodes from **`HIERARCHICAL_PLACE_OLD`** (via `HIERACHICAL_TYPE` → `TYPES`) in addition to USD. See [Oracle botany datasets — Geolocation](oracle_botany_datasets.md#geolocation-oracle-musit-usd).
 2. **Supplement from USD `ADMINISTRATIVTSTED`** — each per-museum schema has its own administrative place table; add any names not already present in MUSIT. Match on name + type + parent to avoid duplicates.
-3. **`GEOREG`** (the old UTM-grid-based geographic register in USD schemas) contains municipality codes (kommnr) and names. Use as a cross-reference to catch additional historical names not in ADMINISTRATIVE_PLACE.
+3. **`GEOREG`** (the old UTM-grid-based geographic register in USD schemas) contains municipality codes (kommnr) and names. Use as a cross-reference to catch additional historical names not in MUSIT admin tables. Not every USD botany schema exposes **`GEOREG`** to the same Oracle user—discover with `ALL_TABLES`.
 4. **Do not delete or merge historical nodes** — a "Trondheim" from 1900 and a "Trondheim" that is a post-2020 merged municipality may coexist in the tree. Specify's Geography tree supports this.
 5. **Mark status optionally** — a custom `GeographyStatus` field (`CURRENT` / `HISTORICAL` / `MERGED_INTO`) on the `Geography` table can help users understand which nodes are current administrative units. This is optional but useful.
 
@@ -136,8 +136,10 @@ MUSIT already solved this — `ADMINISTRATIVE_PLACE` was built to hold historica
 
 | Source | Table | Content |
 |---|---|---|
-| MUSIT | `ADMINISTRATIVE_PLACE` | Hierarchical admin units; `ADMPLACE_TYPE` = level; `PLACE_ID_PARTOF` = parent |
-| MUSIT | `HIERARCHICAL_PLACE_OLD` | Older hierarchical place name registry (pre-MUSIT) |
+| MUSIT | `ADMINISTRATIVE_PLACE` | Hierarchical admin units; `ADMPLACE_TYPE` = level; `PLACE_ID_PARTOF` = parent (verify populated in your DB) |
+| MUSIT | `HIERARCHICAL_PLACE_OLD` | Hierarchical admin names; `HIERACHICAL_TYPE` = level; `PLACE_ID_PARTOF` = parent; linked from **`PLACE`** via **`PLACE_HIERACHICAL_PLACE`** |
+| MUSIT | `PLACE_HIERACHICAL_PLACE` | Junction: which `HIERARCH_PLACE_ID` applies to each collecting **`PLACE_ID`** |
+| MUSIT | `MUSIT_NATHIST_FELLES.BIO_GEOGRAFISK_REGION` | Shared biogeographic region vocabulary; linked from **`PLACE_BIO_GEOGRAFISK_REGION`** |
 | USD each schema | `ADMINISTRATIVTSTED` | Per-museum admin place table; `STED_TYPE` = level; `LAND_ID`/`FYLKE_ID`/`KOMMUNE_ID` FK chain |
 | USD each schema | `GEOREG` | Old UTM-zone area register; `KOMMNR` (municipality number), `NAVN`, `LAND`/`FYLKE`/`KOMMUNE` text fields |
 | USD each schema | `FYLKER` | County list with `FYLKENR` (county number) |
@@ -145,7 +147,7 @@ MUSIT already solved this — `ADMINISTRATIVE_PLACE` was built to hold historica
 | USD each schema | `COUNTRIES` | Country list |
 
 **What does NOT go in Geography tree:**
-- `KOORDINATE_PLACE` → maps to Specify `Locality` (specific collecting sites with coordinates), not to Geography nodes. Localities live at Collection level; Geography nodes are shared.
+- `KOORDINATE_PLACE` → maps to Specify `Locality` (specific collecting sites with coordinates), not to Geography nodes. Localities live at Collection level; Geography nodes are shared. **`KOORDINATE_PLACE_ID` is not global** across Oracle schemas (same integer can mean different coordinates in botany vs entomology); always qualify with the owning schema.
 - `INDEXED_LOCALITY`, `LOCALITY_PLACE` → also Specify `Locality`, not Geography.
 
 **Hierarchy depth in Specify:**
@@ -160,7 +162,7 @@ Specify's default Geography ranks: `Planet → Continent → Country → State/P
 | County | Kommuneregion | type 4 (if used) |
 | Municipality | Kommune | type 5 |
 
-> ⚠️ The actual `ADMPLACE_TYPE` integer values need to be confirmed from live data. Run `SELECT DISTINCT ADMPLACE_TYPE FROM MUSIT_BOTANIKK_FELLES.ADMINISTRATIVE_PLACE ORDER BY 1` early to establish the mapping.
+> ⚠️ Confirm which admin model is populated: `SELECT COUNT(*) FROM MUSIT_BOTANIKK_FELLES.ADMINISTRATIVE_PLACE` vs counts on **`HIERARCHICAL_PLACE_OLD`** / **`PLACE_HIERACHICAL_PLACE`**. If `ADMINISTRATIVE_PLACE` is empty, map **`HIERACHICAL_TYPE`** (with `TYPES`) instead of `ADMPLACE_TYPE` for hierarchy levels.
 
 > ⚠️ Geography nodes are shared across all Specify collections. Build this tree once, completely, before any specimens are migrated. All four botany museums and the zoology collection will reference the same nodes.
 

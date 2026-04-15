@@ -81,6 +81,98 @@ Refresh:
 SELECT username FROM all_users WHERE username LIKE 'MUSIT%' ORDER BY 1
 ```
 
+## Geolocation in Oracle (MUSIT hub, USD legacy, shared registers) {: #geolocation-oracle-musit-usd}
+
+This section complements [Collecting event, locality, geography](#collecting-event-locality-geography) below and [Step 1.2 — Geography in the migration strategy](migration_strategy.md#step-12--geography). It answers: **where is “location” shared vs siloed**, and **which identifiers are safe to treat as global**.
+
+Exploration path used here: `source scripts/port-forward.sh` (Oracle tunnel) and the `oracle_sql` helper from that script (see `scripts/oracle_sql.py`).
+
+### What is not global (critical for ETL)
+
+- **`KOORDINATE_PLACE_ID` is unique only within one owner schema.** The same integer can appear in `MUSIT_BOTANIKK_FELLES.KOORDINATE_PLACE` and `MUSIT_ZOOLOGI_ENTOMOLOGI.KOORDINATE_PLACE` with **different** coordinate payloads. Example from **Oracle PROD, 2026-04-15**: id `101937` — botany row had `COORDINATE_STRING = 'NQ 35,40'` with null decimal lat/long; the entomology row for the same id had a decimal degree string and populated `LATITUDE_L` / `LONGITUDE_L`. Always treat specimen coordinates as **`(<schema>, KOORDINATE_PLACE_ID)`**, never as a single global key.
+- **`PLACE_ID` is per discipline schema** (`MUSIT_BOTANIKK_FELLES.PLACE` vs `MUSIT_ZOOLOGI_ENTOMOLOGI.PLACE`). Do not merge or deduplicate places across schemas by numeric id alone.
+- **USD** geographic lookups (`ADMINISTRATIVTSTED`, `KOORDINATSETT`, `GEOREG`, …) live **per museum schema** (`USD_BOTANIKK_TRONDHEIM`, `USD_BOTANIKK_TROMSO`, …). Visibility depends on grants: use `ALL_TABLES` / `ALL_TAB_COLUMNS` to see what your Oracle user can query.
+
+### What is shared across MUSIT applications
+
+- **`MUSIT_NATHIST_FELLES.BIO_GEOGRAFISK_REGION`** — a small, shared vocabulary of biogeographic region names. **`MUSIT_BOTANIKK_FELLES.PLACE_BIO_GEOGRAFISK_REGION`** links `PLACE_ID` to **`BIO_GEOGRAFISK_REGION_ID`**, which matches **`MUSIT_NATHIST_FELLES.BIO_GEOGRAFISK_REGION.BIO_GEO_REG_ID`** (see `schemas/schema.dbml` refs). That is the main **cross-schema shared register** for “which biogeographic region” on a MUSIT place.
+
+### MUSIT botany “place stack” (`MUSIT_BOTANIKK_FELLES`)
+
+Collecting geography is centred on **`PLACE`** (`PLACE_ID`, `PLACE_NAME_AGG`). Facets hang off junction tables:
+
+| Table | Role |
+|-------|------|
+| **`PLACE_LOCALITY_PLACE`** | Free-text locality via **`LOCALITY_PLACE`** (`LOCALITY`) |
+| **`PLACE_HIERACHICAL_PLACE`** | Administrative / hierarchical names via **`HIERARCHICAL_PLACE_OLD`** (`HIERARCH_PLACE_ID`, `HIERACHICAL_PLACENAME`, `HIERACHICAL_TYPE`, parent `PLACE_ID_PARTOF`) |
+| **`PLACE_INDEXED_LOCALITY`** | Indexed / gazetteer-style **`INDEXED_LOCALITY`** rows |
+| **`KOORDINATE_PLACE_PLACE`** | Coordinates in **`KOORDINATE_PLACE`** (verbatim strings, UTM/MGRS fields, lat/long low/high, precision, sources, …) and optional **`DERIVED_COORDINATES`** |
+| **`PLACE_BIO_GEOGRAFISK_REGION`** | Link to **`MUSIT_NATHIST_FELLES.BIO_GEOGRAFISK_REGION`** |
+| **`PLACE_ECOLOGY_PLACE`**, **`PLACE_STORING_PLACE`**, … | Ecology text, storage site, etc. |
+
+**`ADMINISTRATIVE_PLACE`** and **`PLACE_ADMINISTRATIVE_PLACE`** model a dedicated admin hierarchy (`ADMPLACENAME`, `ADMPLACE_TYPE`, optional `KOORDINATE_PLACE_ID` on the admin node). In a **2026-04-15** PROD check with the migration reporting account, **`SELECT COUNT(*)` on both tables returned `0`**, while **`PLACE_HIERACHICAL_PLACE`** had ~1.83M rows joining **`PLACE`** to **`HIERARCHICAL_PLACE_OLD`**. Re-run the counts on your credentials before locking import logic; if your environment matches, **use `HIERARCHICAL_PLACE_OLD` (and `HIERACHICAL_TYPE` → `TYPES`) as the live admin-name source** for botany, in addition to USD **`ADMINISTRATIVTSTED` / `GEOREG`** where you have access. Empty `ADMINISTRATIVE_PLACE` may also reflect VPD or a retired path—confirm with a full-privilege account if counts disagree.
+
+Staging / import helpers such as **`BERGEN_ADM_PLACE`**, **`TROMSO_ADM_PLACE`**, **`TEMP_ADM_PLACE`** also appear under `MUSIT_BOTANIKK_FELLES` for museum-specific admin place work.
+
+### Entomology (`MUSIT_ZOOLOGI_ENTOMOLOGI`)
+
+The same **hub-and-spoke** idea applies (`PLACE`, `LOCALITY_PLACE`, `KOORDINATE_PLACE`, …), but administrative links use **`ZZPLACE_ADMINISTRATIVE_PLACE`** (not `PLACE_ADMINISTRATIVE_PLACE`), and there are extra domain tables (`HOST_PLACE`, `STATION_PLACE`, `REGION_PLACE`, `EIS_PLACE`, …). Again: **resolve every place FK in the schema that owns the specimen.**
+
+### USD legacy (per museum)
+
+Core pattern: **`FUNNETIKETT`** + **`KOORDINATSETT`** / **`ADMINISTRATIVTSTED`** / **`GEOREG`** (where present). Not every USD botany user has a **`GEOREG`** table (in one prod metadata query, **`GEOREG`** appeared for `USD_BOTANIKK_TRONDHEIM` but not for Tromsø/Bergen/Svalbard under the same account’s `ALL_TABLES`).
+
+### Utility schemas (not the specimen locality store)
+
+- **`MUSIT_COORDINATE`** — conversion / test helpers (e.g. `USER_TEST_LOG`, `Z_SONE_BAND_MGRS` in `schemas/schema.dbml`), not the authoritative per-specimen coordinate row.
+- **`MUSIT_NATHIST_FELLES`** — shared biogeographic regions; **`HIERARCHICAL_PLACE_BIO_GEO_REG`** links hierarchical place ids to those regions for workflows that use that join path.
+
+### Prod snapshot (approximate, 2026-04-15)
+
+Counts from live `oracle_sql` queries; they drift over time.
+
+| Object | ~Rows |
+|--------|------:|
+| `MUSIT_BOTANIKK_FELLES.PLACE` | 2.21M |
+| `MUSIT_BOTANIKK_FELLES.KOORDINATE_PLACE` | 2.01M |
+| `MUSIT_BOTANIKK_FELLES.KOORDINATE_PLACE_PLACE` | 1.92M |
+| `MUSIT_BOTANIKK_FELLES.PLACE_LOCALITY_PLACE` | 1.83M |
+| `MUSIT_BOTANIKK_FELLES.PLACE_HIERACHICAL_PLACE` | 1.83M |
+| `MUSIT_BOTANIKK_FELLES.PLACE_BIO_GEOGRAFISK_REGION` | 1.44M |
+| `MUSIT_BOTANIKK_FELLES.HIERARCHICAL_PLACE_OLD` | 5.3k |
+| Distinct `HIERACHICAL_PLACE_ID` in `PLACE_HIERACHICAL_PLACE` | 2.2k |
+| `MUSIT_BOTANIKK_FELLES.INDEXED_LOCALITY` | 3.3k |
+| `MUSIT_BOTANIKK_FELLES.LOCALITY_PLACE` | 1.83M |
+| `MUSIT_NATHIST_FELLES.BIO_GEOGRAFISK_REGION` | 18 |
+| `MUSIT_ZOOLOGI_ENTOMOLOGI.KOORDINATE_PLACE` | 1.82M |
+| `USD_BOTANIKK_TRONDHEIM.GEOREG` | 1.1k |
+| `USD_BOTANIKK_TRONDHEIM.ADMINISTRATIVTSTED` | 5.1k |
+| `MUSIT_BOTANIKK_FELLES.ADMINISTRATIVE_PLACE` | 0 (see caveat) |
+
+### SQL snippets to re-check
+
+Do not terminate statements with `;` when piping into `oracle_sql` (the helper strips one trailing semicolon only).
+
+```sql
+SELECT owner, table_name FROM all_tables
+ WHERE table_name IN ('GEOREG','ADMINISTRATIVTSTED','ADMINISTRATIVE_PLACE')
+ ORDER BY owner, table_name
+```
+
+```sql
+SELECT COUNT(*) FROM musit_botanikk_felles.administrative_place
+```
+
+```sql
+SELECT COUNT(*) FROM musit_botanikk_felles.place_hierachical_place
+```
+
+```sql
+SELECT COUNT(DISTINCT hierachical_place_id) FROM musit_botanikk_felles.place_hierachical_place
+```
+
+(Column name **`hierachical_place_id`** matches Oracle spelling in `PLACE_HIERACHICAL_PLACE`.)
+
 ## Storage model (MUSIT botany)
 
 There is **no** dedicated `DATASET` table in `MUSIT_BOTANIKK_FELLES`. Logical grouping uses columns on **`OBJECT_ATTRIBUTES`**, keyed by **`OBJECT_ID`** to **`MUSEUM_OBJECT`** (same pattern as in the schema overview: central object + attributes row).
@@ -407,7 +499,7 @@ https://www.unimus.no/felles/bilder/web_hent_bilde.php?id=<MEDIAGRUPPE_ENHETS_ID
 | Type | **`MUSEUM_OBJECT.MUSEUM_OBJECT_TYPE`** → **`TYPES`** | Object kind (herbarium sheet vs place etc.). |
 | Parent / hierarchy | **`MUSEUM_OBJECT.PARENT_OBJECT_ID`**, **`OBJECT_HIERARCHY`** | Container / duplicate / “same sheet” semantics (`SAME_SHEET_AS`, `DUBLETTES` on attributes). |
 
-### 3. Collecting event, locality, geography (Specify `CollectingEvent` / `Locality`)
+### 3. Collecting event, locality, geography (Specify `CollectingEvent` / `Locality`) {: #collecting-event-locality-geography}
 
 | Oracle | Tables / views | Role |
 |--------|----------------|------|
