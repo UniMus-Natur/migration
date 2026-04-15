@@ -15,7 +15,7 @@ def _norm_type(s: str | None) -> str:
 
 
 def oracle_type_name_to_rank_item_name(type_name: str | None) -> str:
-    """Map MUSIT ``TYPES.NAME`` (or similar) to a ``GeographyTreeDefItem.Name`` in default Specify tree."""
+    """Map MUSIT ``TYPES`` label column (name varies by schema) to ``GeographyTreeDefItem.Name``."""
     t = _norm_type(type_name)
     if not t:
         return "County"
@@ -85,6 +85,38 @@ class HierRow:
     type_name: str | None
 
 
+# MUSIT ``TYPES`` human-readable label column differs between deployments (not always ``NAME``).
+_TYPES_LABEL_COLUMN_PRIORITY = (
+    "TYPE_NAME",
+    "TYPENAME",
+    "TYPELABEL",
+    "LABEL",
+    "DESCRIPTION",
+    "TEXT",
+    "TYPE_TEXT",
+    "CODE",
+    "VALUE",
+    "NAME",
+)
+
+
+def _types_label_column_name(cur: Any, owner: str) -> str | None:
+    """Return first matching ``TYPES`` column name for hierarchy type labels, or ``None``."""
+    o = owner.upper()
+    cur.execute(
+        """
+        SELECT column_name FROM all_tab_columns
+        WHERE owner = :owner AND table_name = 'TYPES'
+        """,
+        {"owner": o},
+    )
+    existing = {str(r[0]).upper() for r in cur.fetchall()}
+    for cand in _TYPES_LABEL_COLUMN_PRIORITY:
+        if cand in existing:
+            return cand
+    return None
+
+
 @dataclass
 class GeographyLoadStats:
     treedef_id: int
@@ -97,8 +129,17 @@ class GeographyLoadStats:
 
 def _fetch_hierarchical_rows(cur: Any, owner: str) -> list[HierRow]:
     o = owner.upper()
+    label_col = _types_label_column_name(cur, owner)
+    if label_col:
+        logger.info("Oracle geography: using %s.TYPES.%s for hierarchy type labels", o, label_col)
+    else:
+        logger.warning(
+            "Oracle geography: no known label column on %s.TYPES; using default rank mapping for all nodes",
+            o,
+        )
+    type_expr = f"t.{label_col} AS TYPE_NAME" if label_col else "CAST(NULL AS VARCHAR2(4000)) AS TYPE_NAME"
     sql = f"""
-    SELECT h.HIERARCH_PLACE_ID, h.HIERACHICAL_PLACENAME, h.PLACE_ID_PARTOF, t.NAME AS TYPE_NAME
+    SELECT h.HIERARCH_PLACE_ID, h.HIERACHICAL_PLACENAME, h.PLACE_ID_PARTOF, {type_expr}
       FROM {o}.hierarchical_place_old h
       LEFT JOIN {o}.types t ON t.TYPE_ID = h.HIERACHICAL_TYPE
     """
