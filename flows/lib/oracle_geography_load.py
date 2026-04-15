@@ -1,0 +1,431 @@
+"""Load Oracle MUSIT hierarchical places into Specify ``Geography`` and ``Locality`` (Django ORM)."""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+def _norm_type(s: str | None) -> str:
+    return (s or "").strip().lower()
+
+
+def oracle_type_name_to_rank_item_name(type_name: str | None) -> str:
+    """Map MUSIT ``TYPES.NAME`` (or similar) to a ``GeographyTreeDefItem.Name`` in default Specify tree."""
+    t = _norm_type(type_name)
+    if not t:
+        return "County"
+    if "kommune" in t or "kommun" in t:
+        return "Municipality"
+    if "fylke" in t:
+        return "County"
+    if "land" in t and "fylke" not in t:
+        return "Country"
+    if "kontinent" in t or "continent" in t:
+        return "Continent"
+    if "region" in t or "del" in t:
+        return "State"
+    return "County"
+
+
+def ensure_municipality_rank(treedef_id: int, *, dry_run: bool) -> dict[str, Any]:
+    """Add a ``Municipality`` rank under ``County`` when missing (Norwegian kommune level)."""
+    from specifyweb.specify.models import Geographytreedefitem
+
+    out: dict[str, Any] = {"added": False, "treedef_id": treedef_id, "dry_run": dry_run}
+    county = (
+        Geographytreedefitem.objects.filter(treedef_id=treedef_id)
+        .filter(name__iexact="County")
+        .order_by("rankid")
+        .first()
+    )
+    if county is None:
+        out["error"] = "no County rank on geography treedef"
+        return out
+    exists = Geographytreedefitem.objects.filter(treedef_id=treedef_id, name__iexact="Municipality").exists()
+    if exists:
+        return out
+    if dry_run:
+        out["would_add"] = "Municipality"
+        return out
+    Geographytreedefitem.objects.create(
+        treedef_id=treedef_id,
+        name="Municipality",
+        title="Municipality",
+        rankid=500,
+        isenforced=True,
+        isinfullname=True,
+        parent=county,
+    )
+    out["added"] = True
+    logger.info("Created Municipality rank under GeographyTreeDefID=%s", treedef_id)
+    return out
+
+
+def _rank_items_by_name_lower(treedef_id: int) -> dict[str, Any]:
+    from specifyweb.specify.models import Geographytreedefitem
+
+    m: dict[str, Any] = {}
+    for it in Geographytreedefitem.objects.filter(treedef_id=treedef_id).order_by("rankid"):
+        key = (it.name or "").strip().lower()
+        if key and key not in m:
+            m[key] = it
+    return m
+
+
+@dataclass
+class HierRow:
+    hierarch_place_id: int
+    placename: str
+    place_id_partof: int | None
+    type_name: str | None
+
+
+@dataclass
+class GeographyLoadStats:
+    treedef_id: int
+    owner: str
+    rows_read: int = 0
+    geographies_created: int = 0
+    geographies_skipped_existing: int = 0
+    errors: list[str] = field(default_factory=list)
+
+
+def _fetch_hierarchical_rows(cur: Any, owner: str) -> list[HierRow]:
+    o = owner.upper()
+    sql = f"""
+    SELECT h.HIERARCH_PLACE_ID, h.HIERACHICAL_PLACENAME, h.PLACE_ID_PARTOF, t.NAME AS TYPE_NAME
+      FROM {o}.hierarchical_place_old h
+      LEFT JOIN {o}.types t ON t.TYPE_ID = h.HIERACHICAL_TYPE
+    """
+    cur.execute(sql)
+    rows: list[HierRow] = []
+    for r in cur.fetchall():
+        hid = int(r[0])
+        name = (r[1] or "").strip() or f"ID_{hid}"
+        partof = int(r[2]) if r[2] is not None else None
+        tname = r[3]
+        rows.append(HierRow(hid, name, partof, tname))
+    return rows
+
+
+def _toposort_hierarchical(rows: list[HierRow]) -> list[HierRow]:
+    by_id = {r.hierarch_place_id: r for r in rows}
+    ids = set(by_id)
+
+    def deps(r: HierRow) -> set[int]:
+        if r.place_id_partof is None or r.place_id_partof not in ids:
+            return set()
+        return {r.place_id_partof}
+
+    ordered: list[HierRow] = []
+    remaining = set(rows)
+    guard = 0
+    while remaining and guard < len(rows) + 5:
+        guard += 1
+        progressed = False
+        for r in list(remaining):
+            if deps(r).issubset({x.hierarch_place_id for x in ordered} | set()):
+                ordered.append(r)
+                remaining.remove(r)
+                progressed = True
+        if not progressed:
+            for r in list(remaining):
+                ordered.append(r)
+                remaining.remove(r)
+    return ordered
+
+
+def load_hierarchical_geography(
+    *,
+    oracle_cursor: Any,
+    owner: str,
+    treedef_id: int,
+    dry_run: bool,
+) -> tuple[GeographyLoadStats, dict[int, int]]:
+    """Insert ``Geography`` rows for ``HIERARCHICAL_PLACE_OLD``; return stats and Oracle→Specify id map."""
+    from specifyweb.specify.models import Geography
+
+    stats = GeographyLoadStats(treedef_id=treedef_id, owner=owner)
+    oracle_to_geo: dict[int, int] = {}
+
+    rows = _fetch_hierarchical_rows(oracle_cursor, owner)
+    stats.rows_read = len(rows)
+    rank_items = _rank_items_by_name_lower(treedef_id)
+    if "municipality" not in rank_items:
+        mr = ensure_municipality_rank(treedef_id, dry_run=dry_run)
+        if mr.get("error"):
+            stats.errors.append(mr["error"])
+            return stats, oracle_to_geo
+        rank_items = _rank_items_by_name_lower(treedef_id)
+
+    earth = Geography.objects.filter(definition_id=treedef_id, parent_id__isnull=True).order_by("id").first()
+    if earth is None:
+        stats.errors.append("no root Geography (Earth) for treedef")
+        return stats, oracle_to_geo
+
+    def rank_for_row(r: HierRow) -> Any:
+        nm = oracle_type_name_to_rank_item_name(r.type_name)
+        it = rank_items.get(nm.lower())
+        if it is None:
+            it = rank_items.get("county")
+        return it
+
+    for r in _toposort_hierarchical(rows):
+        guid = f"urn:oracle:{owner.lower()}:hpo:{r.hierarch_place_id}"
+        if len(guid) > 128:
+            guid = guid[:128]
+        existing = Geography.objects.filter(definition_id=treedef_id, guid=guid).first()
+        if existing is not None:
+            oracle_to_geo[r.hierarch_place_id] = int(existing.id)
+            stats.geographies_skipped_existing += 1
+            continue
+        parent_geo = earth
+        if r.place_id_partof is not None and r.place_id_partof in oracle_to_geo:
+            pid = oracle_to_geo[r.place_id_partof]
+            parent_geo = Geography.objects.filter(pk=pid).first() or earth
+        di = rank_for_row(r)
+        if di is None:
+            stats.errors.append(f"no rank for hierarch_place_id={r.hierarch_place_id}")
+            continue
+        name = r.placename[:128] if len(r.placename) > 128 else r.placename
+        fullname = f"{parent_geo.fullname or parent_geo.name}, {name}"[:500]
+        if dry_run:
+            stats.geographies_created += 1
+            continue
+        try:
+            g = Geography(
+                name=name,
+                fullname=fullname,
+                definition_id=treedef_id,
+                definitionitem=di,
+                parent=parent_geo,
+                rankid=di.rankid,
+                isaccepted=True,
+                iscurrent=True,
+                guid=guid,
+            )
+            g.save()
+            oracle_to_geo[r.hierarch_place_id] = int(g.id)
+            stats.geographies_created += 1
+        except Exception as exc:  # noqa: BLE001
+            msg = f"hpo {r.hierarch_place_id}: {exc}"
+            stats.errors.append(msg[:500])
+            logger.warning(msg)
+
+    return stats, oracle_to_geo
+
+
+def _deepest_geography_for_place(
+    oracle_cursor: Any,
+    owner: str,
+    place_id: int,
+    oracle_hid_to_specify_geo: dict[int, int],
+) -> int | None:
+    o = owner.upper()
+    sql = f"""
+    SELECT php.HIERACHICAL_PLACE_ID
+      FROM {o}.place_hierachical_place php
+     WHERE php.place_id = :pid
+    """
+    oracle_cursor.execute(sql, {"pid": place_id})
+    best_geo: int | None = None
+    best_rank = -1
+    from specifyweb.specify.models import Geography
+
+    for (hid,) in oracle_cursor.fetchall():
+        if hid is None:
+            continue
+        gid = oracle_hid_to_specify_geo.get(int(hid))
+        if gid is None:
+            continue
+        g = Geography.objects.filter(pk=gid).only("rankid").first()
+        if g is None:
+            continue
+        if int(g.rankid) > best_rank:
+            best_rank = int(g.rankid)
+            best_geo = int(g.id)
+    return best_geo
+
+
+def _fetch_place_text(oracle_cursor: Any, owner: str, place_id: int) -> tuple[str, str | None]:
+    o = owner.upper()
+    oracle_cursor.execute(f"SELECT place_name_agg FROM {o}.place WHERE place_id = :pid", {"pid": place_id})
+    row = oracle_cursor.fetchone()
+    agg = (row[0] or "").strip() if row else ""
+    oracle_cursor.execute(
+        f"""
+        SELECT locality FROM (
+          SELECT lp.locality
+            FROM {o}.place_locality_place plp
+            JOIN {o}.locality_place lp ON lp.locality_place_id = plp.locality_place_id
+           WHERE plp.place_id = :pid
+           ORDER BY lp.locality_place_id
+        ) WHERE ROWNUM = 1
+        """,
+        {"pid": place_id},
+    )
+    r2 = oracle_cursor.fetchone()
+    loc = (r2[0] or "").strip() if r2 else None
+    return agg, loc
+
+
+def _fetch_first_coordinate(oracle_cursor: Any, owner: str, place_id: int) -> dict[str, Any | None]:
+    o = owner.upper()
+    oracle_cursor.execute(
+        f"""
+        SELECT kp.COORDINATE_STRING, kp.LATITUDE_L, kp.LONGITUDE_L, kp.DATUM
+          FROM {o}.koordinate_place kp
+          JOIN {o}.koordinate_place_place kpp ON kpp.koordinate_place_id = kp.koordinate_place_id
+         WHERE kpp.place_id = :pid AND ROWNUM = 1
+        """,
+        {"pid": place_id},
+    )
+    r = oracle_cursor.fetchone()
+    if not r:
+        return {"coordinate_string": None, "latitude_l": None, "longitude_l": None, "datum": None}
+    return {
+        "coordinate_string": r[0],
+        "latitude_l": r[1],
+        "longitude_l": r[2],
+        "datum": r[3],
+    }
+
+
+def _iter_referenced_place_ids(oracle_cursor: Any, owner: str) -> list[int]:
+    o = owner.upper()
+    oracle_cursor.execute(
+        f"""
+        SELECT DISTINCT place_id FROM (
+          SELECT place_id FROM {o}.place_object_role WHERE place_id IS NOT NULL
+          UNION
+          SELECT place_id FROM {o}.place_event_role WHERE place_id IS NOT NULL
+        )
+        """
+    )
+    return [int(x[0]) for x in oracle_cursor.fetchall() if x[0] is not None]
+
+
+@dataclass
+class LocalityLoadStats:
+    owner: str
+    places_seen: int = 0
+    localities_created: int = 0
+    localities_skipped: int = 0
+    errors: list[str] = field(default_factory=list)
+
+
+def load_localities_for_referenced_places(
+    *,
+    oracle_cursor: Any,
+    owner: str,
+    oracle_hid_to_specify_geo: dict[int, int],
+    discipline_ids: list[int],
+    treedef_id: int,
+    run_ts: str,
+    dry_run: bool,
+    max_places: int | None = None,
+) -> LocalityLoadStats:
+    """Create one ``Locality`` per (place, discipline) for referenced ``PLACE_ID`` rows."""
+    from specifyweb.specify.models import Discipline, Locality
+
+    from flows.lib.migration_oracle_placemap import upsert_placemap_row
+
+    stats = LocalityLoadStats(owner=owner)
+    pids = _iter_referenced_place_ids(oracle_cursor, owner)
+    if max_places is not None:
+        pids = pids[: max_places]
+
+    discs = [Discipline.objects.filter(pk=i).first() for i in discipline_ids]
+    discs = [d for d in discs if d is not None]
+
+    for pid in pids:
+        stats.places_seen += 1
+        agg, loc_text = _fetch_place_text(oracle_cursor, owner, pid)
+        coord = _fetch_first_coordinate(oracle_cursor, owner, pid)
+        geo_id = _deepest_geography_for_place(oracle_cursor, owner, pid, oracle_hid_to_specify_geo)
+        locality_name = (loc_text or agg or f"Place {pid}")[:1024]
+        verbatim = agg[:8192] if agg else None
+
+        lat = coord.get("latitude_l")
+        lng = coord.get("longitude_l")
+        if lat is not None:
+            try:
+                lat = float(lat)
+            except (TypeError, ValueError):
+                lat = None
+        if lng is not None:
+            try:
+                lng = float(lng)
+            except (TypeError, ValueError):
+                lng = None
+
+        for disc in discs:
+            if disc is None:
+                continue
+            if int(disc.geographytreedef_id or 0) != int(treedef_id):
+                continue
+            guid_loc = f"urn:oracle:{owner.lower()}:place:{pid}:d{disc.id}"
+            if len(guid_loc) > 128:
+                guid_loc = guid_loc[:128]
+            existing = Locality.objects.filter(discipline_id=disc.id, guid=guid_loc).first()
+            if existing is not None:
+                stats.localities_skipped += 1
+                upsert_placemap_row(
+                    source_owner=owner.upper(),
+                    source_kind="place",
+                    source_id=str(pid),
+                    specify_geography_id=geo_id,
+                    specify_locality_id=int(existing.id),
+                    specify_discipline_id=int(disc.id),
+                    run_ts=run_ts,
+                    dry_run=dry_run,
+                )
+                continue
+            if dry_run:
+                stats.localities_created += 1
+                continue
+            try:
+                loc = Locality(
+                    discipline_id=disc.id,
+                    localityname=locality_name,
+                    verbatimlocality=verbatim,
+                    geography_id=geo_id,
+                    latitude1=lat,
+                    longitude1=lng,
+                    srclatlongunit=0,
+                    guid=guid_loc,
+                    datum=(coord.get("datum") or "")[:50] if coord.get("datum") else None,
+                )
+                loc.save()
+                stats.localities_created += 1
+                upsert_placemap_row(
+                    source_owner=owner.upper(),
+                    source_kind="place",
+                    source_id=str(pid),
+                    specify_geography_id=geo_id,
+                    specify_locality_id=int(loc.id),
+                    specify_discipline_id=int(disc.id),
+                    run_ts=run_ts,
+                    dry_run=False,
+                )
+            except Exception as exc:  # noqa: BLE001
+                stats.errors.append(f"place {pid} disc {disc.id}: {exc}"[:500])
+
+    return stats
+
+
+def biology_discipline_ids_for_shared_treedef(treedef_id: int) -> list[int]:
+    """Discipline PKs that use this geography treedef (biology collections)."""
+    from specifyweb.specify.models import Discipline
+
+    ids: list[int] = []
+    for d in Discipline.objects.filter(geographytreedef_id=treedef_id).order_by("id"):
+        if getattr(d, "is_geo", lambda: False)():
+            continue
+        ids.append(int(d.id))
+    return ids
