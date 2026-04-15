@@ -61,6 +61,34 @@ def oracle_type_name_to_rank_item_name(type_name: str | None) -> str:
     return "County"
 
 
+# English logical names from ``oracle_type_name_to_rank_item_name`` → try these keys on
+# ``GeographyTreeDefItem.Name`` (lowercased). Norwegian / mixed Specify trees use local names.
+_RANK_SYNONYMS: dict[str, tuple[str, ...]] = {
+    "continent": ("continent", "kontinent", "verdensdel"),
+    "country": ("country", "land", "nation"),
+    "state": ("state", "province", "region", "del"),
+    "county": ("county", "fylke", "kommuneregion", "region"),
+    "municipality": ("municipality", "kommune", "kommun", "kommune/region"),
+}
+
+
+def _resolve_rank_item(rank_items: dict[str, Any], logical_name: str) -> Any:
+    """Map logical rank (English) to a ``GeographyTreeDefItem`` instance for this treedef."""
+    key = (logical_name or "").strip().lower()
+    candidates: tuple[str, ...] = (key,)
+    if key in _RANK_SYNONYMS:
+        candidates = candidates + _RANK_SYNONYMS[key]
+    for cand in candidates:
+        it = rank_items.get(cand)
+        if it is not None:
+            return it
+    for cand in _RANK_SYNONYMS.get("county", ()):
+        it = rank_items.get(cand)
+        if it is not None:
+            return it
+    return None
+
+
 def ensure_municipality_rank(treedef_id: int, *, dry_run: bool) -> dict[str, Any]:
     """Add a ``Municipality`` rank under ``County`` when missing (Norwegian kommune level)."""
     from specifyweb.specify.models import Geographytreedefitem
@@ -73,7 +101,14 @@ def ensure_municipality_rank(treedef_id: int, *, dry_run: bool) -> dict[str, Any
         .first()
     )
     if county is None:
-        out["error"] = "no County rank on geography treedef"
+        county = (
+            Geographytreedefitem.objects.filter(treedef_id=treedef_id)
+            .filter(name__iexact="Fylke")
+            .order_by("rankid")
+            .first()
+        )
+    if county is None:
+        out["error"] = "no County/Fylke rank on geography treedef"
         return out
     exists = Geographytreedefitem.objects.filter(treedef_id=treedef_id, name__iexact="Municipality").exists()
     if exists:
@@ -253,12 +288,21 @@ def load_hierarchical_geography(
     )
     geo_by_pk: dict[int, Any] = {}
     rank_items = _rank_items_by_name_lower(treedef_id)
-    if "municipality" not in rank_items:
+    if "municipality" not in rank_items and "kommune" not in rank_items:
         mr = ensure_municipality_rank(treedef_id, dry_run=dry_run)
         if mr.get("error"):
             stats.errors.append(mr["error"])
             return stats, oracle_to_geo
         rank_items = _rank_items_by_name_lower(treedef_id)
+
+    _rk = sorted(rank_items.keys())
+    _rk_suffix = f" (+{len(_rk) - 60} more)" if len(_rk) > 60 else ""
+    _progress_log(
+        "oracle_geography | geography | owner=%s | treedef rank keys (lowercase names, first 60): %s%s",
+        owner,
+        _rk[:60],
+        _rk_suffix,
+    )
 
     earth = Geography.objects.filter(definition_id=treedef_id, parent_id__isnull=True).order_by("id").first()
     if earth is None:
@@ -275,10 +319,7 @@ def load_hierarchical_geography(
 
     def rank_for_row(r: HierRow) -> Any:
         nm = oracle_type_name_to_rank_item_name(r.type_name)
-        it = rank_items.get(nm.lower())
-        if it is None:
-            it = rank_items.get("county")
-        return it
+        return _resolve_rank_item(rank_items, nm)
 
     ordered_rows = _toposort_hierarchical(rows)
     total_g = len(ordered_rows)
@@ -292,21 +333,6 @@ def load_hierarchical_geography(
         _progress_log("oracle_geography | geography | owner=%s | nothing to insert", owner)
     t_loop = time.perf_counter()
     for i, r in enumerate(ordered_rows, start=1):
-        if i == 1 or i % 500 == 0 or i == total_g:
-            elapsed = time.perf_counter() - t_loop
-            pct = 100.0 * i / total_g if total_g else 100.0
-            eta = _eta_remaining(elapsed, i, total_g)
-            _progress_log(
-                "oracle_geography | geography | owner=%s | %s/%s (%.1f%%) created=%s skipped=%s elapsed=%s eta~%s",
-                owner,
-                i,
-                total_g,
-                pct,
-                stats.geographies_created,
-                stats.geographies_skipped_existing,
-                _format_duration(elapsed),
-                eta,
-            )
         guid = f"urn:oracle:{owner.lower()}:hpo:{r.hierarch_place_id}"
         if len(guid) > 128:
             guid = guid[:128]
@@ -325,7 +351,11 @@ def load_hierarchical_geography(
             parent_geo = _geo_model(pid) or earth
         di = rank_for_row(r)
         if di is None:
-            stats.errors.append(f"no rank for hierarch_place_id={r.hierarch_place_id}")
+            nm = oracle_type_name_to_rank_item_name(r.type_name)
+            stats.errors.append(
+                f"no rank for hierarch_place_id={r.hierarch_place_id} logical_rank={nm!r} "
+                f"(see treedef rank keys log above)"
+            )
             continue
         name = r.placename[:128] if len(r.placename) > 128 else r.placename
         fullname = f"{parent_geo.fullname or parent_geo.name}, {name}"[:500]
@@ -354,6 +384,26 @@ def load_hierarchical_geography(
             msg = f"hpo {r.hierarch_place_id}: {exc}"
             stats.errors.append(msg[:500])
             logger.warning(msg)
+
+        if i == 1 or i % 500 == 0 or i == total_g:
+            elapsed = time.perf_counter() - t_loop
+            pct = 100.0 * i / total_g if total_g else 100.0
+            eta = _eta_remaining(elapsed, i, total_g)
+            err_n = len(stats.errors)
+            err_snip = (" last_error=%r" % (stats.errors[-1][:160],)) if err_n else ""
+            _progress_log(
+                "oracle_geography | geography | owner=%s | %s/%s (%.1f%%) created=%s skipped=%s errors=%s%s elapsed=%s eta~%s",
+                owner,
+                i,
+                total_g,
+                pct,
+                stats.geographies_created,
+                stats.geographies_skipped_existing,
+                err_n,
+                err_snip,
+                _format_duration(elapsed),
+                eta,
+            )
 
     _progress_log(
         "oracle_geography | geography | owner=%s | done rows=%s created=%s skipped=%s errors=%s total_elapsed=%s",
