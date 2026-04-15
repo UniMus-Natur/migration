@@ -374,7 +374,10 @@ def load_hierarchical_geography(
                 iscurrent=True,
                 guid=guid,
             )
-            g.save()
+            # Tree.save() locks the parent with select_for_update(); that often fails outside the
+            # API request transaction (e.g. Prefect worker). Bulk migration uses skip_tree_extras and
+            # renumbers the geography table once at the end of this function.
+            g.save(skip_tree_extras=True)
             gid = int(g.id)
             oracle_to_geo[r.hierarch_place_id] = gid
             geo_by_pk[gid] = g
@@ -404,6 +407,22 @@ def load_hierarchical_geography(
                 _format_duration(elapsed),
                 eta,
             )
+
+    if not dry_run and stats.geographies_created > 0:
+        try:
+            from specifyweb.backend.trees.extras import renumber_tree, set_fullnames
+            from specifyweb.specify.models import Geographytreedef
+
+            _progress_log(
+                "oracle_geography | geography | owner=%s | post-process: renumber_tree(geography) + set_fullnames",
+                owner,
+            )
+            renumber_tree("geography")
+            td = Geographytreedef.objects.get(pk=treedef_id)
+            set_fullnames(td)
+        except Exception as exc:  # noqa: BLE001
+            stats.errors.append(f"post_insert geography tree fix: {exc}"[:500])
+            logger.exception("renumber_tree/set_fullnames after geography bulk insert")
 
     _progress_log(
         "oracle_geography | geography | owner=%s | done rows=%s created=%s skipped=%s errors=%s total_elapsed=%s",
