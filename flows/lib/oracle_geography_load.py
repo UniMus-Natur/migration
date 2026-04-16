@@ -85,10 +85,15 @@ def _norm_type(s: str | None) -> str:
 
 
 def oracle_type_name_to_rank_item_name(type_name: str | None) -> str:
-    """Map MUSIT ``TYPES`` label column (name varies by schema) to ``GeographyTreeDefItem.Name``."""
+    """Map MUSIT ``TYPES`` label to a logical rank name (English).
+
+    Empty / unknown Oracle type returns ``""`` so the loader can infer rank from the
+    parent's ``rankid`` (see ``rank_for_row``): defaulting everything to County breaks
+    world→continent chains when types are NULL.
+    """
     t = _norm_type(type_name)
     if not t:
-        return "County"
+        return ""
     if "kommune" in t or "kommun" in t:
         return "Municipality"
     if "fylke" in t:
@@ -116,6 +121,8 @@ _RANK_SYNONYMS: dict[str, tuple[str, ...]] = {
 def _resolve_rank_item(rank_items: dict[str, Any], logical_name: str) -> Any:
     """Map logical rank (English) to a ``GeographyTreeDefItem`` instance for this treedef."""
     key = (logical_name or "").strip().lower()
+    if not key:
+        return None
     candidates: tuple[str, ...] = (key,)
     if key in _RANK_SYNONYMS:
         candidates = candidates + _RANK_SYNONYMS[key]
@@ -128,6 +135,15 @@ def _resolve_rank_item(rank_items: dict[str, Any], logical_name: str) -> Any:
         if it is not None:
             return it
     return None
+
+
+def _treedef_items_ordered_by_rank(treedef_id: int) -> list[Any]:
+    """All ``GeographyTreeDefItem`` rows for this treedef, shallow-to-deep by ``rankid``."""
+    from specifyweb.specify.models import Geographytreedefitem
+
+    return list(
+        Geographytreedefitem.objects.filter(treedef_id=treedef_id).order_by("rankid", "id")
+    )
 
 
 def ensure_municipality_rank(treedef_id: int, *, dry_run: bool) -> dict[str, Any]:
@@ -343,6 +359,7 @@ def load_hierarchical_geography(
             )
         rank_items = _rank_items_by_name_lower(treedef_id)
 
+    ordered_def_items = _treedef_items_ordered_by_rank(treedef_id)
     _rk = sorted(rank_items.keys())
     _rk_suffix = f" (+{len(_rk) - 60} more)" if len(_rk) > 60 else ""
     _progress_log(
@@ -369,9 +386,18 @@ def load_hierarchical_geography(
                 geo_by_pk[pk] = g
         return geo_by_pk.get(pk)
 
-    def rank_for_row(r: HierRow) -> Any:
+    def rank_for_row(r: HierRow, parent_geo: Any) -> Any:
+        """Specify requires child ``rankid`` > parent ``rankid`` on Geography trees."""
+        pr = getattr(parent_geo, "rankid", None)
+        parent_rid = int(pr) if pr is not None else -1
         nm = oracle_type_name_to_rank_item_name(r.type_name)
-        return _resolve_rank_item(rank_items, nm)
+        di = _resolve_rank_item(rank_items, nm) if nm else None
+        if di is not None and int(di.rankid) > parent_rid:
+            return di
+        for it in ordered_def_items:
+            if int(it.rankid) > parent_rid:
+                return it
+        return None
 
     ordered_rows = _toposort_hierarchical(rows)
     total_g = len(ordered_rows)
@@ -401,20 +427,25 @@ def load_hierarchical_geography(
         if r.place_id_partof is not None and r.place_id_partof in oracle_to_geo:
             pid = oracle_to_geo[r.place_id_partof]
             parent_geo = _geo_model(pid) or earth
-        di = rank_for_row(r)
+        di = rank_for_row(r, parent_geo)
         if di is None:
             nm = oracle_type_name_to_rank_item_name(r.type_name)
+            pr = getattr(parent_geo, "rankid", None)
+            parent_rid = int(pr) if pr is not None else -1
             _fail_fast(
                 "geography.no_rank_item",
-                "Oracle TYPES label could not be mapped to a GeographyTreeDefItem",
+                "No GeographyTreeDefItem with rankid greater than parent (treedef exhausted?)",
                 owner=owner,
                 treedef_id=treedef_id,
                 hierarch_place_id=r.hierarch_place_id,
                 placename=r.placename,
                 place_id_partof=r.place_id_partof,
                 oracle_type_name_raw=r.type_name,
-                logical_rank=nm,
+                logical_rank=nm or None,
+                parent_geography_id=int(parent_geo.id),
+                parent_rankid=parent_rid,
                 rank_keys_sorted=_rk,
+                treedef_rankids_ordered=[int(x.rankid) for x in ordered_def_items],
                 loop_index=i,
                 total_geography=total_g,
                 guid=guid,
