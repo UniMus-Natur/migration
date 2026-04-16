@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -21,6 +22,44 @@ def _progress_log(msg: str, *args: Any) -> None:
         get_run_logger().info(msg, *args)
     except Exception:
         logger.info(msg, *args)
+
+
+class OracleGeographyMigrationError(RuntimeError):
+    """First blocking geography/locality/placemap failure; ``context`` is JSON-friendly for reports."""
+
+    def __init__(self, message: str, *, context: dict[str, Any]):
+        self.context = context
+        super().__init__(message)
+
+
+def _fail_fast(
+    phase: str,
+    summary: str,
+    *,
+    cause: BaseException | None = None,
+    **context: Any,
+) -> None:
+    """Log full context at CRITICAL and abort the run (Prefect should mark failed)."""
+    safe: dict[str, Any] = {"phase": phase, "summary": summary}
+    for k, v in context.items():
+        try:
+            json.dumps(v)
+            safe[k] = v
+        except (TypeError, ValueError):
+            safe[k] = repr(v)
+    blob = json.dumps(safe, indent=2, default=str)[:12000]
+    logger.critical("oracle_geography FAIL_FAST %s\n%s", phase, blob)
+    try:
+        from prefect import get_run_logger
+
+        get_run_logger().critical("FAIL_FAST %s\n%s", phase, blob[:8000])
+    except Exception:
+        pass
+    msg = f"[{phase}] {summary}\n{blob[:4000]}"
+    err = OracleGeographyMigrationError(msg, context=safe)
+    if cause is not None:
+        raise err from cause
+    raise err
 
 
 def _format_duration(seconds: float) -> str:
@@ -294,8 +333,14 @@ def load_hierarchical_geography(
     if "municipality" not in rank_items and "kommune" not in rank_items:
         mr = ensure_municipality_rank(treedef_id, dry_run=dry_run)
         if mr.get("error"):
-            stats.errors.append(mr["error"])
-            return stats, oracle_to_geo
+            _fail_fast(
+                "geography.ensure_municipality_rank",
+                str(mr["error"]),
+                owner=owner,
+                treedef_id=treedef_id,
+                dry_run=dry_run,
+                ensure_municipality_rank=mr,
+            )
         rank_items = _rank_items_by_name_lower(treedef_id)
 
     _rk = sorted(rank_items.keys())
@@ -309,8 +354,12 @@ def load_hierarchical_geography(
 
     earth = Geography.objects.filter(definition_id=treedef_id, parent_id__isnull=True).order_by("id").first()
     if earth is None:
-        stats.errors.append("no root Geography (Earth) for treedef")
-        return stats, oracle_to_geo
+        _fail_fast(
+            "geography.no_earth_root",
+            "no root Geography (parent_id IS NULL) for this treedef — cannot attach tree",
+            owner=owner,
+            treedef_id=treedef_id,
+        )
     geo_by_pk[int(earth.id)] = earth
 
     def _geo_model(pk: int) -> Any:
@@ -355,11 +404,21 @@ def load_hierarchical_geography(
         di = rank_for_row(r)
         if di is None:
             nm = oracle_type_name_to_rank_item_name(r.type_name)
-            stats.errors.append(
-                f"no rank for hierarch_place_id={r.hierarch_place_id} logical_rank={nm!r} "
-                f"(see treedef rank keys log above)"
+            _fail_fast(
+                "geography.no_rank_item",
+                "Oracle TYPES label could not be mapped to a GeographyTreeDefItem",
+                owner=owner,
+                treedef_id=treedef_id,
+                hierarch_place_id=r.hierarch_place_id,
+                placename=r.placename,
+                place_id_partof=r.place_id_partof,
+                oracle_type_name_raw=r.type_name,
+                logical_rank=nm,
+                rank_keys_sorted=_rk,
+                loop_index=i,
+                total_geography=total_g,
+                guid=guid,
             )
-            continue
         name = r.placename[:128] if len(r.placename) > 128 else r.placename
         fullname = f"{parent_geo.fullname or parent_geo.name}, {name}"[:500]
         if dry_run:
@@ -388,9 +447,31 @@ def load_hierarchical_geography(
             existing_guid_to_id[guid] = gid
             stats.geographies_created += 1
         except Exception as exc:  # noqa: BLE001
-            msg = f"hpo {r.hierarch_place_id}: {exc}"
-            stats.errors.append(msg[:500])
-            logger.warning(msg)
+            nm = oracle_type_name_to_rank_item_name(r.type_name)
+            _fail_fast(
+                "geography.save",
+                str(exc),
+                cause=exc,
+                owner=owner,
+                treedef_id=treedef_id,
+                hierarch_place_id=r.hierarch_place_id,
+                placename=r.placename,
+                place_id_partof=r.place_id_partof,
+                oracle_type_name_raw=r.type_name,
+                logical_rank=nm,
+                definitionitem_id=int(di.id),
+                definitionitem_name=getattr(di, "name", None),
+                parent_geography_id=int(parent_geo.id) if parent_geo is not None else None,
+                parent_geography_name=(getattr(parent_geo, "name", None) or "")[:200]
+                if parent_geo is not None
+                else None,
+                rankid=getattr(di, "rankid", None),
+                fullname=fullname,
+                guid=guid,
+                loop_index=i,
+                total_geography=total_g,
+                dry_run=dry_run,
+            )
 
         if i == 1 or i % 500 == 0 or i == total_g:
             elapsed = time.perf_counter() - t_loop
@@ -643,16 +724,32 @@ def load_localities_for_referenced_places(
             existing_lid = locality_id_by_disc_guid.get(loc_key)
             if existing_lid is not None:
                 stats.localities_skipped += 1
-                upsert_placemap_row(
-                    source_owner=owner.upper(),
-                    source_kind="place",
-                    source_id=str(pid),
-                    specify_geography_id=geo_id,
-                    specify_locality_id=existing_lid,
-                    specify_discipline_id=int(disc.id),
-                    run_ts=run_ts,
-                    dry_run=dry_run,
-                )
+                try:
+                    upsert_placemap_row(
+                        source_owner=owner.upper(),
+                        source_kind="place",
+                        source_id=str(pid),
+                        specify_geography_id=geo_id,
+                        specify_locality_id=existing_lid,
+                        specify_discipline_id=int(disc.id),
+                        run_ts=run_ts,
+                        dry_run=dry_run,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    _fail_fast(
+                        "locality.placemap_existing",
+                        str(exc),
+                        cause=exc,
+                        owner=owner,
+                        treedef_id=treedef_id,
+                        place_id=pid,
+                        discipline_id=int(disc.id),
+                        existing_locality_id=existing_lid,
+                        specify_geography_id=geo_id,
+                        locality_name=locality_name[:300],
+                        loop_place_index=n,
+                        total_places=total_p,
+                    )
                 continue
             if dry_run:
                 stats.localities_created += 1
@@ -683,7 +780,24 @@ def load_localities_for_referenced_places(
                     dry_run=False,
                 )
             except Exception as exc:  # noqa: BLE001
-                stats.errors.append(f"place {pid} disc {disc.id}: {exc}"[:500])
+                _fail_fast(
+                    "locality.save_or_placemap",
+                    str(exc),
+                    cause=exc,
+                    owner=owner,
+                    treedef_id=treedef_id,
+                    place_id=pid,
+                    discipline_id=int(disc.id),
+                    specify_geography_id=geo_id,
+                    locality_name=locality_name[:300],
+                    verbatimlocality_snip=(verbatim or "")[:400] if verbatim else None,
+                    guid=guid_loc,
+                    latitude1=lat,
+                    longitude1=lng,
+                    coordinate=coord,
+                    loop_place_index=n,
+                    total_places=total_p,
+                )
 
     _progress_log(
         "oracle_geography | locality | owner=%s | done places=%s created=%s skipped=%s errors=%s total_elapsed=%s",

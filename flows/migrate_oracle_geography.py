@@ -34,6 +34,7 @@ from flows.lib.oracle_geography_inventory import (
     referenced_place_ids_count,
 )
 from flows.lib.oracle_geography_load import (
+    OracleGeographyMigrationError,
     biology_discipline_ids_for_shared_treedef,
     load_hierarchical_geography,
     load_localities_for_referenced_places,
@@ -167,6 +168,7 @@ def migrate_oracle_geography_flow(
     discipline_ids = biology_discipline_ids_for_shared_treedef(treedef_id)
     manifest["discipline_ids_for_locality"] = discipline_ids
     run_ts = ts
+    s3_key = migration_report_s3_key(REPORT_CATEGORY_ORACLE_GEOGRAPHY_TO_SPECIFY, ts)
 
     try:
         ocur = con.cursor()
@@ -174,81 +176,86 @@ def migrate_oracle_geography_flow(
             o = owner.strip().upper()
             if o not in ("MUSIT_BOTANIKK_FELLES", "MUSIT_ZOOLOGI_ENTOMOLOGI"):
                 continue
-            try:
+            logger.info(
+                "oracle_geography | schema=%s | phase=geography (HIERARCHICAL_PLACE_OLD → Specify Geography)",
+                o,
+            )
+            gstats, hid_map = load_hierarchical_geography(
+                oracle_cursor=ocur,
+                owner=o,
+                treedef_id=treedef_id,
+                dry_run=dry_run,
+            )
+            geo_runs.append(
+                {
+                    "owner": o,
+                    "rows_read": gstats.rows_read,
+                    "geographies_created": gstats.geographies_created,
+                    "geographies_skipped_existing": gstats.geographies_skipped_existing,
+                    "errors": gstats.errors[:80],
+                }
+            )
+            logger.info(
+                "oracle_geography | schema=%s | geography phase done | hid_map_size=%s rows_read=%s",
+                o,
+                len(hid_map),
+                gstats.rows_read,
+            )
+            if not dry_run:
                 logger.info(
-                    "oracle_geography | schema=%s | phase=geography (HIERARCHICAL_PLACE_OLD → Specify Geography)",
+                    "oracle_geography | schema=%s | phase=locality (referenced PLACE → Locality + placemap)",
                     o,
                 )
-                gstats, hid_map = load_hierarchical_geography(
+                lstats = load_localities_for_referenced_places(
                     oracle_cursor=ocur,
                     owner=o,
+                    oracle_hid_to_specify_geo=hid_map,
+                    discipline_ids=discipline_ids,
                     treedef_id=treedef_id,
-                    dry_run=dry_run,
+                    run_ts=run_ts,
+                    dry_run=False,
+                    max_places=max_places,
                 )
-                geo_runs.append(
+                loc_runs.append(
                     {
                         "owner": o,
-                        "rows_read": gstats.rows_read,
-                        "geographies_created": gstats.geographies_created,
-                        "geographies_skipped_existing": gstats.geographies_skipped_existing,
-                        "errors": gstats.errors[:80],
+                        "places_seen": lstats.places_seen,
+                        "localities_created": lstats.localities_created,
+                        "localities_skipped": lstats.localities_skipped,
+                        "errors": lstats.errors[:80],
                     }
                 )
                 logger.info(
-                    "oracle_geography | schema=%s | geography phase done | hid_map_size=%s rows_read=%s",
+                    "oracle_geography | schema=%s | locality phase done | places_seen=%s localities_created=%s",
                     o,
-                    len(hid_map),
-                    gstats.rows_read,
+                    lstats.places_seen,
+                    lstats.localities_created,
                 )
-                if not dry_run:
-                    logger.info(
-                        "oracle_geography | schema=%s | phase=locality (referenced PLACE → Locality + placemap)",
-                        o,
-                    )
-                    lstats = load_localities_for_referenced_places(
-                        oracle_cursor=ocur,
-                        owner=o,
-                        oracle_hid_to_specify_geo=hid_map,
-                        discipline_ids=discipline_ids,
-                        treedef_id=treedef_id,
-                        run_ts=run_ts,
-                        dry_run=False,
-                        max_places=max_places,
-                    )
-                    loc_runs.append(
-                        {
-                            "owner": o,
-                            "places_seen": lstats.places_seen,
-                            "localities_created": lstats.localities_created,
-                            "localities_skipped": lstats.localities_skipped,
-                            "errors": lstats.errors[:80],
-                        }
-                    )
-                    logger.info(
-                        "oracle_geography | schema=%s | locality phase done | places_seen=%s localities_created=%s",
-                        o,
-                        lstats.places_seen,
-                        lstats.localities_created,
-                    )
-                else:
-                    loc_runs.append(
-                        {
-                            "owner": o,
-                            "skipped": True,
-                            "reason": "dry_run skips Locality and placemap inserts",
-                        }
-                    )
-            except Exception as exc:  # noqa: BLE001
-                geo_runs.append({"owner": o, "error": str(exc)[:800]})
-                logger.exception("Geography load failed for %s", o)
+            else:
+                loc_runs.append(
+                    {
+                        "owner": o,
+                        "skipped": True,
+                        "reason": "dry_run skips Locality and placemap inserts",
+                    }
+                )
+    except Exception as exc:
+        manifest["fatal_error"] = repr(exc)
+        if isinstance(exc, OracleGeographyMigrationError):
+            manifest["fatal_context"] = exc.context
+        manifest["geography_load"] = geo_runs
+        manifest["locality_load"] = loc_runs
+        try:
+            manifest["uploaded_failure_report"] = upload_migration_report_json_task(manifest, s3_key)
+        except Exception:
+            logger.exception("oracle_geography | failure report upload failed")
+        raise
     finally:
         con.close()
 
     manifest["geography_load"] = geo_runs
     manifest["locality_load"] = loc_runs
     logger.info("oracle_geography | Oracle connection closed; uploading report to S3")
-
-    s3_key = migration_report_s3_key(REPORT_CATEGORY_ORACLE_GEOGRAPHY_TO_SPECIFY, ts)
     uploaded = upload_migration_report_json_task(manifest, s3_key)
     manifest["uploaded"] = uploaded
     manifest["report_uploaded"] = bool(uploaded)
