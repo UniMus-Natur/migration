@@ -889,17 +889,21 @@ def load_localities_for_referenced_places(
                 stats.localities_created += 1
                 continue
             try:
-                loc = Locality(
-                    discipline_id=disc.id,
-                    localityname=locality_name,
-                    verbatimlocality=verbatim,
-                    geography_id=geo_id,
-                    latitude1=lat,
-                    longitude1=lng,
-                    srclatlongunit=0,
-                    guid=guid_loc,
-                    datum=(coord.get("datum") or "")[:50] if coord.get("datum") else None,
-                )
+                # Specify ``Locality`` has no ``VerbatimLocality`` (that lives on ``CollectingEvent``).
+                # Preserve Oracle ``place_name_agg`` / long text on ``remarks``.
+                loc_kwargs: dict[str, Any] = {
+                    "discipline_id": int(disc.id),
+                    "localityname": locality_name,
+                    "geography_id": geo_id,
+                    "latitude1": lat,
+                    "longitude1": lng,
+                    "srclatlongunit": 0,
+                    "guid": guid_loc,
+                    "datum": (coord.get("datum") or "")[:50] if coord.get("datum") else None,
+                }
+                if verbatim:
+                    loc_kwargs["remarks"] = verbatim
+                loc = Locality(**loc_kwargs)
                 loc.save()
                 stats.localities_created += 1
                 locality_id_by_disc_guid[loc_key] = int(loc.id)
@@ -924,7 +928,7 @@ def load_localities_for_referenced_places(
                     discipline_id=int(disc.id),
                     specify_geography_id=geo_id,
                     locality_name=locality_name[:300],
-                    verbatimlocality_snip=(verbatim or "")[:400] if verbatim else None,
+                    oracle_place_text_snip=(verbatim or "")[:400] if verbatim else None,
                     guid=guid_loc,
                     latitude1=lat,
                     longitude1=lng,
