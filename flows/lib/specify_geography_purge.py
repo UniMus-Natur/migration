@@ -1,14 +1,24 @@
-"""Remove all ``Geography`` rows for one ``GeographyTreeDef`` before a fresh Oracle import.
+"""Remove ``Geography`` rows before a fresh Oracle import.
+
+Two entry points:
+
+- ``purge_geography_tree_for_treedef``: delete **only** rows for one ``GeographyTreeDefID``
+  (safe when other disciplines keep their own trees).
+
+- ``purge_all_geography_trees``: delete **every** ``Geography`` row in the database (all
+  treedefs), then recreate a minimal **Earth** root per ``GeographyTreeDef``. Use only on
+  databases where wiping *all* geography is acceptable (e.g. migration staging).
 
 Specify blocks deleting ``Geography`` while ``Locality`` or ``Agentgeography`` still reference it.
-We clear those references, then delete leaves-up until the tree is empty, then recreate a minimal
-**Earth** root (same shape as Specify tests: name ``Earth``, fullname ``Planet``) so
-``load_hierarchical_geography`` can attach nodes again.
+We clear those references, then delete leaves-up until the tree is empty, then recreate Earth
+roots (name ``Earth``, fullname ``Planet``) so ``load_hierarchical_geography`` can attach again.
 """
 
 from __future__ import annotations
 
 import logging
+from typing import Any
+
 from django.db import transaction
 
 logger = logging.getLogger(__name__)
@@ -161,3 +171,131 @@ def purge_geography_tree_for_treedef(
 
     out["message"] = "purge complete"
     return out
+
+
+def purge_all_geography_trees(
+    *,
+    dry_run: bool,
+    truncate_migration_placemap: bool = True,
+) -> dict[str, Any]:
+    """Delete **every** ``Geography`` row (all ``GeographyTreeDef``), then one Earth root per treedef.
+
+    Clears **all** ``Locality.GeographyID`` that point at any geography, deletes all
+    ``Agentgeography`` rows with a geography link, clears ``AcceptedGeographyID`` on geography
+    nodes, then deletes the global tree in leaf batches. Finally calls
+    ``_ensure_geography_earth_root`` for each ``GeographyTreeDef`` that has at least one
+    ``GeographyTreeDefItem`` (skips empty defs with a warning).
+
+    This is intentionally destructive: any collection using geography will lose its tree until
+    re-imported or rebuilt.
+    """
+    from specifyweb.specify.models import Agentgeography, Geography, Geographytreedef, Locality
+
+    from flows.lib.migration_oracle_placemap import TABLE_NAME as PLACEMAP_TABLE
+
+    out: dict[str, Any] = {
+        "scope": "all_treedefs",
+        "dry_run": dry_run,
+        "geography_count_before": 0,
+        "localities_geography_nulled": 0,
+        "agentgeography_deleted": 0,
+        "geography_accepted_cleared": 0,
+        "geography_deleted_total": 0,
+        "placemap_truncated": False,
+        "earth_roots": [],
+        "treedefs_skipped_no_items": [],
+    }
+
+    out["geography_count_before"] = int(Geography.objects.count())
+    if out["geography_count_before"] == 0:
+        out["message"] = "no Geography rows in database; ensuring Earth roots only"
+        out["geographytreedef_count"] = int(Geographytreedef.objects.count())
+        if dry_run:
+            out["message"] += " (dry_run: no deletes; would ensure Earth per treedef with items)"
+            return out
+        for tid in Geographytreedef.objects.order_by("id").values_list("id", flat=True):
+            root_meta = _ensure_earth_for_treedef_if_items(int(tid), dry_run=False, out_list=out["earth_roots"])
+            if root_meta.get("skipped"):
+                out["treedefs_skipped_no_items"].append(int(tid))
+            elif root_meta.get("error"):
+                raise RuntimeError(f"Earth root failed for treedef_id={tid}: {root_meta['error']}")
+        return out
+
+    if dry_run:
+        out["locality_with_geography"] = int(Locality.objects.exclude(geography_id=None).count())
+        out["agentgeography_rows"] = int(Agentgeography.objects.exclude(geography_id=None).count())
+        out["geographytreedef_count"] = int(Geographytreedef.objects.count())
+        out["message"] = "dry_run: would purge ALL Geography rows and recreate Earth per treedef"
+        return out
+
+    with transaction.atomic():
+        n_loc = Locality.objects.exclude(geography_id=None).update(geography_id=None)
+        out["localities_geography_nulled"] = int(n_loc)
+
+        ag_total, _ag_detail = Agentgeography.objects.exclude(geography_id=None).delete()
+        out["agentgeography_deleted"] = int(ag_total)
+
+        n_acc = Geography.objects.exclude(acceptedgeography_id=None).update(acceptedgeography_id=None)
+        out["geography_accepted_cleared"] = int(n_acc)
+
+        total_deleted = 0
+        guard = 0
+        while Geography.objects.exists():
+            guard += 1
+            if guard > 20000:
+                raise RuntimeError(
+                    "purge_all_geography_trees: exceeded iteration guard; possible geography cycle or FK state"
+                )
+            parent_ids = Geography.objects.exclude(parent_id__isnull=True).values_list("parent_id", flat=True)
+            parent_set = {int(x) for x in parent_ids if x is not None}
+            leaves = Geography.objects.exclude(pk__in=parent_set)
+            leaf_ids = list(leaves.values_list("pk", flat=True))
+            if not leaf_ids:
+                raise RuntimeError("purge_all_geography_trees: no leaves found but rows remain")
+            Geography.objects.filter(pk__in=leaf_ids).delete()
+            total_deleted += len(leaf_ids)
+            logger.info(
+                "purge ALL geography iteration=%s deleted_batch=%s total_so_far=%s",
+                guard,
+                len(leaf_ids),
+                total_deleted,
+            )
+
+        out["geography_deleted_total"] = int(total_deleted)
+
+        for tid in Geographytreedef.objects.order_by("id").values_list("id", flat=True):
+            root_meta = _ensure_earth_for_treedef_if_items(int(tid), dry_run=False, out_list=out["earth_roots"])
+            if root_meta.get("skipped"):
+                out["treedefs_skipped_no_items"].append(int(tid))
+            elif root_meta.get("error"):
+                raise RuntimeError(f"Earth root failed for treedef_id={tid}: {root_meta['error']}")
+
+    if truncate_migration_placemap:
+        from django.db import connection
+
+        try:
+            with connection.cursor() as cur:
+                cur.execute(f"TRUNCATE TABLE {PLACEMAP_TABLE}")
+            out["placemap_truncated"] = True
+        except Exception as exc:
+            logger.warning("Could not TRUNCATE %s (table may be missing): %s", PLACEMAP_TABLE, exc)
+
+    out["message"] = "purge all geography complete"
+    return out
+
+
+def _ensure_earth_for_treedef_if_items(treedef_id: int, *, dry_run: bool, out_list: list[Any]) -> dict[str, Any]:
+    """Ensure Earth exists for ``treedef_id`` if that def has rank items; append summary to ``out_list``."""
+    from specifyweb.specify.models import Geographytreedefitem
+
+    if not Geographytreedefitem.objects.filter(treedef_id=treedef_id).exists():
+        logger.warning(
+            "purge_all_geography_trees: skipping Earth for GeographyTreeDefID=%s (no GeographyTreeDefItem rows)",
+            treedef_id,
+        )
+        return {"treedef_id": treedef_id, "skipped": True, "reason": "no_treedef_items"}
+
+    meta = _ensure_geography_earth_root(treedef_id, dry_run=dry_run)
+    entry = {"treedef_id": treedef_id, **meta}
+    out_list.append(entry)
+    return entry

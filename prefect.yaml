@@ -112,6 +112,8 @@ deployments:
         - MUSIT_ZOOLOGI_ENTOMOLOGI
       canonical_discipline_name: "Karplanter Moser"
       max_places: null
+      # Wipe every Geography row (all treedefs) before Oracle import — staging only.
+      purge_all_geography_trees_before_oracle_import: false
       purge_existing_geography_for_treedef: false
       truncate_placemap_when_purging_geography: true
     work_pool:

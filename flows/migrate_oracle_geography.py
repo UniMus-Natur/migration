@@ -8,9 +8,16 @@
 Parameters mirror other migration flows: ``oracle_env``, ``dry_run``, ``musit_schemas``,
 ``max_places`` (optional cap for Locality pass).
 
-Optional **purge** removes all ``Geography`` rows for the canonical treedef (e.g. setup seed
-data), nulls ``Locality.GeographyID`` for those nodes, deletes blocking ``Agentgeography`` rows,
-recreates a minimal **Earth** root, and (by default) **TRUNCATE** ``migration_oracle_placemap``.
+Optional **purge** (single treedef): removes all ``Geography`` rows for the canonical treedef only,
+nulls ``Locality.GeographyID`` for those nodes, deletes blocking ``Agentgeography`` rows, recreates
+**Earth** for that treedef, and (by default) **TRUNCATE** ``migration_oracle_placemap``.
+
+Optional **purge all**: ``purge_all_geography_trees_before_oracle_import`` wipes **every**
+``Geography`` row in the database (all treedefs), nulls **all** locality geography links, then
+recreates an **Earth** root per ``GeographyTreeDef`` that has rank items. Use only on databases
+where destroying every geography tree is acceptable (e.g. migration staging). When both purge
+flags are true, the global purge runs and the single-treedef purge is skipped.
+
 It does **not** delete ``Locality`` rows (specimens may still reference them).
 """
 
@@ -39,7 +46,10 @@ from flows.lib.oracle_geography_load import (
     load_hierarchical_geography,
     load_localities_for_referenced_places,
 )
-from flows.lib.specify_geography_purge import purge_geography_tree_for_treedef
+from flows.lib.specify_geography_purge import (
+    purge_all_geography_trees,
+    purge_geography_tree_for_treedef,
+)
 from flows.lib.specify_geography_shared import link_biology_disciplines_shared_geography
 from flows.lib.specify_setup import setup_django
 
@@ -82,6 +92,7 @@ def migrate_oracle_geography_flow(
     musit_schemas: tuple[str, ...] = _DEFAULT_SCHEMAS,
     canonical_discipline_name: str = "Karplanter Moser",
     max_places: int | None = None,
+    purge_all_geography_trees_before_oracle_import: bool = False,
     purge_existing_geography_for_treedef: bool = False,
     truncate_placemap_when_purging_geography: bool = True,
 ) -> dict:
@@ -98,18 +109,20 @@ def migrate_oracle_geography_flow(
         "musit_schemas": list(musit_schemas),
         "canonical_discipline_name": canonical_discipline_name,
         "max_places": max_places,
+        "purge_all_geography_trees_before_oracle_import": purge_all_geography_trees_before_oracle_import,
         "purge_existing_geography_for_treedef": purge_existing_geography_for_treedef,
         "truncate_placemap_when_purging_geography": truncate_placemap_when_purging_geography,
     }
     logger.info(
         "oracle_geography | flow start | ts=%s oracle_env=%s dry_run=%s schemas=%s canonical_discipline=%s "
-        "max_places=%s purge_geography=%s truncate_placemap_on_purge=%s",
+        "max_places=%s purge_all_geography=%s purge_geography_treedef=%s truncate_placemap_on_purge=%s",
         ts,
         oracle_env,
         dry_run,
         list(musit_schemas),
         canonical_discipline_name,
         max_places,
+        purge_all_geography_trees_before_oracle_import,
         purge_existing_geography_for_treedef,
         truncate_placemap_when_purging_geography,
     )
@@ -141,7 +154,23 @@ def migrate_oracle_geography_flow(
     manifest["placemap_table"] = placemap_meta
     logger.info("oracle_geography | placemap table | %s", placemap_meta)
 
-    if purge_existing_geography_for_treedef:
+    if purge_all_geography_trees_before_oracle_import:
+        if purge_existing_geography_for_treedef:
+            logger.info(
+                "oracle_geography | purge_all_geography_trees_before_oracle_import=True "
+                "(single-treedef purge flag ignored)"
+            )
+        logger.warning(
+            "oracle_geography | PURGE ALL Geography trees (every treedef) dry_run=%s truncate_placemap=%s",
+            dry_run,
+            truncate_placemap_when_purging_geography,
+        )
+        purge_all_meta = purge_all_geography_trees(
+            dry_run=dry_run,
+            truncate_migration_placemap=truncate_placemap_when_purging_geography,
+        )
+        manifest["geography_purge_all"] = purge_all_meta
+    elif purge_existing_geography_for_treedef:
         logger.warning(
             "oracle_geography | PURGE GeographyTreeDefID=%s dry_run=%s truncate_placemap=%s",
             treedef_id,

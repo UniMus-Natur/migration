@@ -146,6 +146,43 @@ def _treedef_items_ordered_by_rank(treedef_id: int) -> list[Any]:
     )
 
 
+# Oracle often has a synthetic ``WORLD`` (or similar) under Earth; with NULL ``TYPES`` every
+# child used to pick the first rank deeper than Earth → Continent for WORLD, then Country for
+# the next row. Climbing past these for **untyped** rows keeps continent-level buckets correct.
+_NULL_ORACLE_TYPE_REDUNDANT_PARENT_NAMES: frozenset[str] = frozenset(
+    {
+        "world",
+        "the world",
+        "verden",
+        "whole world",
+        "global",
+    }
+)
+
+
+def _effective_parent_geography_for_untyped(parent_geo: Any, r: HierRow, earth: Any) -> Any:
+    """When Oracle ``TYPES`` is NULL, skip placeholder parents so rank + tree match real geography."""
+    if _norm_type(r.type_name):
+        return parent_geo
+    guard = 0
+    while (
+        parent_geo is not None
+        and earth is not None
+        and int(getattr(parent_geo, "id", 0)) != int(getattr(earth, "id", -1))
+        and guard < 24
+    ):
+        guard += 1
+        pname = (getattr(parent_geo, "name", None) or "").strip().lower()
+        if pname in _NULL_ORACLE_TYPE_REDUNDANT_PARENT_NAMES:
+            nxt = getattr(parent_geo, "parent", None)
+            if nxt is None:
+                break
+            parent_geo = nxt
+            continue
+        break
+    return parent_geo
+
+
 def ensure_municipality_rank(treedef_id: int, *, dry_run: bool) -> dict[str, Any]:
     """Add a ``Municipality`` rank under ``County`` when missing (Norwegian kommune level)."""
     from specifyweb.specify.models import Geographytreedefitem
@@ -184,6 +221,58 @@ def ensure_municipality_rank(treedef_id: int, *, dry_run: bool) -> dict[str, Any
     )
     out["added"] = True
     logger.info("Created Municipality rank under GeographyTreeDefID=%s", treedef_id)
+    return out
+
+
+def ensure_settlement_rank(treedef_id: int, *, dry_run: bool) -> dict[str, Any]:
+    """Add ``Settlement`` below the deepest rank (usually Municipality) for sub-kommune Oracle nodes.
+
+    Specify requires each child geography to have a strictly greater ``rankid`` than its parent.
+    When the parent is already at Municipality (500), there must be a deeper treedef item.
+    """
+    from specifyweb.specify.models import Geographytreedefitem
+
+    out: dict[str, Any] = {"added": False, "treedef_id": treedef_id, "dry_run": dry_run}
+    if Geographytreedefitem.objects.filter(treedef_id=treedef_id, name__iexact="Settlement").exists():
+        return out
+    muni = (
+        Geographytreedefitem.objects.filter(treedef_id=treedef_id)
+        .filter(name__iexact="Municipality")
+        .order_by("-rankid")
+        .first()
+    )
+    parent_item = muni
+    if parent_item is None:
+        parent_item = Geographytreedefitem.objects.filter(treedef_id=treedef_id).order_by("-rankid", "-id").first()
+    if parent_item is None:
+        out["error"] = "no geography treedef items"
+        return out
+    occupied = set(
+        int(x) for x in Geographytreedefitem.objects.filter(treedef_id=treedef_id).values_list("rankid", flat=True)
+    )
+    new_rank = int(parent_item.rankid) + 100
+    while new_rank in occupied:
+        new_rank += 10
+    if dry_run:
+        out["would_add"] = "Settlement"
+        out["would_rankid"] = new_rank
+        return out
+    Geographytreedefitem.objects.create(
+        treedef_id=treedef_id,
+        name="Settlement",
+        title="Settlement",
+        rankid=new_rank,
+        isenforced=True,
+        isinfullname=True,
+        parent=parent_item,
+    )
+    out["added"] = True
+    logger.info(
+        "Created Settlement rank (rankid=%s) under parent=%s for GeographyTreeDefID=%s",
+        new_rank,
+        getattr(parent_item, "name", None),
+        treedef_id,
+    )
     return out
 
 
@@ -359,6 +448,19 @@ def load_hierarchical_geography(
             )
         rank_items = _rank_items_by_name_lower(treedef_id)
 
+    sr = ensure_settlement_rank(treedef_id, dry_run=dry_run)
+    if sr.get("error"):
+        _fail_fast(
+            "geography.ensure_settlement_rank",
+            str(sr["error"]),
+            owner=owner,
+            treedef_id=treedef_id,
+            dry_run=dry_run,
+            ensure_settlement_rank=sr,
+        )
+    if sr.get("added"):
+        rank_items = _rank_items_by_name_lower(treedef_id)
+
     ordered_def_items = _treedef_items_ordered_by_rank(treedef_id)
     _rk = sorted(rank_items.keys())
     _rk_suffix = f" (+{len(_rk) - 60} more)" if len(_rk) > 60 else ""
@@ -427,6 +529,7 @@ def load_hierarchical_geography(
         if r.place_id_partof is not None and r.place_id_partof in oracle_to_geo:
             pid = oracle_to_geo[r.place_id_partof]
             parent_geo = _geo_model(pid) or earth
+        parent_geo = _effective_parent_geography_for_untyped(parent_geo, r, earth)
         di = rank_for_row(r, parent_geo)
         if di is None:
             nm = oracle_type_name_to_rank_item_name(r.type_name)
