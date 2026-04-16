@@ -18,6 +18,11 @@ recreates an **Earth** root per ``GeographyTreeDef`` that has rank items. Use on
 where destroying every geography tree is acceptable (e.g. migration staging). When both purge
 flags are true, the global purge runs and the single-treedef purge is skipped.
 
+``skip_geography_load`` rebuilds the Oracle→Specify geography map from existing ``Geography`` GUIDs
+only (skip the Oracle hierarchy pass). ``locality_skip_first_n_places`` skips the first *N*
+referenced places in **sorted** ``PLACE_ID`` order after a partial locality run (same code
+version); omit or use ``0`` to re-walk all places (inserts skip via batched existence checks).
+
 It does **not** delete ``Locality`` rows (specimens may still reference them).
 """
 
@@ -41,10 +46,12 @@ from flows.lib.oracle_geography_inventory import (
     referenced_place_ids_count,
 )
 from flows.lib.oracle_geography_load import (
+    GeographyLoadStats,
     OracleGeographyMigrationError,
     biology_discipline_ids_for_shared_treedef,
     load_hierarchical_geography,
     load_localities_for_referenced_places,
+    oracle_hid_map_from_specify_geography,
 )
 from flows.lib.specify_geography_purge import (
     purge_all_geography_trees,
@@ -92,6 +99,9 @@ def migrate_oracle_geography_flow(
     musit_schemas: tuple[str, ...] = _DEFAULT_SCHEMAS,
     canonical_discipline_name: str = "Karplanter Moser",
     max_places: int | None = None,
+    skip_geography_load: bool = False,
+    locality_skip_first_n_places: int = 0,
+    locality_place_batch_size: int = 2048,
     purge_all_geography_trees_before_oracle_import: bool = False,
     purge_existing_geography_for_treedef: bool = False,
     truncate_placemap_when_purging_geography: bool = True,
@@ -109,19 +119,26 @@ def migrate_oracle_geography_flow(
         "musit_schemas": list(musit_schemas),
         "canonical_discipline_name": canonical_discipline_name,
         "max_places": max_places,
+        "skip_geography_load": skip_geography_load,
+        "locality_skip_first_n_places": locality_skip_first_n_places,
+        "locality_place_batch_size": locality_place_batch_size,
         "purge_all_geography_trees_before_oracle_import": purge_all_geography_trees_before_oracle_import,
         "purge_existing_geography_for_treedef": purge_existing_geography_for_treedef,
         "truncate_placemap_when_purging_geography": truncate_placemap_when_purging_geography,
     }
     logger.info(
         "oracle_geography | flow start | ts=%s oracle_env=%s dry_run=%s schemas=%s canonical_discipline=%s "
-        "max_places=%s purge_all_geography=%s purge_geography_treedef=%s truncate_placemap_on_purge=%s",
+        "max_places=%s skip_geography=%s locality_skip_n=%s locality_batch=%s purge_all_geography=%s "
+        "purge_geography_treedef=%s truncate_placemap_on_purge=%s",
         ts,
         oracle_env,
         dry_run,
         list(musit_schemas),
         canonical_discipline_name,
         max_places,
+        skip_geography_load,
+        locality_skip_first_n_places,
+        locality_place_batch_size,
         purge_all_geography_trees_before_oracle_import,
         purge_existing_geography_for_treedef,
         truncate_placemap_when_purging_geography,
@@ -205,16 +222,32 @@ def migrate_oracle_geography_flow(
             o = owner.strip().upper()
             if o not in ("MUSIT_BOTANIKK_FELLES", "MUSIT_ZOOLOGI_ENTOMOLOGI"):
                 continue
-            logger.info(
-                "oracle_geography | schema=%s | phase=geography (HIERARCHICAL_PLACE_OLD → Specify Geography)",
-                o,
-            )
-            gstats, hid_map = load_hierarchical_geography(
-                oracle_cursor=ocur,
-                owner=o,
-                treedef_id=treedef_id,
-                dry_run=dry_run,
-            )
+            if skip_geography_load:
+                logger.info(
+                    "oracle_geography | schema=%s | phase=geography SKIPPED (skip_geography_load=True; "
+                    "rebuilding hid map from Specify Geography GUIDs)",
+                    o,
+                )
+                hid_map = oracle_hid_map_from_specify_geography(owner=o, treedef_id=treedef_id)
+                gstats = GeographyLoadStats(
+                    treedef_id=treedef_id,
+                    owner=o,
+                    rows_read=0,
+                    geographies_created=0,
+                    geographies_skipped_existing=len(hid_map),
+                    errors=[],
+                )
+            else:
+                logger.info(
+                    "oracle_geography | schema=%s | phase=geography (HIERARCHICAL_PLACE_OLD → Specify Geography)",
+                    o,
+                )
+                gstats, hid_map = load_hierarchical_geography(
+                    oracle_cursor=ocur,
+                    owner=o,
+                    treedef_id=treedef_id,
+                    dry_run=dry_run,
+                )
             geo_runs.append(
                 {
                     "owner": o,
@@ -244,6 +277,8 @@ def migrate_oracle_geography_flow(
                     run_ts=run_ts,
                     dry_run=False,
                     max_places=max_places,
+                    locality_skip_first_n_places=locality_skip_first_n_places,
+                    locality_place_batch_size=locality_place_batch_size,
                 )
                 loc_runs.append(
                     {

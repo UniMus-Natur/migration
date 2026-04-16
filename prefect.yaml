@@ -112,6 +112,10 @@ deployments:
         - MUSIT_ZOOLOGI_ENTOMOLOGI
       canonical_discipline_name: "Karplanter Moser"
       max_places: null
+      # After a partial locality run: skip Oracle geography pass; optional skip_first_n in sorted PLACE_ID order.
+      skip_geography_load: false
+      locality_skip_first_n_places: 0
+      locality_place_batch_size: 2048
       # Wipe every Geography row (all treedefs) before Oracle import — staging only.
       purge_all_geography_trees_before_oracle_import: false
       purge_existing_geography_for_treedef: false

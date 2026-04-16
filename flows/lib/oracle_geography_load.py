@@ -730,6 +730,66 @@ def _iter_referenced_place_ids(oracle_cursor: Any, owner: str) -> list[int]:
     return [int(x[0]) for x in oracle_cursor.fetchall() if x[0] is not None]
 
 
+def _place_locality_guid(owner_lower: str, place_id: int, discipline_pk: int) -> str:
+    g = f"urn:oracle:{owner_lower}:place:{place_id}:d{discipline_pk}"
+    return g[:128] if len(g) > 128 else g
+
+
+def _prefetch_locality_ids_for_places(
+    *,
+    owner_lower: str,
+    discs: list[Any],
+    treedef_id: int,
+    place_ids: list[int],
+) -> dict[tuple[int, str], int]:
+    """Load existing ``Locality`` ids for (discipline, place GUID) keys — one small batch, not whole table."""
+    from specifyweb.specify.models import Locality
+
+    out: dict[tuple[int, str], int] = {}
+    if not place_ids:
+        return out
+    guid_chunk = 800
+    for disc in discs:
+        if disc is None or int(disc.geographytreedef_id or 0) != int(treedef_id):
+            continue
+        did = int(disc.id)
+        guids = [_place_locality_guid(owner_lower, pid, did) for pid in place_ids]
+        for gi in range(0, len(guids), guid_chunk):
+            part = guids[gi : gi + guid_chunk]
+            for guid, lid in Locality.objects.filter(discipline_id=did, guid__in=part).values_list("guid", "id"):
+                out[(did, str(guid))] = int(lid)
+    return out
+
+
+def oracle_hid_map_from_specify_geography(*, owner: str, treedef_id: int) -> dict[int, int]:
+    """Rebuild Oracle HIERARCH_PLACE_ID → Specify ``Geography`` id from ``urn:oracle:…:hpo:`` GUIDs."""
+    from specifyweb.specify.models import Geography
+
+    prefix = f"urn:oracle:{owner.lower()}:hpo:"
+    out: dict[int, int] = {}
+    for g in Geography.objects.filter(definition_id=treedef_id, guid__startswith=prefix).iterator(chunk_size=4000):
+        gn = (g.guid or "").strip()
+        if not gn.startswith(prefix):
+            continue
+        tail = gn[len(prefix) :].strip()
+        if not tail:
+            continue
+        num = ""
+        for ch in tail:
+            if ch.isdigit():
+                num += ch
+            else:
+                break
+        if not num:
+            continue
+        try:
+            hid = int(num)
+        except ValueError:
+            continue
+        out[hid] = int(g.id)
+    return out
+
+
 @dataclass
 class LocalityLoadStats:
     owner: str
@@ -749,8 +809,15 @@ def load_localities_for_referenced_places(
     run_ts: str,
     dry_run: bool,
     max_places: int | None = None,
+    locality_skip_first_n_places: int = 0,
+    locality_place_batch_size: int = 2048,
 ) -> LocalityLoadStats:
-    """Create one ``Locality`` per (place, discipline) for referenced ``PLACE_ID`` rows."""
+    """Create one ``Locality`` per (place, discipline) for referenced ``PLACE_ID`` rows.
+
+    Referenced ``PLACE_ID`` values are processed in **sorted** order so ``locality_skip_first_n_places`` is stable
+    across runs. Existing rows are resolved in **batches** (bounded memory); re-running the flow
+    skips inserts and refreshes placemap rows without loading millions of keys into RAM.
+    """
     from specifyweb.specify.models import Discipline, Geography, Locality
 
     from flows.lib.migration_oracle_placemap import upsert_placemap_row
@@ -758,16 +825,33 @@ def load_localities_for_referenced_places(
     stats = LocalityLoadStats(owner=owner)
     t_loc = time.perf_counter()
     t_pids = time.perf_counter()
-    pids = _iter_referenced_place_ids(oracle_cursor, owner)
+    raw_places = sorted(set(_iter_referenced_place_ids(oracle_cursor, owner)))
+    n_oracle_distinct = len(raw_places)
+    pids_all = raw_places
     if max_places is not None:
-        pids = pids[: max_places]
+        pids_all = pids_all[: max_places]
+    skip_n = max(0, int(locality_skip_first_n_places))
+    if skip_n:
+        remaining = max(0, len(pids_all) - skip_n)
+        _progress_log(
+            "oracle_geography | locality | owner=%s | resume locality_skip_first_n_places=%s "
+            "(sorted PLACE_ID order; places_in_run_before_skip=%s remaining_after_skip=%s)",
+            owner,
+            skip_n,
+            len(pids_all),
+            remaining,
+        )
+        pids_all = pids_all[skip_n:]
     _progress_log(
-        "oracle_geography | locality | owner=%s | distinct referenced PLACE_ID count=%s (Oracle query %s)%s",
+        "oracle_geography | locality | owner=%s | oracle_distinct_place_ids=%s places_in_this_run=%s "
+        "(Oracle query %s)%s",
         owner,
-        len(pids),
+        n_oracle_distinct,
+        len(pids_all),
         _format_duration(time.perf_counter() - t_pids),
         f" max_places={max_places}" if max_places is not None else "",
     )
+    pids = pids_all
 
     discs = [Discipline.objects.filter(pk=i).first() for i in discipline_ids]
     discs = [d for d in discs if d is not None]
@@ -780,21 +864,14 @@ def load_localities_for_referenced_places(
         part = raw_geo_ids[gi : gi + _chunk]
         geo_rankid_by_pk.update(dict(Geography.objects.filter(pk__in=part).values_list("id", "rankid")))
 
-    place_guid_prefix = f"urn:oracle:{owner.lower()}:place:"
-    locality_id_by_disc_guid: dict[tuple[int, str], int] = {}
-    for disc in discs:
-        for guid, lid in Locality.objects.filter(
-            discipline_id=disc.id, guid__startswith=place_guid_prefix
-        ).values_list("guid", "id"):
-            locality_id_by_disc_guid[(int(disc.id), str(guid))] = int(lid)
-
+    batch_sz = max(100, min(int(locality_place_batch_size), 50_000))
     total_p = len(pids)
     _progress_log(
-        "oracle_geography | locality | owner=%s | prefetches: geography_rank rows=%s (%s) existing_locality_guids=%s dry_run=%s — starting per-place loop",
+        "oracle_geography | locality | owner=%s | prefetches: geography_rank rows=%s (%s) locality_batch_size=%s dry_run=%s — starting per-place loop",
         owner,
         len(geo_rankid_by_pk),
         _format_duration(time.perf_counter() - t_gr),
-        len(locality_id_by_disc_guid),
+        batch_sz,
         dry_run,
     )
 
@@ -807,135 +884,147 @@ def load_localities_for_referenced_places(
         return stats
 
     t_loop = time.perf_counter()
-    for n, pid in enumerate(pids, start=1):
-        if n == 1 or n % 250 == 0 or n == total_p:
-            elapsed = time.perf_counter() - t_loop
-            pct = 100.0 * n / total_p if total_p else 100.0
-            eta = _eta_remaining(elapsed, n, total_p)
-            _progress_log(
-                "oracle_geography | locality | owner=%s | places %s/%s (%.2f%%) created=%s skipped=%s errors=%s loop_elapsed=%s eta~%s",
-                owner,
-                n,
-                total_p,
-                pct,
-                stats.localities_created,
-                stats.localities_skipped,
-                len(stats.errors),
-                _format_duration(elapsed),
-                eta,
-            )
-        stats.places_seen += 1
-        agg, loc_text = _fetch_place_text(oracle_cursor, owner, pid)
-        coord = _fetch_first_coordinate(oracle_cursor, owner, pid)
-        geo_id = _deepest_geography_for_place(
-            oracle_cursor, owner, pid, oracle_hid_to_specify_geo, geo_rankid_by_pk
+    owner_lower = owner.lower()
+    batch_counter = 0
+    for batch_start in range(0, len(pids), batch_sz):
+        batch_counter += 1
+        if batch_counter % 40 == 0:
+            close_old_connections()
+        batch_pids = pids[batch_start : batch_start + batch_sz]
+        locality_cache = _prefetch_locality_ids_for_places(
+            owner_lower=owner_lower,
+            discs=discs,
+            treedef_id=treedef_id,
+            place_ids=batch_pids,
         )
-        locality_name = (loc_text or agg or f"Place {pid}")[:1024]
-        verbatim = agg[:8192] if agg else None
+        for j, pid in enumerate(batch_pids):
+            n = batch_start + j + 1
+            if n == 1 or n % 250 == 0 or n == total_p:
+                elapsed = time.perf_counter() - t_loop
+                pct = 100.0 * n / total_p if total_p else 100.0
+                eta = _eta_remaining(elapsed, n, total_p)
+                _progress_log(
+                    "oracle_geography | locality | owner=%s | places %s/%s (%.2f%%) created=%s skipped=%s errors=%s loop_elapsed=%s eta~%s",
+                    owner,
+                    n,
+                    total_p,
+                    pct,
+                    stats.localities_created,
+                    stats.localities_skipped,
+                    len(stats.errors),
+                    _format_duration(elapsed),
+                    eta,
+                )
+            stats.places_seen += 1
+            agg, loc_text = _fetch_place_text(oracle_cursor, owner, pid)
+            coord = _fetch_first_coordinate(oracle_cursor, owner, pid)
+            geo_id = _deepest_geography_for_place(
+                oracle_cursor, owner, pid, oracle_hid_to_specify_geo, geo_rankid_by_pk
+            )
+            locality_name = (loc_text or agg or f"Place {pid}")[:1024]
+            verbatim = agg[:8192] if agg else None
 
-        lat = coord.get("latitude_l")
-        lng = coord.get("longitude_l")
-        if lat is not None:
-            try:
-                lat = float(lat)
-            except (TypeError, ValueError):
-                lat = None
-        if lng is not None:
-            try:
-                lng = float(lng)
-            except (TypeError, ValueError):
-                lng = None
-
-        for disc in discs:
-            if disc is None:
-                continue
-            if int(disc.geographytreedef_id or 0) != int(treedef_id):
-                continue
-            guid_loc = f"urn:oracle:{owner.lower()}:place:{pid}:d{disc.id}"
-            if len(guid_loc) > 128:
-                guid_loc = guid_loc[:128]
-            loc_key = (int(disc.id), guid_loc)
-            existing_lid = locality_id_by_disc_guid.get(loc_key)
-            if existing_lid is not None:
-                stats.localities_skipped += 1
+            lat = coord.get("latitude_l")
+            lng = coord.get("longitude_l")
+            if lat is not None:
                 try:
+                    lat = float(lat)
+                except (TypeError, ValueError):
+                    lat = None
+            if lng is not None:
+                try:
+                    lng = float(lng)
+                except (TypeError, ValueError):
+                    lng = None
+
+            for disc in discs:
+                if disc is None:
+                    continue
+                if int(disc.geographytreedef_id or 0) != int(treedef_id):
+                    continue
+                guid_loc = _place_locality_guid(owner_lower, pid, int(disc.id))
+                loc_key = (int(disc.id), guid_loc)
+                existing_lid = locality_cache.get(loc_key)
+                if existing_lid is not None:
+                    stats.localities_skipped += 1
+                    try:
+                        upsert_placemap_row(
+                            source_owner=owner.upper(),
+                            source_kind="place",
+                            source_id=str(pid),
+                            specify_geography_id=geo_id,
+                            specify_locality_id=existing_lid,
+                            specify_discipline_id=int(disc.id),
+                            run_ts=run_ts,
+                            dry_run=dry_run,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        _fail_fast(
+                            "locality.placemap_existing",
+                            str(exc),
+                            cause=exc,
+                            owner=owner,
+                            treedef_id=treedef_id,
+                            place_id=pid,
+                            discipline_id=int(disc.id),
+                            existing_locality_id=existing_lid,
+                            specify_geography_id=geo_id,
+                            locality_name=locality_name[:300],
+                            loop_place_index=n,
+                            total_places=total_p,
+                        )
+                    continue
+                if dry_run:
+                    stats.localities_created += 1
+                    continue
+                try:
+                    # Specify ``Locality`` has no ``VerbatimLocality`` (that lives on ``CollectingEvent``).
+                    # Oracle ``place_name_agg`` → ``text1`` (migration slot).
+                    loc_kwargs: dict[str, Any] = {
+                        "discipline_id": int(disc.id),
+                        "localityname": locality_name,
+                        "geography_id": geo_id,
+                        "latitude1": lat,
+                        "longitude1": lng,
+                        "srclatlongunit": 0,
+                        "guid": guid_loc,
+                        "datum": (coord.get("datum") or "")[:50] if coord.get("datum") else None,
+                    }
+                    if verbatim:
+                        loc_kwargs["text1"] = verbatim
+                    loc = Locality(**loc_kwargs)
+                    loc.save()
+                    stats.localities_created += 1
+                    locality_cache[loc_key] = int(loc.id)
                     upsert_placemap_row(
                         source_owner=owner.upper(),
                         source_kind="place",
                         source_id=str(pid),
                         specify_geography_id=geo_id,
-                        specify_locality_id=existing_lid,
+                        specify_locality_id=int(loc.id),
                         specify_discipline_id=int(disc.id),
                         run_ts=run_ts,
-                        dry_run=dry_run,
+                        dry_run=False,
                     )
                 except Exception as exc:  # noqa: BLE001
                     _fail_fast(
-                        "locality.placemap_existing",
+                        "locality.save_or_placemap",
                         str(exc),
                         cause=exc,
                         owner=owner,
                         treedef_id=treedef_id,
                         place_id=pid,
                         discipline_id=int(disc.id),
-                        existing_locality_id=existing_lid,
                         specify_geography_id=geo_id,
                         locality_name=locality_name[:300],
+                        oracle_place_text_snip=(verbatim or "")[:400] if verbatim else None,
+                        guid=guid_loc,
+                        latitude1=lat,
+                        longitude1=lng,
+                        coordinate=coord,
                         loop_place_index=n,
                         total_places=total_p,
                     )
-                continue
-            if dry_run:
-                stats.localities_created += 1
-                continue
-            try:
-                # Specify ``Locality`` has no ``VerbatimLocality`` (that lives on ``CollectingEvent``).
-                # Preserve Oracle ``place_name_agg`` / long text on ``remarks``.
-                loc_kwargs: dict[str, Any] = {
-                    "discipline_id": int(disc.id),
-                    "localityname": locality_name,
-                    "geography_id": geo_id,
-                    "latitude1": lat,
-                    "longitude1": lng,
-                    "srclatlongunit": 0,
-                    "guid": guid_loc,
-                    "datum": (coord.get("datum") or "")[:50] if coord.get("datum") else None,
-                }
-                if verbatim:
-                    loc_kwargs["remarks"] = verbatim
-                loc = Locality(**loc_kwargs)
-                loc.save()
-                stats.localities_created += 1
-                locality_id_by_disc_guid[loc_key] = int(loc.id)
-                upsert_placemap_row(
-                    source_owner=owner.upper(),
-                    source_kind="place",
-                    source_id=str(pid),
-                    specify_geography_id=geo_id,
-                    specify_locality_id=int(loc.id),
-                    specify_discipline_id=int(disc.id),
-                    run_ts=run_ts,
-                    dry_run=False,
-                )
-            except Exception as exc:  # noqa: BLE001
-                _fail_fast(
-                    "locality.save_or_placemap",
-                    str(exc),
-                    cause=exc,
-                    owner=owner,
-                    treedef_id=treedef_id,
-                    place_id=pid,
-                    discipline_id=int(disc.id),
-                    specify_geography_id=geo_id,
-                    locality_name=locality_name[:300],
-                    oracle_place_text_snip=(verbatim or "")[:400] if verbatim else None,
-                    guid=guid_loc,
-                    latitude1=lat,
-                    longitude1=lng,
-                    coordinate=coord,
-                    loop_place_index=n,
-                    total_places=total_p,
-                )
 
     _progress_log(
         "oracle_geography | locality | owner=%s | done places=%s created=%s skipped=%s errors=%s total_elapsed=%s",
