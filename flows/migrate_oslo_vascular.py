@@ -44,6 +44,7 @@ from flows.lib.migration_report_s3 import migration_report_s3_key
 from flows.lib.migration_report_upload import upload_migration_report_json_task
 from flows.lib.musit_dataset_loader import DatasetLoadStats, MusitDatasetConfig, load_musit_dataset
 from flows.lib.oracle_connectivity import create_oracle_connection, get_oracle_config_from_env
+from flows.purge_specify_dataset import _purge_dataset
 from flows.lib.specify_setup import setup_django
 
 REPORT_CATEGORY_OSLO_VASCULAR = "oslo-vascular-specimens"
@@ -63,6 +64,7 @@ def _build_report(
     ts: str,
     oracle_env: str,
     dry_run: bool,
+    purge_before_run: bool,
     limit: int | None,
     stats: DatasetLoadStats,
 ) -> dict[str, Any]:
@@ -73,6 +75,7 @@ def _build_report(
         "generated_at_utc": ts,
         "oracle_env": oracle_env,
         "dry_run": dry_run,
+        "purge_before_run": purge_before_run,
         "limit": limit,
         "dataset": {
             "oracle_schema": OSLO_VASCULAR_CONFIG.oracle_schema,
@@ -88,6 +91,7 @@ def _build_report(
             "ce_created": stats.ce_created,
             "locality_created": stats.locality_created,
             "locality_reused": stats.locality_reused,
+            "geography_created": stats.geography_created,
             "determination_created": stats.determination_created,
             "taxon_matched": stats.taxon_matched,
             "taxon_unresolved": stats.taxon_unresolved,
@@ -158,6 +162,7 @@ def migrate_oslo_vascular_task(
 def migrate_oslo_vascular_flow(
     oracle_env: str = "PROD",
     dry_run: bool = True,
+    purge_before_run: bool = False,
     limit: int | None = None,
 ) -> dict[str, Any]:
     """Migrate Oslo vascular plants to Specify 7.
@@ -170,17 +175,41 @@ def migrate_oslo_vascular_flow(
     """
     logger = get_run_logger()
     logger.info(
-        "migrate_oslo_vascular_flow | oracle_env=%s dry_run=%s limit=%s",
-        oracle_env, dry_run, limit,
+        "migrate_oslo_vascular_flow | oracle_env=%s dry_run=%s purge_before_run=%s limit=%s",
+        oracle_env, dry_run, purge_before_run, limit,
     )
 
     setup_django()
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
+    purge_result: dict[str, Any] | None = None
+    if purge_before_run and not dry_run:
+        logger.warning(
+            "purge_before_run=true: deleting previous NHM dataset records before migration "
+            "(CollectionObject/CollectingEvent/Locality + objectmap/placemap rows)."
+        )
+        purge_result = _purge_dataset(
+            collection_code=OSLO_VASCULAR_CONFIG.specify_collection_code,
+            dry_run=False,
+            clear_objectmap_rows=True,
+            clear_placemap_rows=True,
+            logger=logger,
+        )
+        logger.info("purge_before_run result: %s", purge_result)
+
     stats = migrate_oslo_vascular_task(oracle_env, dry_run, limit, ts)
 
-    report = _build_report(ts=ts, oracle_env=oracle_env, dry_run=dry_run, limit=limit, stats=stats)
+    report = _build_report(
+        ts=ts,
+        oracle_env=oracle_env,
+        dry_run=dry_run,
+        purge_before_run=purge_before_run,
+        limit=limit,
+        stats=stats,
+    )
+    if purge_result is not None:
+        report["purge_before_run_result"] = purge_result
     s3_key = migration_report_s3_key(REPORT_CATEGORY_OSLO_VASCULAR, ts)
     uploaded = upload_migration_report_json_task(report, s3_key)
     for uri in uploaded:
@@ -192,6 +221,7 @@ def migrate_oslo_vascular_flow(
         "ce_created": stats.ce_created,
         "locality_created": stats.locality_created,
         "locality_reused": stats.locality_reused,
+        "geography_created": stats.geography_created,
         "determination_created": stats.determination_created,
         "taxon_matched": stats.taxon_matched,
         "taxon_unresolved": stats.taxon_unresolved,
@@ -202,4 +232,6 @@ def migrate_oslo_vascular_flow(
         "estimate_total_s": round(stats.estimate_total_s, 2) if stats.estimate_total_s else None,
         "uploaded": uploaded,
         "report_uploaded": bool(uploaded),
+        "purge_before_run": purge_before_run,
+        "purge_before_run_result": purge_result,
     }

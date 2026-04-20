@@ -119,6 +119,7 @@ deployments:
     parameters:
       oracle_env: "PROD"
       dry_run: true
+      purge_before_run: false
       limit: null
     work_pool:
       name: dev-process
