@@ -163,10 +163,12 @@ _SPECIMEN_SQL = """
       ON mo.object_id = voa.object_id
     LEFT JOIN {schema}.event_museum_object emo
       ON emo.object_id = voa.object_id
+    LEFT JOIN {schema}.event ev
+      ON ev.event_id = emo.event_id
     LEFT JOIN {schema}.collecting_event ce
       ON ce.event_id = emo.event_id
     LEFT JOIN {schema}.timespan ts
-      ON ts.timespan_id = ce.timespan_id
+      ON ts.timespan_id = ev.timespan_id
     LEFT JOIN {schema}.place_event_role por
       ON por.event_id = ce.event_id
     LEFT JOIN {schema}.place_locality_place plp
