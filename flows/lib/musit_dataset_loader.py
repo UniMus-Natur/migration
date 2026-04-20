@@ -8,7 +8,7 @@ Specify 7 record chain:
                         ↑
                     Locality  (created on-the-fly via migration_oracle_placemap)
                         ↑
-                    Geography (pre-existing, resolved by GUID)
+                    Geography (resolved by GUID, created on-the-fly if missing)
 
 Every future collection migration creates a ``MusitDatasetConfig`` and calls
 ``load_musit_dataset``; it does not need to know anything about Oracle SQL or
@@ -18,7 +18,7 @@ Design constraints
 ------------------
 * All Specify writes use the **Django ORM** (``specifyweb.specify.models``).
 * Bridge-table rows (objectmap, placemap) use raw SQL on ``django.db.connection``.
-* Never creates or modifies ``Agent``, ``Geography``, ``Taxon``.
+* Never creates or modifies ``Agent`` or ``Taxon``.
 * Each specimen is wrapped in ``transaction.atomic`` so partial failures roll back
   cleanly without leaving orphan records.
 * Idempotent: objects already in ``migration_oracle_objectmap`` are skipped on re-run.
@@ -79,6 +79,7 @@ class DatasetLoadStats:
     ce_created: int = 0
     locality_created: int = 0
     locality_reused: int = 0    # found in placemap
+    geography_created: int = 0
     determination_created: int = 0
     taxon_matched: int = 0
     taxon_unresolved: int = 0
@@ -360,6 +361,214 @@ def _resolve_agent(schema: str, actor_id: Any) -> Any:
     return Agent.objects.filter(remarks__startswith=marker).first()
 
 
+def _fetch_hierarchical_chain_rows_for_place(
+    oracle_cursor: Any,
+    owner: str,
+    place_id: int,
+) -> list[dict[str, Any]]:
+    """Return hierarchical rows for a PLACE_ID, including ancestors up to root."""
+    from flows.lib.oracle_geography_load import _types_label_column_name
+
+    o = owner.upper()
+    label_col = _types_label_column_name(oracle_cursor, owner)
+    type_expr = f"t.{label_col}" if label_col else "CAST(NULL AS VARCHAR2(4000))"
+
+    oracle_cursor.execute(
+        f"SELECT php.HIERACHICAL_PLACE_ID FROM {o}.place_hierachical_place php WHERE php.place_id = :pid",
+        {"pid": place_id},
+    )
+    seed_ids = [int(r[0]) for r in oracle_cursor.fetchall() if r and r[0] is not None]
+    if not seed_ids:
+        return []
+
+    by_hid: dict[int, dict[str, Any]] = {}
+    queue: list[int] = list(seed_ids)
+    seen: set[int] = set()
+    while queue:
+        hid = int(queue.pop())
+        if hid in seen:
+            continue
+        seen.add(hid)
+        oracle_cursor.execute(
+            f"""
+            SELECT h.HIERARCH_PLACE_ID, h.HIERACHICAL_PLACENAME, h.PLACE_ID_PARTOF, {type_expr} AS TYPE_NAME
+              FROM {o}.hierarchical_place_old h
+              LEFT JOIN {o}.types t ON t.TYPE_ID = h.HIERACHICAL_TYPE
+             WHERE h.HIERARCH_PLACE_ID = :hid
+            """,
+            {"hid": hid},
+        )
+        row = oracle_cursor.fetchone()
+        if not row:
+            continue
+        partof = int(row[2]) if row[2] is not None else None
+        by_hid[hid] = {
+            "hid": hid,
+            "name": ((row[1] or "").strip() or f"ID_{hid}")[:128],
+            "partof": partof,
+            "type_name": row[3],
+        }
+        if partof is not None and partof not in seen:
+            queue.append(partof)
+
+    # Parent-before-child topological order.
+    ordered: list[dict[str, Any]] = []
+    remaining = set(by_hid.keys())
+    ordered_ids: set[int] = set()
+    guard = 0
+    while remaining and guard < (len(remaining) + 5):
+        guard += 1
+        progressed = False
+        for hid in list(remaining):
+            parent = by_hid[hid]["partof"]
+            if parent is None or parent not in by_hid or parent in ordered_ids:
+                ordered.append(by_hid[hid])
+                ordered_ids.add(hid)
+                remaining.remove(hid)
+                progressed = True
+        if not progressed:
+            for hid in list(remaining):
+                ordered.append(by_hid[hid])
+                ordered_ids.add(hid)
+                remaining.remove(hid)
+    return ordered
+
+
+def _ensure_earth_root_for_treedef(*, treedef_id: int, dry_run: bool) -> Any:
+    """Ensure an Earth root exists for this GeographyTreeDef."""
+    from specifyweb.specify.models import Geography
+
+    from flows.lib.oracle_geography_load import _treedef_items_ordered_by_rank
+
+    earth = Geography.objects.filter(definition_id=treedef_id, parent_id__isnull=True).order_by("id").first()
+    if earth is not None:
+        return earth
+    if dry_run:
+        return None
+
+    ordered_items = _treedef_items_ordered_by_rank(treedef_id)
+    if not ordered_items:
+        return None
+    root_item = ordered_items[0]
+    g = Geography(
+        name="Earth",
+        fullname="Earth",
+        definition_id=treedef_id,
+        definitionitem=root_item,
+        parent=None,
+        rankid=root_item.rankid,
+        isaccepted=True,
+        iscurrent=True,
+        guid=None,
+    )
+    with transaction.atomic():
+        g.save()
+    return g
+
+
+def _ensure_geography_for_place(
+    *,
+    oracle_cursor: Any,
+    owner: str,
+    place_id: int,
+    geography_treedef_id: int,
+    dry_run: bool,
+    oracle_hid_to_geo: dict[int, int],
+    geo_rankid_by_pk: dict[int, int],
+    stats: DatasetLoadStats,
+) -> int | None:
+    """Create missing Geography chain for this place and return deepest geo id."""
+    from specifyweb.specify.models import Geography
+
+    from flows.lib.oracle_geography_load import (
+        _deepest_geography_for_place,
+        _rank_items_by_name_lower,
+        _resolve_rank_item,
+        _treedef_items_ordered_by_rank,
+        oracle_type_name_to_rank_item_name,
+    )
+
+    earth = _ensure_earth_root_for_treedef(treedef_id=geography_treedef_id, dry_run=dry_run)
+    if earth is None:
+        return None
+    geo_rankid_by_pk[int(earth.id)] = int(getattr(earth, "rankid", 0) or 0)
+
+    rank_items = _rank_items_by_name_lower(geography_treedef_id)
+    ordered_items = _treedef_items_ordered_by_rank(geography_treedef_id)
+    guid_prefix = f"urn:oracle:{owner.lower()}:hpo:"
+
+    rows = _fetch_hierarchical_chain_rows_for_place(oracle_cursor, owner, place_id)
+    if not rows:
+        return None
+
+    geo_cache: dict[int, Any] = {int(earth.id): earth}
+
+    def _geo(pk: int) -> Any:
+        if pk not in geo_cache:
+            g = Geography.objects.filter(pk=pk).first()
+            if g is not None:
+                geo_cache[pk] = g
+        return geo_cache.get(pk)
+
+    for r in rows:
+        hid = int(r["hid"])
+        guid = f"{guid_prefix}{hid}"
+        existing = Geography.objects.filter(definition_id=geography_treedef_id, guid=guid).first()
+        if existing is not None:
+            oracle_hid_to_geo[hid] = int(existing.id)
+            geo_rankid_by_pk[int(existing.id)] = int(getattr(existing, "rankid", 0) or 0)
+            geo_cache[int(existing.id)] = existing
+            continue
+
+        parent_geo = earth
+        parent_hid = r["partof"]
+        if parent_hid is not None:
+            parent_geo_id = oracle_hid_to_geo.get(int(parent_hid))
+            if parent_geo_id is not None:
+                parent_geo = _geo(parent_geo_id) or earth
+
+        parent_rankid = int(getattr(parent_geo, "rankid", -1) or -1)
+        logical = oracle_type_name_to_rank_item_name(r["type_name"])
+        di = _resolve_rank_item(rank_items, logical) if logical else None
+        if di is None or int(di.rankid) <= parent_rankid:
+            di = next((it for it in ordered_items if int(it.rankid) > parent_rankid), None)
+        if di is None:
+            continue
+
+        if dry_run:
+            continue
+
+        name = r["name"]
+        parent_full = (getattr(parent_geo, "fullname", None) or getattr(parent_geo, "name", "Earth"))
+        fullname = f"{parent_full}, {name}"[:500]
+        g = Geography(
+            name=name,
+            fullname=fullname,
+            definition_id=geography_treedef_id,
+            definitionitem=di,
+            parent=parent_geo,
+            rankid=di.rankid,
+            isaccepted=True,
+            iscurrent=True,
+            guid=guid,
+        )
+        with transaction.atomic():
+            g.save()
+        gid = int(g.id)
+        oracle_hid_to_geo[hid] = gid
+        geo_rankid_by_pk[gid] = int(getattr(g, "rankid", 0) or 0)
+        geo_cache[gid] = g
+        stats.geography_created += 1
+
+    return _deepest_geography_for_place(
+        oracle_cursor,
+        owner,
+        place_id,
+        oracle_hid_to_geo,
+        geo_rankid_by_pk,
+    )
+
+
 def _get_or_create_locality(
     *,
     place_id: int,
@@ -436,6 +645,17 @@ def _get_or_create_locality(
     geo_id = _deepest_geography_for_place(
         oracle_cursor, owner, place_id, oracle_hid_to_geo, geo_rankid_by_pk
     )
+    if geo_id is None:
+        geo_id = _ensure_geography_for_place(
+            oracle_cursor=oracle_cursor,
+            owner=owner,
+            place_id=place_id,
+            geography_treedef_id=geography_treedef_id,
+            dry_run=dry_run,
+            oracle_hid_to_geo=oracle_hid_to_geo,
+            geo_rankid_by_pk=geo_rankid_by_pk,
+            stats=stats,
+        )
 
     locality_name = (loc_text or agg or f"Place {place_id}")[:1024]
     verbatim = agg[:8192] if agg else None

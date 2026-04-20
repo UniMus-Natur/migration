@@ -149,6 +149,10 @@ oracle_sql() {
     python3 "$_PF_SCRIPT_DIR/oracle_sql.py" "$@"
 }
 
+specify_api() {
+    python3 "$_PF_SCRIPT_DIR/specify_api.py" "$@"
+}
+
 pf_stop() {
     echo "Shutting down port-forwards..."
     for pid in "${_PF_PIDS[@]}"; do
@@ -186,5 +190,7 @@ fi
 
 echo ""
 echo "Forwards running in background. Run 'pf_stop' to tear down."
-echo "Oracle SQL helper: oracle_sql [--env prod|test] [--csv] \"<SQL>\""
+echo "Oracle SQL helper:  oracle_sql [--env prod|test] [--csv] \"<SQL>\""
 echo "  PROD needs Oracle Instant Client (thick mode) on this machine — see scripts/oracle_sql.py"
+echo "Specify API helper: specify_api [--collection NHM] [--text-fields|--geography-tree] [<path>]"
+echo "  Requires 'backend' forward (localhost:8000) — see scripts/specify_api.py"
