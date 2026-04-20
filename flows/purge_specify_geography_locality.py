@@ -7,7 +7,7 @@ The flow is idempotent and supports ``dry_run``.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Iterator, Sequence
 
 from prefect import flow, get_run_logger
 
@@ -20,14 +20,38 @@ from flows.lib.migration_report_upload import upload_migration_report_json_task
 from flows.lib.specify_setup import setup_django
 
 
-def _purge_localities_and_geographies(*, dry_run: bool, clear_placemap_rows: bool) -> dict[str, Any]:
+def _pk_batches(qs: Any, *, chunk_size: int) -> Iterator[list[int]]:
+    """Yield sorted PK batches without loading a full table into memory."""
+    last_pk = 0
+    size = max(100, int(chunk_size))
+    while True:
+        part: Sequence[int] = list(
+            qs.filter(pk__gt=last_pk).order_by("pk").values_list("pk", flat=True)[:size]
+        )
+        if not part:
+            return
+        out = [int(x) for x in part]
+        last_pk = out[-1]
+        yield out
+
+
+def _purge_localities_and_geographies(
+    *,
+    dry_run: bool,
+    clear_placemap_rows: bool,
+    locality_batch_size: int,
+    geography_batch_size: int,
+    logger: Any,
+) -> dict[str, Any]:
     """Clear Locality + Geography using Specify ORM, plus optional placemap row cleanup."""
-    from django.db import connection, transaction
+    from django.db import close_old_connections, connection, transaction
     from specifyweb.specify.models import Agentgeography, Collectingevent, Geography, Locality
 
     out: dict[str, Any] = {
         "dry_run": dry_run,
         "clear_placemap_rows": clear_placemap_rows,
+        "locality_batch_size": int(locality_batch_size),
+        "geography_batch_size": int(geography_batch_size),
         "collectingevents_with_locality_before": int(Collectingevent.objects.exclude(locality_id=None).count()),
         "locality_count_before": int(Locality.objects.count()),
         "locality_with_geography_before": int(Locality.objects.exclude(geography_id=None).count()),
@@ -48,25 +72,48 @@ def _purge_localities_and_geographies(*, dry_run: bool, clear_placemap_rows: boo
         )
         return out
 
-    with transaction.atomic():
-        # CollectingEvent.locality is protect-blocked; clear links first.
-        out["collectingevents_locality_nulled"] = int(
-            Collectingevent.objects.exclude(locality_id=None).update(locality_id=None)
-        )
+    # Locality purge in chunks: null CE links and delete locality slice per transaction.
+    l_chunk = max(100, int(locality_batch_size))
+    l_batches = 0
+    for ids in _pk_batches(Locality.objects.all(), chunk_size=l_chunk):
+        l_batches += 1
+        with transaction.atomic():
+            out["collectingevents_locality_nulled"] += int(
+                Collectingevent.objects.filter(locality_id__in=ids).update(locality_id=None)
+            )
+            loc_deleted, _loc_detail = Locality.objects.filter(pk__in=ids).delete()
+            out["localities_deleted"] += int(loc_deleted)
+        if l_batches % 20 == 0:
+            logger.warning(
+                "purge_specify_geography_locality locality progress batches=%s deleted=%s ce_nulled=%s",
+                l_batches,
+                out["localities_deleted"],
+                out["collectingevents_locality_nulled"],
+            )
+            close_old_connections()
 
-        # Locality FK children mostly cascade from Locality, so one delete is sufficient.
-        loc_deleted, _loc_detail = Locality.objects.all().delete()
-        out["localities_deleted"] = int(loc_deleted)
+    # AgentGeography can protect Geography rows; remove links before geography delete.
+    ag_deleted, _ag_detail = Agentgeography.objects.exclude(geography_id=None).delete()
+    out["agentgeography_deleted"] = int(ag_deleted)
+    out["geography_accepted_cleared"] = int(
+        Geography.objects.exclude(acceptedgeography_id=None).update(acceptedgeography_id=None)
+    )
 
-        # AgentGeography can protect Geography rows; remove links before geography delete.
-        ag_deleted, _ag_detail = Agentgeography.objects.exclude(geography_id=None).delete()
-        out["agentgeography_deleted"] = int(ag_deleted)
-
-        out["geography_accepted_cleared"] = int(
-            Geography.objects.exclude(acceptedgeography_id=None).update(acceptedgeography_id=None)
-        )
-        geo_deleted, _geo_detail = Geography.objects.all().delete()
-        out["geographies_deleted"] = int(geo_deleted)
+    # Geography purge in chunks (small table today, still keep memory bounded).
+    g_chunk = max(100, int(geography_batch_size))
+    g_batches = 0
+    for ids in _pk_batches(Geography.objects.all(), chunk_size=g_chunk):
+        g_batches += 1
+        with transaction.atomic():
+            geo_deleted, _geo_detail = Geography.objects.filter(pk__in=ids).delete()
+            out["geographies_deleted"] += int(geo_deleted)
+        if g_batches % 20 == 0:
+            logger.warning(
+                "purge_specify_geography_locality geography progress batches=%s deleted=%s",
+                g_batches,
+                out["geographies_deleted"],
+            )
+            close_old_connections()
 
     if clear_placemap_rows:
         # Not a Django model table; purge by owner-kind mapping rows directly.
@@ -93,6 +140,8 @@ def _purge_localities_and_geographies(*, dry_run: bool, clear_placemap_rows: boo
 def purge_specify_geography_locality_flow(
     dry_run: bool = True,
     clear_placemap_rows: bool = True,
+    locality_batch_size: int = 5000,
+    geography_batch_size: int = 1000,
 ) -> dict[str, Any]:
     """Delete all Specify Geography and Locality rows with FK-safe ordering."""
     logger = get_run_logger()
@@ -104,15 +153,22 @@ def purge_specify_geography_locality_flow(
         "timestamp_utc": ts,
         "dry_run": dry_run,
         "clear_placemap_rows": clear_placemap_rows,
+        "locality_batch_size": locality_batch_size,
+        "geography_batch_size": geography_batch_size,
     }
     logger.warning(
-        "purge_specify_geography_locality start dry_run=%s clear_placemap_rows=%s",
+        "purge_specify_geography_locality start dry_run=%s clear_placemap_rows=%s locality_batch_size=%s geography_batch_size=%s",
         dry_run,
         clear_placemap_rows,
+        locality_batch_size,
+        geography_batch_size,
     )
     manifest["result"] = _purge_localities_and_geographies(
         dry_run=dry_run,
         clear_placemap_rows=clear_placemap_rows,
+        locality_batch_size=locality_batch_size,
+        geography_batch_size=geography_batch_size,
+        logger=logger,
     )
     logger.warning("purge_specify_geography_locality result=%s", manifest["result"])
 

@@ -107,6 +107,8 @@ deployments:
     parameters:
       dry_run: true
       clear_placemap_rows: true
+      locality_batch_size: 5000
+      geography_batch_size: 1000
     work_pool:
       name: dev-process
       work_queue_name: default
