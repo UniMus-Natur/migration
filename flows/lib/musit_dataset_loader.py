@@ -1,0 +1,1042 @@
+"""Reusable MUSIT specimen loader: Oracle → Specify 7 Django ORM.
+
+This module is the single place that knows how to translate one Oracle MUSIT
+``MUSEUM_OBJECT`` row (plus its connected event/place/taxon/agent rows) into the
+Specify 7 record chain:
+
+    CollectingEvent → CollectionObject → Determination(s)
+                        ↑
+                    Locality  (created on-the-fly via migration_oracle_placemap)
+                        ↑
+                    Geography (pre-existing, resolved by GUID)
+
+Every future collection migration creates a ``MusitDatasetConfig`` and calls
+``load_musit_dataset``; it does not need to know anything about Oracle SQL or
+Specify model internals.
+
+Design constraints
+------------------
+* All Specify writes use the **Django ORM** (``specifyweb.specify.models``).
+* Bridge-table rows (objectmap, placemap) use raw SQL on ``django.db.connection``.
+* Never creates or modifies ``Agent``, ``Geography``, ``Taxon``.
+* Each specimen is wrapped in ``transaction.atomic`` so partial failures roll back
+  cleanly without leaving orphan records.
+* Idempotent: objects already in ``migration_oracle_objectmap`` are skipped on re-run.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import time
+from dataclasses import dataclass, field
+from datetime import date, datetime, timezone
+from typing import Any
+
+from django.db import close_old_connections, transaction
+
+logger = logging.getLogger(__name__)
+
+# How often to emit a progress line (number of objects processed).
+_PROGRESS_EVERY = 100
+
+# Cap error strings saved in stats to avoid huge memory / report blobs.
+_MAX_ERRORS = 200
+
+# Oracle IN-list batch size for SPECIMEN_SQL.
+_SPECIMEN_BATCH = 500
+
+
+# ---------------------------------------------------------------------------
+# Configuration dataclass (one per collection / dataset)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class MusitDatasetConfig:
+    """All collection-specific knobs in one place.
+
+    Create one of these per dataset and pass it to ``load_musit_dataset``.
+    """
+
+    oracle_schema: str           # e.g. "MUSIT_BOTANIKK_FELLES"
+    institutioncode: str         # e.g. "O"
+    collectioncode: str          # e.g. "V"
+    specify_collection_code: str # e.g. "NHM-karplanter"
+    specify_discipline_name: str # e.g. "Karplanter Moser"
+    dataset_label: str           # e.g. "oslo-vascular-v1" (written into JSON payload)
+
+
+# ---------------------------------------------------------------------------
+# Stats dataclass
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class DatasetLoadStats:
+    co_created: int = 0
+    co_skipped: int = 0         # already in objectmap → idempotent skip
+    ce_created: int = 0
+    locality_created: int = 0
+    locality_reused: int = 0    # found in placemap
+    determination_created: int = 0
+    taxon_matched: int = 0
+    taxon_unresolved: int = 0
+    agent_matched: int = 0
+    agent_unresolved: int = 0
+    errors: list[str] = field(default_factory=list)
+    elapsed_s: float = 0.0
+    estimate_total_s: float | None = None
+
+
+# ---------------------------------------------------------------------------
+# Oracle SQL
+# ---------------------------------------------------------------------------
+
+# Phase 1 — page OBJECT_IDs in stable sorted order.
+_PAGE_SQL = """
+    SELECT voa.object_id
+      FROM {schema}.v_object_attributes voa
+     WHERE voa.institutioncode = :icode
+       AND voa.collectioncode  = :ccode
+     ORDER BY voa.object_id
+     OFFSET :skip ROWS FETCH NEXT :batch ROWS ONLY
+"""
+
+# Phase 2 — one query per page: full multi-join envelope.
+# Rows are grouped in Python by object_id.  Because of the LEFT JOINs a single
+# object may appear on multiple rows (multiple determinations or actors).
+_SPECIMEN_SQL = """
+    SELECT
+      voa.object_id,
+      oa.uuid,
+      mo.identifier_string,
+      mo.long_name,
+      mo.identifier_num,
+      mo.parent_object_id,
+      mo.mediagruppe_enhets_id,
+      oa.is_reg,
+      oa.is_approved,
+      oa.is_corrected,
+      oa.object_withheld,
+      oa.object_state,
+      oa.reg_user,
+      oa.korr_user,
+      oa.approve_user,
+      oa.dataset,
+      oa.project_name,
+      oa.same_sheet_as,
+      oa.dublettes,
+      oa.analysis_request,
+      ce.event_id,
+      ce.collectiontype_id,
+      ce.legname_orig,
+      ce.agg_personnames,
+      ts.from_date,
+      ts.to_date,
+      ts.time_as_text,
+      ts.uncertain         AS date_uncertain,
+      por.place_id,
+      lp.locality          AS locality_text,
+      kp.coordinate_string,
+      kp.latitude_l,
+      kp.longitude_l,
+      kp.datum,
+      cte.classification_type_id,
+      cte.event_id         AS class_event_id,
+      ct.classterm,
+      ct.entered_classterm,
+      ct.valid_classterm,
+      ln.latin_name_id,
+      ln.latin_name,
+      ln.full_name,
+      ln.full_name_author,
+      ln.nhm_taxon_id,
+      ln.adb_latin_name_id,
+      ln.is_valid          AS taxon_is_valid,
+      erp.actor_id,
+      erp.role_id
+    FROM {schema}.v_object_attributes voa
+    JOIN {schema}.object_attributes oa
+      ON oa.object_id = voa.object_id
+    JOIN {schema}.museum_object mo
+      ON mo.object_id = voa.object_id
+    LEFT JOIN {schema}.event_museum_object emo
+      ON emo.object_id = voa.object_id
+    LEFT JOIN {schema}.collecting_event ce
+      ON ce.event_id = emo.event_id
+    LEFT JOIN {schema}.timespan ts
+      ON ts.timespan_id = ce.timespan_id
+    LEFT JOIN {schema}.place_event_role por
+      ON por.event_id = ce.event_id
+    LEFT JOIN {schema}.place_locality_place plp
+      ON plp.place_id = por.place_id
+    LEFT JOIN (
+      SELECT locality_place_id, locality
+        FROM {schema}.locality_place
+       WHERE locality_place_id IN (
+         SELECT MIN(locality_place_id)
+           FROM {schema}.locality_place
+          GROUP BY locality_place_id
+       )
+    ) lp ON lp.locality_place_id = plp.locality_place_id
+    LEFT JOIN {schema}.koordinate_place_place kpp
+      ON kpp.place_id = por.place_id
+    LEFT JOIN {schema}.koordinate_place kp
+      ON kp.koordinate_place_id = kpp.koordinate_place_id
+    LEFT JOIN {schema}.classification_event cte
+      ON cte.event_id = emo.event_id
+    LEFT JOIN {schema}.classification_term ct
+      ON ct.class_term_id = cte.class_term_id
+    LEFT JOIN {schema}.classterm_latin_name ctl
+      ON ctl.classterm_id = ct.class_term_id
+    LEFT JOIN {schema}.latin_names ln
+      ON ln.latin_name_id = ctl.latin_name_id
+    LEFT JOIN {schema}.event_role_actor erp
+      ON erp.event_id = ce.event_id
+    WHERE voa.object_id IN ({placeholders})
+"""
+
+
+# ---------------------------------------------------------------------------
+# Logging helper (prefer Prefect run logger)
+# ---------------------------------------------------------------------------
+
+
+def _log(level: str, msg: str, *args: Any) -> None:
+    try:
+        from prefect import get_run_logger
+        getattr(get_run_logger(), level)(msg, *args)
+    except Exception:
+        getattr(logger, level)(msg, *args)
+
+
+def _format_duration(seconds: float) -> str:
+    if seconds != seconds or seconds < 0:
+        return "?"
+    s = int(round(seconds))
+    if s < 60:
+        return f"{s}s"
+    if s < 3600:
+        return f"{s // 60}m{s % 60}s"
+    return f"{s // 3600}h{(s % 3600) // 60}m"
+
+
+# ---------------------------------------------------------------------------
+# Coordinate sanitization (mirrors logic from oracle_geography_load.py)
+# ---------------------------------------------------------------------------
+
+
+def _parse_dms_coordinate(coordinate_string: str | None) -> tuple[float | None, float | None]:
+    """Try to parse DMS string like ``59°48.185'N 10°44.478'E`` into decimal degrees."""
+    if not coordinate_string:
+        return None, None
+    import re
+    pattern = re.compile(
+        r"(\d+)[°º]\s*([\d.]+)[''′]\s*([NS])\s+"
+        r"(\d+)[°º]\s*([\d.]+)[''′]\s*([EW])",
+        re.IGNORECASE,
+    )
+    m = pattern.search(coordinate_string)
+    if not m:
+        return None, None
+    try:
+        lat_deg, lat_min, lat_hem = float(m.group(1)), float(m.group(2)), m.group(3).upper()
+        lon_deg, lon_min, lon_hem = float(m.group(4)), float(m.group(5)), m.group(6).upper()
+        lat = lat_deg + lat_min / 60.0
+        lon = lon_deg + lon_min / 60.0
+        if lat_hem == "S":
+            lat = -lat
+        if lon_hem == "W":
+            lon = -lon
+        if -90 <= lat <= 90 and -180 <= lon <= 180:
+            return lat, lon
+    except (ValueError, TypeError):
+        pass
+    return None, None
+
+
+def _sanitize_lat_lng(
+    lat: Any,
+    lng: Any,
+    coordinate_string: str | None,
+) -> tuple[float | None, float | None]:
+    """Return valid (lat, lng) decimals or None, with DMS-string fallback."""
+    def _to_float(v: Any) -> float | None:
+        if v is None:
+            return None
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    lat_f = _to_float(lat)
+    lng_f = _to_float(lng)
+
+    # Try DMS string first when numerics are out of range.
+    if lat_f is None or not (-90 <= lat_f <= 90):
+        dms_lat, dms_lng = _parse_dms_coordinate(coordinate_string)
+        if dms_lat is not None:
+            return dms_lat, dms_lng
+        # Heuristic: strip leading extra hundreds digit (e.g. 559.80 → 59.80)
+        if lat_f is not None and 100 < abs(lat_f) < 1000:
+            candidate = lat_f - (int(lat_f / 100) * 100)
+            if -90 <= candidate <= 90:
+                lng_candidate = lng_f
+                if lng_f is not None and not (-180 <= lng_f <= 180):
+                    lng_candidate = None
+                return candidate, lng_candidate
+        return None, None
+
+    if lng_f is not None and not (-180 <= lng_f <= 180):
+        lng_f = None
+
+    return lat_f, lng_f
+
+
+# ---------------------------------------------------------------------------
+# Specify lookup helpers
+# ---------------------------------------------------------------------------
+
+
+def _resolve_taxon(
+    adb_latin_name_id: Any,
+    nhm_taxon_id: Any,
+    latin_name: str | None,
+    taxontreedef_id: int,
+) -> Any:
+    """Look up an existing Specify ``Taxon`` row; never creates one.
+
+    Resolution order:
+    1. ``taxonomicserialnumber`` = ``ADB_LATIN_NAME_ID`` (Artsdatabanken id; set during NorTaxa merge)
+    2. ``text1`` = ``NHM_TAXON_ID`` (internal MUSIT taxon key)
+    3. ``name`` match (last resort, may match wrong rank)
+    """
+    from specifyweb.specify.models import Taxon
+
+    if adb_latin_name_id is not None:
+        try:
+            adb_int = int(adb_latin_name_id)
+            t = Taxon.objects.filter(
+                taxonomicserialnumber=adb_int,
+                definition_id=taxontreedef_id,
+            ).first()
+            if t is not None:
+                return t
+        except (TypeError, ValueError):
+            pass
+
+    if nhm_taxon_id is not None:
+        try:
+            nhm_str = str(int(nhm_taxon_id))
+            t = Taxon.objects.filter(
+                text1=nhm_str,
+                definition_id=taxontreedef_id,
+            ).first()
+            if t is not None:
+                return t
+        except (TypeError, ValueError):
+            pass
+
+    if latin_name:
+        t = Taxon.objects.filter(
+            name=latin_name.strip(),
+            definition_id=taxontreedef_id,
+        ).first()
+        if t is not None:
+            return t
+
+    return None
+
+
+def _resolve_agent(schema: str, actor_id: Any) -> Any:
+    """Look up an existing Specify ``Agent`` by remarks marker; never creates one."""
+    if actor_id is None:
+        return None
+    from specifyweb.specify.models import Agent
+    marker = f"MUSIT-migration: ACTOR; schema={schema}; ACTOR_ID={int(actor_id)}"
+    return Agent.objects.filter(remarks__startswith=marker).first()
+
+
+def _get_or_create_locality(
+    *,
+    place_id: int,
+    oracle_cursor: Any,
+    owner: str,
+    discipline_id: int,
+    geography_treedef_id: int,
+    run_ts: str,
+    dry_run: bool,
+    locality_cache: dict[tuple[int, int], int],  # (discipline_id, place_id) → locality pk
+    stats: DatasetLoadStats,
+) -> Any:
+    """Return an existing or newly created Specify ``Locality`` for this Oracle PLACE_ID.
+
+    Uses ``migration_oracle_placemap`` for persistence and ``locality_cache`` (per-run
+    in-memory dict) to avoid repeat DB lookups within the same flow run.
+    """
+    from specifyweb.specify.models import Geography, Locality
+
+    from flows.lib.migration_oracle_placemap import upsert_placemap_row
+    from flows.lib.oracle_geography_load import (
+        _deepest_geography_for_place,
+        _fetch_first_coordinate,
+        _fetch_place_text,
+        _place_locality_guid,
+    )
+
+    cache_key = (discipline_id, place_id)
+    if cache_key in locality_cache:
+        stats.locality_reused += 1
+        return Locality.objects.filter(pk=locality_cache[cache_key]).first()
+
+    # Check placemap for an existing locality created by a previous run.
+    from django.db import connection as _conn
+    from flows.lib.migration_oracle_placemap import TABLE_NAME as _PM_TABLE
+
+    owner_upper = owner.upper()
+    with _conn.cursor() as cur:
+        cur.execute(
+            f"SELECT specify_locality_id FROM {_PM_TABLE}"
+            " WHERE source_owner=%s AND source_kind=%s AND source_id=%s AND specify_discipline_id=%s",
+            [owner_upper, "place", str(place_id), discipline_id],
+        )
+        row = cur.fetchone()
+    if row and row[0]:
+        lid = int(row[0])
+        locality_cache[cache_key] = lid
+        stats.locality_reused += 1
+        return Locality.objects.filter(pk=lid).first()
+
+    # Need to create a new Locality.
+    agg, loc_text = _fetch_place_text(oracle_cursor, owner, place_id)
+    coord = _fetch_first_coordinate(oracle_cursor, owner, place_id)
+
+    # Rebuild geo rank map (lightweight — only the set already in memory).
+    owner_lower = owner.lower()
+    geo_guid_prefix = f"urn:oracle:{owner_lower}:hpo:"
+    geo_rankid_by_pk: dict[int, int] = dict(
+        Geography.objects.filter(
+            definition_id=geography_treedef_id,
+            guid__startswith=geo_guid_prefix,
+        ).values_list("id", "rankid")
+    )
+    # Build hid→geo_id for this place's hierarchical nodes.
+    oracle_hid_to_geo: dict[int, int] = {}
+    for g in Geography.objects.filter(
+        definition_id=geography_treedef_id,
+        guid__startswith=geo_guid_prefix,
+    ).values("id", "guid"):
+        tail = g["guid"][len(geo_guid_prefix):]
+        if tail.isdigit():
+            oracle_hid_to_geo[int(tail)] = int(g["id"])
+
+    geo_id = _deepest_geography_for_place(
+        oracle_cursor, owner, place_id, oracle_hid_to_geo, geo_rankid_by_pk
+    )
+
+    locality_name = (loc_text or agg or f"Place {place_id}")[:1024]
+    verbatim = agg[:8192] if agg else None
+    lat_raw = coord.get("latitude_l")
+    lng_raw = coord.get("longitude_l")
+    coord_str = coord.get("coordinate_string")
+    lat, lng = _sanitize_lat_lng(lat_raw, lng_raw, coord_str)
+    datum = (coord.get("datum") or "")[:50] or None
+    guid = _place_locality_guid(owner_lower, place_id, discipline_id)
+
+    if dry_run:
+        stats.locality_created += 1
+        return None
+
+    try:
+        loc_kwargs: dict[str, Any] = {
+            "discipline_id": discipline_id,
+            "localityname": locality_name,
+            "geography_id": geo_id,
+            "latitude1": lat,
+            "longitude1": lng,
+            "srclatlongunit": 0,
+            "guid": guid,
+            "datum": datum,
+        }
+        if verbatim:
+            loc_kwargs["text1"] = verbatim
+        if coord_str:
+            loc_kwargs["lat1text"] = coord_str[:50] if len(coord_str) > 50 else coord_str
+
+        loc = Locality(**loc_kwargs)
+        loc.save()
+        lid = int(loc.id)
+        locality_cache[cache_key] = lid
+        stats.locality_created += 1
+
+        upsert_placemap_row(
+            source_owner=owner_upper,
+            source_kind="place",
+            source_id=str(place_id),
+            specify_geography_id=geo_id,
+            specify_locality_id=lid,
+            specify_discipline_id=discipline_id,
+            run_ts=run_ts,
+            dry_run=False,
+        )
+        return loc
+    except Exception as exc:  # noqa: BLE001
+        _log("error", "Failed to create Locality for place_id=%s disc=%s: %s", place_id, discipline_id, exc)
+        raise
+
+
+# ---------------------------------------------------------------------------
+# Row grouping
+# ---------------------------------------------------------------------------
+
+
+def _group_rows_by_object_id(rows: list[dict]) -> dict[int, list[dict]]:
+    out: dict[int, list[dict]] = {}
+    for row in rows:
+        oid = int(row["object_id"])
+        out.setdefault(oid, []).append(row)
+    return out
+
+
+def _coerce_date(val: Any) -> date | None:
+    if val is None:
+        return None
+    if isinstance(val, date):
+        return val if not isinstance(val, datetime) else val.date()
+    try:
+        if isinstance(val, str):
+            return datetime.fromisoformat(val).date()
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
+def _trunc(s: Any, max_len: int) -> str | None:
+    if s is None:
+        return None
+    t = str(s).strip()
+    return (t[:max_len] if len(t) > max_len else t) or None
+
+
+# ---------------------------------------------------------------------------
+# Per-object Specify write
+# ---------------------------------------------------------------------------
+
+
+def _write_one_object(
+    *,
+    object_id: int,
+    rows: list[dict],
+    config: MusitDatasetConfig,
+    collection: Any,
+    discipline: Any,
+    run_ts: str,
+    dry_run: bool,
+    locality_cache: dict[tuple[int, int], int],
+    stats: DatasetLoadStats,
+) -> None:
+    """Write one CollectionObject + CollectingEvent + Determination(s) for ``object_id``.
+
+    All ORM writes are inside a single ``transaction.atomic`` block.
+    """
+    from specifyweb.specify.models import (
+        Collectingevent,
+        Collector,
+        Collectionobject,
+        Determination,
+    )
+
+    from flows.lib.migration_oracle_objectmap import upsert_objectmap_row
+
+    # Use the first row for scalar object/event fields; collect all determination rows.
+    first = rows[0]
+    owner = config.oracle_schema
+
+    # ---- Unmapped payload for JSON archival ----
+    unmapped: dict[str, Any] = {}
+    for key in (
+        "long_name", "identifier_num", "parent_object_id", "mediagruppe_enhets_id",
+        "is_reg", "is_approved", "is_corrected", "object_withheld", "object_state",
+        "reg_user", "korr_user", "approve_user", "dataset", "project_name",
+        "same_sheet_as", "dublettes", "analysis_request",
+        "collectiontype_id", "date_uncertain",
+        "coordinate_string", "datum",
+    ):
+        v = first.get(key)
+        if v is not None:
+            unmapped[key] = v if not isinstance(v, (date, datetime)) else str(v)
+
+    text1_payload = json.dumps(
+        {
+            "source": {
+                "owner": owner,
+                "object_id": object_id,
+                "dataset": config.dataset_label,
+            },
+            "unmapped": unmapped,
+            "migration_meta": {
+                "exported_at_utc": run_ts,
+                "mapping_version": config.dataset_label,
+            },
+        },
+        ensure_ascii=False,
+        default=str,
+    )
+
+    with transaction.atomic():
+        # 1. Locality (resolve or create on-the-fly)
+        locality = None
+        place_id_raw = first.get("place_id")
+        if place_id_raw is not None:
+            try:
+                place_id = int(place_id_raw)
+                locality = _get_or_create_locality(
+                    place_id=place_id,
+                    oracle_cursor=None,  # passed below via context — see caller
+                    owner=owner,
+                    discipline_id=int(discipline.id),
+                    geography_treedef_id=int(discipline.geographytreedef_id),
+                    run_ts=run_ts,
+                    dry_run=dry_run,
+                    locality_cache=locality_cache,
+                    stats=stats,
+                )
+            except Exception as exc:  # noqa: BLE001
+                _log("warning", "object_id=%s: locality creation failed place_id=%s: %s", object_id, place_id_raw, exc)
+                locality = None
+
+        # 2. CollectingEvent
+        start_date = _coerce_date(first.get("from_date"))
+        end_date = _coerce_date(first.get("to_date"))
+        verbatim_date = _trunc(first.get("time_as_text"), 50)
+        verbatim_locality = _trunc(first.get("locality_text"), 255)
+        collector_str = _trunc(first.get("agg_personnames") or first.get("legname_orig"), 255)
+
+        ce_guid = f"urn:oracle:{owner.lower()}:event:{first.get('event_id') or object_id}"[:128]
+
+        ce_kwargs: dict[str, Any] = {
+            "discipline": discipline,
+            "locality": locality,
+            "guid": ce_guid,
+        }
+        if start_date:
+            ce_kwargs["startdate"] = start_date
+            ce_kwargs["startdateprecision"] = 1
+        if end_date:
+            ce_kwargs["enddate"] = end_date
+        if verbatim_date:
+            ce_kwargs["verbatimdate"] = verbatim_date
+        if verbatim_locality:
+            ce_kwargs["verbatimlocality"] = verbatim_locality
+        if collector_str:
+            ce_kwargs["remarks"] = collector_str
+
+        if dry_run:
+            stats.ce_created += 1
+            stats.co_created += 1
+            # Count determinations
+            det_rows = [r for r in rows if r.get("adb_latin_name_id") is not None or r.get("latin_name")]
+            stats.determination_created += max(1, len(det_rows))
+            return
+
+        ce = Collectingevent(**ce_kwargs)
+        ce.save()
+        stats.ce_created += 1
+
+        # 3. Collector link (primary agent on the collecting event)
+        actor_id = first.get("actor_id")
+        agent = _resolve_agent(owner, actor_id)
+        if agent is not None:
+            stats.agent_matched += 1
+            try:
+                Collector.objects.create(
+                    agent=agent,
+                    collectingevent=ce,
+                    isprimary=True,
+                    ordernumber=1,
+                )
+            except Exception as exc:  # noqa: BLE001
+                _log("warning", "object_id=%s: collector link failed: %s", object_id, exc)
+        else:
+            if actor_id is not None:
+                stats.agent_unresolved += 1
+
+        # 4. CollectionObject
+        co = Collectionobject(
+            catalognumber=_trunc(first.get("identifier_string"), 32),
+            guid=f"urn:oracle:{owner.lower()}:object:{object_id}"[:128],
+            collectingevent=ce,
+            collection=collection,
+            collectionmemberid=int(collection.id),
+            remarks=_trunc(first.get("uuid"), 128),
+            text1=text1_payload,
+            fieldnumber=_trunc(first.get("identifier_num"), 50),
+        )
+        # Object withheld → visibility flag (1=private, 0=public)
+        withheld = first.get("object_withheld")
+        if withheld is not None and str(withheld).strip().upper() in ("Y", "1", "TRUE"):
+            co.visibility = 1
+        co.save()
+        stats.co_created += 1
+
+        # 5. Determination(s) — deduplicate by (adb_latin_name_id, latin_name_id)
+        seen_det_keys: set[tuple] = set()
+        taxontreedef_id = int(discipline.taxontreedef_id)
+
+        # Sort rows so that the "most current" determination (lowest class_event_id = oldest,
+        # highest = most recent — we treat highest event_id as current).
+        det_rows_all = [r for r in rows if r.get("latin_name_id") is not None]
+        if not det_rows_all:
+            # No determination data; create a blank determination so the CO is valid.
+            Determination.objects.create(
+                collectionobject=co,
+                iscurrent=True,
+            )
+            stats.determination_created += 1
+        else:
+            # Sort by class_event_id descending so the first we process is the most recent.
+            def _det_sort_key(r: dict) -> int:
+                v = r.get("class_event_id") or r.get("event_id") or 0
+                try:
+                    return -int(v)
+                except (TypeError, ValueError):
+                    return 0
+
+            det_rows_sorted = sorted(det_rows_all, key=_det_sort_key)
+
+            for idx, dr in enumerate(det_rows_sorted):
+                adb_id = dr.get("adb_latin_name_id")
+                ln_id = dr.get("latin_name_id")
+                det_key = (adb_id, ln_id)
+                if det_key in seen_det_keys:
+                    continue
+                seen_det_keys.add(det_key)
+
+                taxon = _resolve_taxon(
+                    adb_latin_name_id=adb_id,
+                    nhm_taxon_id=dr.get("nhm_taxon_id"),
+                    latin_name=dr.get("latin_name"),
+                    taxontreedef_id=taxontreedef_id,
+                )
+                if taxon is not None:
+                    stats.taxon_matched += 1
+                else:
+                    stats.taxon_unresolved += 1
+
+                # Determiner
+                det_actor = dr.get("actor_id")
+                determiner = _resolve_agent(owner, det_actor) if det_actor else None
+
+                det = Determination(
+                    collectionobject=co,
+                    taxon=taxon,
+                    iscurrent=(idx == 0),  # most recent row → current
+                    typestatusname=None,
+                    text1=_trunc(dr.get("classterm"), 255),
+                    text2=_trunc(dr.get("valid_classterm"), 255),
+                    determiner=determiner,
+                )
+                det.save()
+                stats.determination_created += 1
+
+        # 6. Upsert objectmap row
+        upsert_objectmap_row(
+            source_owner=owner.upper(),
+            source_id=str(object_id),
+            specify_co_id=int(co.id),
+            specify_collection_id=int(collection.id),
+            run_ts=run_ts,
+            dry_run=False,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Oracle fetch helpers
+# ---------------------------------------------------------------------------
+
+
+def _fetch_page_object_ids(
+    oracle_cursor: Any,
+    config: MusitDatasetConfig,
+    skip: int,
+    batch: int,
+) -> list[int]:
+    sql = _PAGE_SQL.format(schema=config.oracle_schema)
+    oracle_cursor.execute(
+        sql,
+        {"icode": config.institutioncode, "ccode": config.collectioncode, "skip": skip, "batch": batch},
+    )
+    return [int(row[0]) for row in oracle_cursor.fetchall()]
+
+
+def _fetch_specimen_rows(
+    oracle_cursor: Any,
+    config: MusitDatasetConfig,
+    object_ids: list[int],
+) -> list[dict]:
+    if not object_ids:
+        return []
+    placeholders = ", ".join([":oid" + str(i) for i in range(len(object_ids))])
+    sql = _SPECIMEN_SQL.format(schema=config.oracle_schema, placeholders=placeholders)
+    binds = {f"oid{i}": oid for i, oid in enumerate(object_ids)}
+    oracle_cursor.execute(sql, binds)
+    cols = [d[0].lower() for d in oracle_cursor.description]
+    return [dict(zip(cols, row)) for row in oracle_cursor.fetchall()]
+
+
+def _count_total_objects(oracle_cursor: Any, config: MusitDatasetConfig) -> int:
+    sql = f"""
+    SELECT COUNT(*)
+      FROM {config.oracle_schema}.v_object_attributes
+     WHERE institutioncode = :icode
+       AND collectioncode  = :ccode
+    """
+    oracle_cursor.execute(sql, {"icode": config.institutioncode, "ccode": config.collectioncode})
+    row = oracle_cursor.fetchone()
+    return int(row[0]) if row else 0
+
+
+# ---------------------------------------------------------------------------
+# Context: resolve Specify Collection + Discipline
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _SpecifyContext:
+    collection: Any
+    discipline: Any
+
+
+def _resolve_specify_context(config: MusitDatasetConfig) -> _SpecifyContext:
+    from specifyweb.specify.models import Collection, Discipline
+
+    collection = Collection.objects.filter(code__iexact=config.specify_collection_code).first()
+    if collection is None:
+        raise RuntimeError(
+            f"Specify Collection with code={config.specify_collection_code!r} not found. "
+            "Run sync_specify_structure_flow first."
+        )
+    discipline = Discipline.objects.filter(
+        name__iexact=config.specify_discipline_name
+    ).order_by("id").first()
+    if discipline is None:
+        raise RuntimeError(
+            f"Specify Discipline with name={config.specify_discipline_name!r} not found."
+        )
+    return _SpecifyContext(collection=collection, discipline=discipline)
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
+
+
+def load_musit_dataset(
+    config: MusitDatasetConfig,
+    *,
+    oracle_cursor: Any,
+    dry_run: bool,
+    limit: int | None = None,
+    page_size: int = 1000,
+    run_ts: str,
+) -> DatasetLoadStats:
+    """Stream Oracle MUSIT objects into Specify for the given dataset config.
+
+    Args:
+        config:       Dataset identity (schema, filter codes, target collection).
+        oracle_cursor: Open Oracle cursor (caller manages connection lifecycle).
+        dry_run:      When True, resolve and count but do not write to Specify or bridge tables.
+        limit:        Stop after this many objects (for test runs with time estimates).
+        page_size:    Number of OBJECT_IDs per Oracle page.
+        run_ts:       ISO timestamp string stamped on all bridge table rows.
+
+    Returns:
+        ``DatasetLoadStats`` with counters and (when ``limit`` is set) a time estimate.
+    """
+    from flows.lib.migration_oracle_objectmap import (
+        ensure_objectmap_table,
+        object_ids_already_migrated,
+    )
+    from flows.lib.migration_oracle_placemap import ensure_placemap_table
+
+    stats = DatasetLoadStats()
+    t0 = time.monotonic()
+
+    ctx = _resolve_specify_context(config)
+    collection = ctx.collection
+    discipline = ctx.discipline
+
+    _log("info", "load_musit_dataset | collection=%s discipline=%s dry_run=%s limit=%s",
+         config.specify_collection_code, config.specify_discipline_name, dry_run, limit)
+
+    ensure_objectmap_table(dry_run=dry_run)
+    ensure_placemap_table(dry_run=dry_run)
+
+    # Load already-migrated OBJECT_IDs for idempotency.
+    already_done: set[int] = set()
+    if not dry_run:
+        already_done = object_ids_already_migrated(
+            source_owner=config.oracle_schema.upper(),
+            specify_collection_id=int(collection.id),
+        )
+        if already_done:
+            _log("info", "load_musit_dataset | idempotency: %s objects already in objectmap → will skip",
+                 len(already_done))
+
+    total_oracle = _count_total_objects(oracle_cursor, config)
+    _log("info", "load_musit_dataset | total Oracle objects for filter: %s", total_oracle)
+
+    # In-memory locality cache: (discipline_id, place_id) → specify locality pk
+    locality_cache: dict[tuple[int, int], int] = {}
+    total_processed = 0
+    skip = 0
+
+    while True:
+        # Periodic Django connection refresh (long-running flow protection).
+        if total_processed > 0 and total_processed % 5000 == 0:
+            close_old_connections()
+
+        page_ids = _fetch_page_object_ids(oracle_cursor, config, skip=skip, batch=page_size)
+        if not page_ids:
+            break
+
+        # Filter already-migrated.
+        ids_to_process = [oid for oid in page_ids if oid not in already_done]
+
+        # Fetch full specimen rows for this page (one round-trip).
+        if ids_to_process:
+            specimen_rows = _fetch_specimen_rows(oracle_cursor, config, ids_to_process)
+            grouped = _group_rows_by_object_id(specimen_rows)
+        else:
+            grouped = {}
+
+        for oid in page_ids:
+            if oid in already_done:
+                stats.co_skipped += 1
+                continue
+
+            rows = grouped.get(oid)
+            if not rows:
+                # Object visible in V_OBJECT_ATTRIBUTES but no rows in join — skip.
+                _log("debug", "object_id=%s: no specimen rows returned; skipping", oid)
+                continue
+
+            # Pass oracle_cursor into the locality helper via a closure trick — we need
+            # to inject it without changing the _get_or_create_locality signature contract.
+            # We do this by monkey-patching the None sentinel passed in _write_one_object:
+            # the locality helper will receive the real cursor via a module-level thread-local.
+            _current_oracle_cursor.cursor = oracle_cursor
+
+            try:
+                _write_one_object(
+                    object_id=oid,
+                    rows=rows,
+                    config=config,
+                    collection=collection,
+                    discipline=discipline,
+                    run_ts=run_ts,
+                    dry_run=dry_run,
+                    locality_cache=locality_cache,
+                    stats=stats,
+                )
+            except Exception as exc:  # noqa: BLE001
+                msg = f"object_id={oid}: {exc}"
+                _log("error", "load_musit_dataset | ERROR %s", msg)
+                if len(stats.errors) < _MAX_ERRORS:
+                    stats.errors.append(msg)
+
+            total_processed += 1
+
+            if total_processed % _PROGRESS_EVERY == 0 or total_processed == 1:
+                elapsed = time.monotonic() - t0
+                pct = 100.0 * total_processed / total_oracle if total_oracle else 0.0
+                _log(
+                    "info",
+                    "load_musit_dataset | %s/%s (%.1f%%) co=%s ce=%s loc_new=%s det=%s"
+                    " taxon_ok=%s agent_ok=%s err=%s elapsed=%s",
+                    total_processed,
+                    total_oracle,
+                    pct,
+                    stats.co_created,
+                    stats.ce_created,
+                    stats.locality_created,
+                    stats.determination_created,
+                    stats.taxon_matched,
+                    stats.agent_matched,
+                    len(stats.errors),
+                    _format_duration(elapsed),
+                )
+
+            if limit is not None and total_processed >= limit:
+                elapsed = time.monotonic() - t0
+                rate = total_processed / elapsed if elapsed > 0 else 0.0
+                estimate_s = (total_oracle / rate) if rate > 0 else None
+                stats.estimate_total_s = estimate_s
+                _log(
+                    "info",
+                    "load_musit_dataset | limit=%s reached after %s (%.2f obj/s) — "
+                    "estimated full migration: %s",
+                    limit,
+                    _format_duration(elapsed),
+                    rate,
+                    _format_duration(estimate_s) if estimate_s else "unknown",
+                )
+                stats.elapsed_s = elapsed
+                return stats
+
+        skip += page_size
+        if len(page_ids) < page_size:
+            break  # last page
+
+    stats.elapsed_s = time.monotonic() - t0
+    _log(
+        "info",
+        "load_musit_dataset | done total_processed=%s co=%s ce=%s loc_new=%s det=%s"
+        " taxon_ok=%s agent_ok=%s skipped=%s err=%s elapsed=%s",
+        total_processed,
+        stats.co_created,
+        stats.ce_created,
+        stats.locality_created,
+        stats.determination_created,
+        stats.taxon_matched,
+        stats.agent_matched,
+        stats.co_skipped,
+        len(stats.errors),
+        _format_duration(stats.elapsed_s),
+    )
+    return stats
+
+
+# ---------------------------------------------------------------------------
+# Thread-local oracle cursor carrier
+# (avoids changing _get_or_create_locality signature while keeping modularity)
+# ---------------------------------------------------------------------------
+
+import threading as _threading  # noqa: E402
+
+
+class _OracleCursorHolder(_threading.local):
+    cursor: Any = None
+
+
+_current_oracle_cursor = _OracleCursorHolder()
+
+
+# Patch _get_or_create_locality to use the holder when oracle_cursor is None.
+_orig_get_or_create_locality = _get_or_create_locality
+
+
+def _get_or_create_locality(  # type: ignore[no-redef]
+    *,
+    place_id: int,
+    oracle_cursor: Any,
+    **kwargs: Any,
+) -> Any:
+    if oracle_cursor is None:
+        oracle_cursor = _current_oracle_cursor.cursor
+    return _orig_get_or_create_locality(
+        place_id=place_id,
+        oracle_cursor=oracle_cursor,
+        **kwargs,
+    )

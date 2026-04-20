@@ -529,6 +529,234 @@ SELECT TRIM(organisme_type) AS organisme_type, COUNT(*) AS cnt
 
 This section is an **inventory only** (no ETL): where **image / file** data lives, and which Oracle columns are useful when you eventually map **MUSIT / DiGIR** into Specify **`CollectionObject`**, **`CollectingEvent`**, **`Determination`**, **`Locality`**, **`Agent`**, **`Attachment`**, etc.
 
+## Comprehensive source-to-Specify mapping (Oslo vascular, source-native)
+
+This section documents a **migration-safe** approach for `MUSIT_BOTANIKK_FELLES` with filter:
+
+- `V_OBJECT_ATTRIBUTES.INSTITUTIONCODE = 'O'`
+- `V_OBJECT_ATTRIBUTES.COLLECTIONCODE = 'V'`
+
+### Retention policy (no data loss)
+
+Because MUSIT will be decommissioned, do **not** rely only on normalized Specify fields.
+
+For every migrated `OBJECT_ID`, persist a raw payload archive (JSON or side tables) containing:
+
+- all selected rows from all connected source tables below, and
+- source row identity (`owner`, `table`, PK values), extraction timestamp, and migration run id.
+
+In other words:
+
+- **Mapped to Specify**: fields needed for operational behavior/search/UI.
+- **Retain raw**: everything else (even if not currently shown in Specify).
+- **Drop**: only technical duplicates when fully derivable from retained data.
+
+Suggested archival key: `MUSIT_BOTANIKK_FELLES:OBJECT_ID:<id>`.
+
+### Connected table graph used
+
+`V_OBJECT_ATTRIBUTES` → `OBJECT_ATTRIBUTES` → `MUSEUM_OBJECT` → `EVENT_MUSEUM_OBJECT` → (`COLLECTING_EVENT`, `CLASSIFICATION_EVENT`, other `EVENT` types) → place/coordinate/taxon/person/document/media tables.
+
+---
+
+### 1) Object identity and workflow
+
+| Oracle table.column | Specify target | Keep / drop | Notes |
+|---|---|---|---|
+| `V_OBJECT_ATTRIBUTES.OBJECT_ID` | staging map key (`oracle_to_specify_map`) | Keep (raw + key) | Primary source identity for joins. |
+| `V_OBJECT_ATTRIBUTES.INSTITUTIONCODE` | `CollectionObject.text*` or migration metadata | Keep | Dataset filter + provenance (`O`). |
+| `V_OBJECT_ATTRIBUTES.COLLECTIONCODE` | `Collection.code` routing + metadata | Keep | Dataset filter + provenance (`V`). |
+| `OBJECT_ATTRIBUTES.UUID` | `CollectionObject.guid` / `uniqueidentifier` (policy-dependent) | Keep | Partial coverage in source; never use as sole key. |
+| `OBJECT_ATTRIBUTES.IS_REG` | `CollectionObject.text*` / quality flag | Keep | Strong indicator for publishability and DwC differences. |
+| `OBJECT_ATTRIBUTES.IS_APPROVED` | `CollectionObject.text*` / quality flag | Keep | Strong indicator for publishability and DwC differences. |
+| `OBJECT_ATTRIBUTES.OBJECT_WITHHELD` | `CollectionObject.visibility` / custom embargo flag | Keep | Preserve exactly; used in downstream policy decisions. |
+| `OBJECT_ATTRIBUTES.OBJECT_STATE` | `CollectionObject.text*` / custom status field | Keep | Keep raw value; can drive QA review. |
+| `OBJECT_ATTRIBUTES.REG_DATE` | `CollectionObject.timestampcreated` override or custom date field | Keep | Preserve as source registration timestamp. |
+| `OBJECT_ATTRIBUTES.APPROVED_DATE` | custom migrated date field | Keep | Useful for publication timeline / QA. |
+| `OBJECT_ATTRIBUTES.LAST_MODIFIED` / users (`REG_USER`, `KORR_USER`, `APPROVE_USER`) | migration provenance fields | Keep | Prefer raw archive + optional text fields. |
+| `OBJECT_ATTRIBUTES.DATASET` | `CollectionObject.projectnumber` or remarks/custom field | Keep | Sparse in botany but important in zoology. |
+| `OBJECT_ATTRIBUTES.PROJECT_NAME` | `CollectionObject.projectnumber` / remarks/custom field | Keep | High-value grouping context. |
+| `OBJECT_ATTRIBUTES.DUBLETTES`, `SAME_SHEET_AS`, `EX_HERB`, `VOUCHER`, `ARTSOBS_NR`, `ANALYSIS_REQUEST` | `CollectionObject.remarks`/custom fields | Keep | High historical/curatorial value; do not discard. |
+| `MUSEUM_OBJECT.OBJECT_ID` | staging map key (same id) | Keep | Must be retained alongside OA rows. |
+| `MUSEUM_OBJECT.IDENTIFIER_NUM` | `CollectionObject.catalognumber` (formatted per collection policy) | Keep | Usually matches label/catalog identity. |
+| `MUSEUM_OBJECT.IDENTIFIER_STRING` | `CollectionObject.catalognumber` / `altcatalognumber` | Keep | Source human-readable identifier (`O-V-...`). |
+| `MUSEUM_OBJECT.LONG_NAME` | `CollectionObject.remarks` | Keep | Preserve full descriptive label text. |
+| `MUSEUM_OBJECT.MUSEUM_OBJECT_TYPE` | custom mapping or filter | Keep | Map via `TYPES` lookup and retain raw id. |
+| `MUSEUM_OBJECT.PARENT_OBJECT_ID` | relationship table (`CollectionRelationship`) or raw | Keep | Needed if object hierarchies should survive. |
+| `MUSEUM_OBJECT.SUB_COLLECTION_ID` | collection routing metadata | Keep | Mostly null for sampled O/V but retain always. |
+| `MUSEUM_OBJECT.MEDIAGRUPPE_ENHETS_ID` | attachment linkage key | Keep | Critical for media extraction (USD_FELLES). |
+
+---
+
+### 2) Event chain and collecting context
+
+| Oracle table.column | Specify target | Keep / drop | Notes |
+|---|---|---|---|
+| `EVENT_MUSEUM_OBJECT.EVENT_ID` | link to migrated event rows | Keep | One object → many events. |
+| `EVENT_MUSEUM_OBJECT.SEQUENCE_NUMBER` | ordering metadata | Keep | Keep raw for deterministic replay. |
+| `EVENT_MUSEUM_OBJECT.PREV_EVENT_FOR_OBJEKT` | event chain metadata | Keep | Needed to reconstruct chronology. |
+| `EVENT.EVENT_ID` | `CollectingEvent` / determination linkage key | Keep | Core event identity. |
+| `EVENT.EVENT_TYPE` | migration dispatch rule | Keep | Distinguishes collecting vs classification vs other types. |
+| `EVENT.EVENTNAME` | `CollectingEvent.remarks` / custom field | Keep | Preserve source event label. |
+| `EVENT.TIMESPAN_ID` | join to `TIMESPAN` | Keep | Essential for date precision. |
+| `COLLECTING_EVENT.EVENT_ID` | `CollectingEvent` key | Keep | Only for collecting-type events. |
+| `COLLECTING_EVENT.COLLECTIONTYPE_ID` | `CollectingEvent.discipline` routing/QA metadata | Keep | In botany O/V often 77/78; keep exact id + label. |
+| `COLLECTING_EVENT.LEGNAME_ORIG` | `CollectingEvent.verbatimlocality` or remarks | Keep | Collector-entered original text. |
+| `COLLECTING_EVENT.AGG_PERSONNAMES` | `CollectingEvent.text*` or remarks | Keep | Preserve even if structured people exist. |
+| `TIMESPAN.FROM_DATE`, `TO_DATE`, `TIME_AS_TEXT`, `UNCERTAIN` | `CollectingEvent.startdate` + precision + verbatim | Keep | Keep all components (structured + verbatim). |
+
+---
+
+### 3) Locality, geography, coordinates
+
+| Oracle table.column | Specify target | Keep / drop | Notes |
+|---|---|---|---|
+| `PLACE_EVENT_ROLE.EVENT_ID`, `PLACE_ID`, `ROLE_ID` | `CollectingEvent.locality` source linkage + raw role | Keep | Primary event→place connector. |
+| `PLACE.PLACE_ID` | migration placemap key | Keep | Stable source place identity. |
+| `PLACE.PLACE_NAME_AGG` | `Locality.text1`/remarks fallback | Keep | In current snapshot often null; still retain. |
+| `PLACE_LOCALITY_PLACE.LOCALITY_PLACE_ID` | locality text join key | Keep | Bridge to free-text locality. |
+| `LOCALITY_PLACE.LOCALITY` | `Locality.localityname` (preferred) | Keep | Core locality text for many records. |
+| `PLACE_HIERACHICAL_PLACE.HIERACHICAL_PLACE_ID` | `Locality.geography` derivation input | Keep | Geography mapping chain. |
+| `HIERARCHICAL_PLACE_OLD.*` (via hierarchy id) | `Geography` nodes/provenance fields | Keep | Critical for historical admin names. |
+| `PLACE_ADMINISTRATIVE_PLACE.*` / `ADMINISTRATIVE_PLACE.*` | optional `Geography` enrichment | Keep | Preserve even if sparsely populated in some envs. |
+| `KOORDINATE_PLACE_PLACE.KOORDINATE_PLACE_ID` | coordinate join key | Keep | Place→coordinate bridge. |
+| `KOORDINATE_PLACE.COORDINATE_STRING` | `Locality.lat1text/long1text` or `text1` | Keep | Verbatim grid string (often only coordinate available). |
+| `KOORDINATE_PLACE.LATITUDE_L`, `LONGITUDE_L` | `Locality.latitude1`, `longitude1` | Keep | Numeric coordinate when valid. |
+| `KOORDINATE_PLACE.DATUM` | `Locality.datum` | Keep | Needed for interpretation/transforms. |
+| `KOORDINATE_PLACE` UTM/MGRS fields | `Locality` text/custom fields | Keep | Preserve all projected coordinate variants. |
+| `DERIVED_COORDINATES.*` | custom coordinate QA fields/raw | Keep | Useful for QA and back-calculation. |
+| `PLACE_BIO_GEOGRAFISK_REGION` + `MUSIT_NATHIST_FELLES.BIO_GEOGRAFISK_REGION` | `Locality`/`Geography` custom region field | Keep | Important ecological context. |
+
+---
+
+### 4) Determinations, taxon linkage, type info
+
+| Oracle table.column | Specify target | Keep / drop | Notes |
+|---|---|---|---|
+| `CLASSIFICATION_EVENT.EVENT_ID` | `Determination` source event key | Keep | Attach determinations to object via event chain. |
+| `CLASSIFICATION_EVENT.CLASSIFICATION_TYPE_ID` | `Determination` qualifier/provenance | Keep | E.g., original determination, redetermination, confirmation. |
+| `CLASSIFICATION_EVENT.CLASS_TERM_ID` | determination concept join | Keep | Bridge to term/name rows. |
+| `CLASSIFICATION_TERM.CLASSTERM`, `ENTERED_CLASSTERM`, `VALID_CLASSTERM` | `Determination.remarks` / verbatim identification | Keep | Keep all textual variants. |
+| `CLASSTERM_LATIN_NAME.LATIN_NAME_ID` | taxon join key | Keep | Needed for stable taxon mapping. |
+| `LATIN_NAMES.LATIN_NAME` | `Taxon.name` / `Determination.text1` fallback | Keep | Core scientific name. |
+| `LATIN_NAMES.FULL_NAME`, `FULL_NAME_AUTHOR` | `Taxon.fullname`, `Taxon.author` | Keep | Preferred authoritative formatting. |
+| `LATIN_NAMES.NHM_TAXON_ID` | `Taxon.text*` / mapping key | Keep | Stable internal taxon key. |
+| `LATIN_NAMES.ADB_LATIN_NAME_ID` | NorTaxa bridge field | Keep | Critical for authority reconciliation. |
+| `LATIN_NAMES.IS_VALID`, parent ids, category ids | synonym/accepted logic | Keep | Needed for taxon graph consistency. |
+| `TYPIFICATION_EVENT.*`, `TYPE_SPECIMEN.*` | `Determination.istype` + type status fields | Keep | High-value nomenclatural metadata. |
+
+---
+
+### 5) People/agents and role assertions
+
+| Oracle table.column | Specify target | Keep / drop | Notes |
+|---|---|---|---|
+| `EVENT_ROLE_PERSON_NAME.EVENT_ID`, `ROLE_ID`, `PERSON_NAME_ID` | collector/determiner attribution joins | Keep | In sampled O/V, this carried person-role links. |
+| `EVENT_ROLE_ACTOR.EVENT_ID`, `ROLE_ID`, `ACTOR_ID` | collector/determiner attribution joins | Keep | May be sparse by subset; still retain. |
+| `PERSON_NAME` fields (`SURNAME`, `GIVEN`, `MIDDLE`, etc.) | `Agent` person fields | Keep | Use agent mapping flow or on-the-fly upsert. |
+| `ACTOR` fields (`ACTORNAME`, `ACTOR_TYPE`, `INSTITUTION`, contacts, URL) | `Agent` fields/custom | Keep | Keep full source actor payload for future reconciliation. |
+| `MUSEUM_OBJECT_LEGNR_PERSON` (`OBJECT_ID`, `ACTOR_ID`, `LEGNR`) | collector numbering/provenance | Keep | Useful for historical legator notation. |
+
+---
+
+### 6) Notes, documents, attachments, references
+
+| Oracle table.column | Specify target | Keep / drop | Notes |
+|---|---|---|---|
+| `NOTE.NOTE_TEXT`, `NOTE.LONG_NOTE` | `CollectionObject.remarks` / note attachments | Keep | Do not collapse to one field without raw retention. |
+| `MUSEUM_OBJECT_NOTE` links (`OBJECT_ID`, `NOTE_ID`, `TYPE_ID`) | object-level remarks/citations | Keep | Preserve note typing via `TYPES`. |
+| `EVENT_NOTE` links (`EVENT_ID`, `NOTE_ID`, `NOTE_TYPE_ID`) | event/determination remarks | Keep | Keep role/type semantics. |
+| `REFERENCE_DOCUMENT.DOCUMENT_*` | `ReferenceWork` / attachment | Keep | Includes blob/text/reference pointers. |
+| `DOCUMENT_OBJECT`, `EVENT_DOCUMENT` link tables | attach docs to object/event | Keep | Needed to reconstruct context attachments. |
+| `USD_FELLES.MEDIAGRUPPE_ENHET.*` | attachment grouping metadata | Keep | Key bridge from object to binary files. |
+| `USD_FELLES.MEDIA_FIL.*` (including filenames, mime/type, blob refs) | `Attachment` + `CollectionObjectAttachment` | Keep | Preserve all versions and source file metadata. |
+| `USD_FELLES.MEDIA__PATHS.*` | file acquisition pipeline metadata | Keep | Needed to resolve physical file locations. |
+
+---
+
+### 7) Keep/drop policy revision (map all meaningful data)
+
+Policy for this migration is now:
+
+1. **Keep and map everything that has operational or scientific value** into native Specify fields
+   where a reasonable target exists (`CollectionObject`, `CollectingEvent`, `Locality`,
+   `Determination`, `Taxon`, `Agent`, `Attachment`, and attribute tables).
+2. **Do not silently drop the remainder**. Any source fields not mapped to first-pass Specify
+   columns must be serialized into a per-object JSON payload stored on `CollectionObject` text
+   storage (prefer `CollectionObject.text1`, with overflow strategy to `text2`/`text3` if needed).
+3. **Only true drop class**: strict duplicates that are byte-for-byte derivable from retained values
+   and add no provenance.
+
+Recommended JSON envelope for `CollectionObject.text1`:
+
+```json
+{
+  "source": {
+    "owner": "MUSIT_BOTANIKK_FELLES",
+    "object_id": 12345,
+    "dataset": "O-Vascular"
+  },
+  "unmapped": {
+    "MUSEUM_OBJECT": { "...": "..." },
+    "OBJECT_ATTRIBUTES": { "...": "..." },
+    "PLACE": { "...": "..." },
+    "EVENT": { "...": "..." }
+  },
+  "migration_meta": {
+    "exported_at_utc": "2026-04-20T00:00:00Z",
+    "mapping_version": "oslo-vascular-v1"
+  }
+}
+```
+
+This keeps Specify operational while preserving no-loss source detail directly with each specimen.
+
+Decision rule summary:
+
+- **Keep + map to native Specify fields**
+  - identity and cataloguing (`catalogNumber`, GUID/UUID bridges, project/dataset context);
+  - current collecting context (date, locality, geography, coordinates, datum);
+  - current taxonomy/determination state (`Determination`, `Taxon`, `iscurrent=true`);
+  - agent links and attachment/document links that have first-class targets.
+- **Keep + store as JSON on `CollectionObject`**
+  - role/event/link-table structures that do not fit cleanly in first-pass schema;
+  - extra source columns needed for provenance/auditability but not user-facing day one;
+  - all remaining unmapped but meaningful columns from connected source rows.
+- **Drop**
+  - strict duplicates/aliases that are fully derivable from already retained values;
+  - transient technical helper fields that carry no additional provenance.
+
+### 8) Event construct in MUSIT and Specify flattening strategy
+
+MUSIT is event-centric (many event rows and role/link tables per object), while Specify specimen
+records are centered on `CollectionObject` + linked `CollectingEvent` + `Determination` (+ related
+agents/attachments). For Oslo vascular migration, treat event data as follows:
+
+1. **Collecting pipeline events** (`EVENT` + `COLLECTING_EVENT` + `EVENT_MUSEUM_OBJECT`) map to
+   one primary `CollectingEvent` per `CollectionObject` (plus linked `Locality`/`Geography`).
+2. **Identification events** (`CLASSIFICATION_EVENT`, typification links) map to
+   `Determination` rows (multiple allowed), with one marked `iscurrent=true`.
+3. **Role assertions** (`EVENT_ROLE_PERSON_NAME`, `EVENT_ROLE_ACTOR`) map to `Agent` links where
+   Specify has a first-class target (collector, determiner, etc.); unresolved role details are kept
+   in JSON payload.
+4. **Event notes/documents** map to remarks/attachments/citations when possible; any unmapped
+   structure is retained in JSON payload.
+
+### 9) Historical state policy for this migration
+
+Specify 7 has audit tables (`SpAuditLog`, `SpAuditLogField`) and an Edit History UI, but this is
+application audit logging, not a native MUSIT-style event-sourcing model. In this codebase, audit
+entries are explicitly written by selected backend flows (for example workbench upload and some tree
+mutations), so complete historical replay from MUSIT cannot be represented 1:1 purely with core
+Specify relational fields.
+
+Migration policy here:
+
+1. **Flatten to current-state specimen model** (normal Specify records users work with).
+2. **Preserve historical/event lineage in JSON** (`CollectionObject.text1` payload above).
+3. **Do not write migration audit-log records**. Load the most recent state only and keep prior-state
+   detail as preserved source evidence in JSON.
+
 ### 1. Images and files
 
 | Source | What you get | Notes for Specify `Attachment` |

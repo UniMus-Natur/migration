@@ -111,3 +111,30 @@ deployments:
       name: dev-process
       work_queue_name: default
 
+  - name: migrate-oslo-vascular-dev
+    version: 1.0.0
+    tags: ["specify", "specimens", "botany", "migration", "dev"]
+    description: "Phase 2: Migrate Oslo vascular herbarium (O/V) from MUSIT_BOTANIKK_FELLES into Specify NHM-karplanter. Set limit=100 for a timed test run."
+    entrypoint: flows/migrate_oslo_vascular.py:migrate_oslo_vascular_flow
+    parameters:
+      oracle_env: "PROD"
+      dry_run: true
+      limit: null
+    work_pool:
+      name: dev-process
+      work_queue_name: default
+
+  - name: purge-oslo-vascular-dataset-dev
+    version: 1.0.0
+    tags: ["specify", "specimens", "botany", "purge", "maintenance", "dev"]
+    description: "Destructive maintenance: delete all CollectionObjects/CollectingEvents/Localities for NHM-karplanter; keeps Agents and Geography."
+    entrypoint: flows/purge_specify_dataset.py:purge_specify_dataset_flow
+    parameters:
+      collection_code: "NHM-karplanter"
+      dry_run: true
+      clear_objectmap_rows: true
+      clear_placemap_rows: false
+    work_pool:
+      name: dev-process
+      work_queue_name: default
+
