@@ -578,7 +578,11 @@ def _ensure_geography_for_place(
             if parent_geo_id is not None:
                 parent_geo = _geo(parent_geo_id) or earth
 
-        parent_rankid = int(getattr(parent_geo, "rankid", -1) or -1)
+        # Earth has rankid=0 — never use ``(rankid or -1)`` here: 0 is falsy and would become -1,
+        # then ``next(rankid > -1)`` picks the *Earth* treedef item again → duplicate rank 0 under
+        # Earth → Specify Tree validation fails (and their error payload crashes on parent.parent).
+        _pr = getattr(parent_geo, "rankid", None)
+        parent_rankid = int(_pr) if _pr is not None else -1
         logical = oracle_type_name_to_rank_item_name(r["type_name"])
         di = _resolve_rank_item(rank_items, logical) if logical else None
         if di is None or int(di.rankid) <= parent_rankid:
