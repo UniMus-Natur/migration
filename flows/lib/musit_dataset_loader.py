@@ -8,7 +8,7 @@ Specify 7 record chain:
                         ↑
                     Locality  (created on-the-fly via migration_oracle_placemap)
                         ↑
-                    Geography (resolved by GUID, created on-the-fly if missing)
+                    Geography (resolved by GUID; created on-the-fly under Earth using Specify ``Tree`` APIs)
 
 Every future collection migration creates a ``MusitDatasetConfig`` and calls
 ``load_musit_dataset``; it does not need to know anything about Oracle SQL or
@@ -434,6 +434,25 @@ def _fetch_hierarchical_chain_rows_for_place(
     return ordered
 
 
+def _fix_geography_root_nodenumber_if_needed(earth: Any) -> None:
+    """Specify ``Tree.adding_node`` requires ``parent.nodenumber``; roots created outside the
+    workbench often have ``nodenumber`` / ``highestchildnodenumber`` NULL until the tree is
+    initialized.  Without this, ``children.create`` raises ``AttributeError`` inside tree code.
+    """
+    from specifyweb.specify.models import Geography
+
+    earth.refresh_from_db()
+    if earth.nodenumber is not None and earth.highestchildnodenumber is not None:
+        return
+    nchild = Geography.objects.filter(parent_id=earth.id).count()
+    if nchild > 0:
+        raise RuntimeError(
+            f"Geography root id={earth.id} has NULL node numbers but already has {nchild} child rows; "
+            "repair the geography tree in Specify (or renumber) before migrating."
+        )
+    Geography.objects.filter(pk=earth.id).update(nodenumber=1, highestchildnodenumber=1)
+
+
 def _ensure_earth_root_for_treedef(*, treedef_id: int, dry_run: bool) -> Any:
     """Ensure an Earth root exists for this GeographyTreeDef."""
     from specifyweb.specify.models import Geography
@@ -442,6 +461,8 @@ def _ensure_earth_root_for_treedef(*, treedef_id: int, dry_run: bool) -> Any:
 
     earth = Geography.objects.filter(definition_id=treedef_id, parent_id__isnull=True).order_by("id").first()
     if earth is not None:
+        if not dry_run:
+            _fix_geography_root_nodenumber_if_needed(earth)
         return earth
     if dry_run:
         return None
@@ -450,19 +471,19 @@ def _ensure_earth_root_for_treedef(*, treedef_id: int, dry_run: bool) -> Any:
     if not ordered_items:
         return None
     root_item = ordered_items[0]
-    g = Geography(
-        name="Earth",
-        fullname="Earth",
-        definition_id=treedef_id,
-        definitionitem=root_item,
-        parent=None,
-        rankid=root_item.rankid,
-        isaccepted=True,
-        iscurrent=True,
-        guid=None,
-    )
     with transaction.atomic():
-        g.save()
+        g = Geography.objects.create(
+            name="Earth",
+            fullname="Earth",
+            definition_id=treedef_id,
+            definitionitem=root_item,
+            parent=None,
+            rankid=root_item.rankid,
+            isaccepted=True,
+            iscurrent=True,
+            guid=None,
+        )
+    _fix_geography_root_nodenumber_if_needed(g)
     return g
 
 
@@ -482,6 +503,7 @@ def _ensure_geography_for_place(
 
     from flows.lib.oracle_geography_load import (
         _deepest_geography_for_place,
+        _fetch_place_text,
         _rank_items_by_name_lower,
         _resolve_rank_item,
         _treedef_items_ordered_by_rank,
@@ -499,7 +521,36 @@ def _ensure_geography_for_place(
 
     rows = _fetch_hierarchical_chain_rows_for_place(oracle_cursor, owner, place_id)
     if not rows:
-        return None
+        # No hierarchical_place_old chain for this PLACE_ID — attach a single leaf under Earth
+        # so Locality always has a valid Geography (Specify tree code requires numbered roots).
+        if dry_run:
+            return None
+        if len(ordered_items) < 2:
+            raise RuntimeError(
+                f"GeographyTreeDef {geography_treedef_id} has no ranks below Earth — cannot create place fallback."
+            )
+        agg, loc_text = _fetch_place_text(oracle_cursor, owner, place_id)
+        name = ((loc_text or agg or f"Place {place_id}").strip() or f"Place {place_id}")[:128]
+        guid = f"{guid_prefix}place{place_id}"
+        existing = Geography.objects.filter(definition_id=geography_treedef_id, guid=guid).first()
+        if existing is not None:
+            return int(existing.id)
+        leaf_di = ordered_items[1]
+        fullname = f"Earth, {name}"[:500]
+        with transaction.atomic():
+            earth.refresh_from_db()
+            g = earth.children.create(
+                name=name,
+                fullname=fullname,
+                definition_id=geography_treedef_id,
+                definitionitem=leaf_di,
+                rankid=leaf_di.rankid,
+                isaccepted=True,
+                iscurrent=True,
+                guid=guid,
+            )
+        stats.geography_created += 1
+        return int(g.id)
 
     geo_cache: dict[int, Any] = {int(earth.id): earth}
 
@@ -533,7 +584,10 @@ def _ensure_geography_for_place(
         if di is None or int(di.rankid) <= parent_rankid:
             di = next((it for it in ordered_items if int(it.rankid) > parent_rankid), None)
         if di is None:
-            continue
+            raise RuntimeError(
+                f"No GeographyTreeDefItem rank above parent rankid={parent_rankid} for "
+                f"owner={owner!r} place_id={place_id} hid={hid!r} name={r.get('name')!r}"
+            )
 
         if dry_run:
             continue
@@ -541,19 +595,18 @@ def _ensure_geography_for_place(
         name = r["name"]
         parent_full = (getattr(parent_geo, "fullname", None) or getattr(parent_geo, "name", "Earth"))
         fullname = f"{parent_full}, {name}"[:500]
-        g = Geography(
-            name=name,
-            fullname=fullname,
-            definition_id=geography_treedef_id,
-            definitionitem=di,
-            parent=parent_geo,
-            rankid=di.rankid,
-            isaccepted=True,
-            iscurrent=True,
-            guid=guid,
-        )
         with transaction.atomic():
-            g.save()
+            parent_geo.refresh_from_db()
+            g = parent_geo.children.create(
+                name=name,
+                fullname=fullname,
+                definition_id=geography_treedef_id,
+                definitionitem=di,
+                rankid=di.rankid,
+                isaccepted=True,
+                iscurrent=True,
+                guid=guid,
+            )
         gid = int(g.id)
         oracle_hid_to_geo[hid] = gid
         geo_rankid_by_pk[gid] = int(getattr(g, "rankid", 0) or 0)
@@ -595,6 +648,9 @@ def _get_or_create_locality(
         _fetch_place_text,
         _place_locality_guid,
     )
+
+    if oracle_cursor is None:
+        raise RuntimeError("_get_or_create_locality requires oracle_cursor (must not be None).")
 
     cache_key = (discipline_id, place_id)
     if cache_key in locality_cache:
@@ -655,6 +711,11 @@ def _get_or_create_locality(
             oracle_hid_to_geo=oracle_hid_to_geo,
             geo_rankid_by_pk=geo_rankid_by_pk,
             stats=stats,
+        )
+    if geo_id is None:
+        raise RuntimeError(
+            f"Geography unresolved after ensure step: owner={owner!r} place_id={place_id} "
+            f"treedef_id={geography_treedef_id}"
         )
 
     locality_name = (loc_text or agg or f"Place {place_id}")[:1024]
@@ -753,6 +814,7 @@ def _write_one_object(
     config: MusitDatasetConfig,
     collection: Any,
     discipline: Any,
+    oracle_cursor: Any,
     run_ts: str,
     dry_run: bool,
     locality_cache: dict[tuple[int, int], int],
@@ -789,7 +851,7 @@ def _write_one_object(
         if v is not None:
             unmapped[key] = v if not isinstance(v, (date, datetime)) else str(v)
 
-    text1_payload = json.dumps(
+    json_payload = json.dumps(
         {
             "source": {
                 "owner": owner,
@@ -807,26 +869,27 @@ def _write_one_object(
     )
 
     with transaction.atomic():
-        # 1. Locality (resolve or create on-the-fly)
+        # 1. Locality (resolve or create on-the-fly) — failures abort the whole object write.
         locality = None
         place_id_raw = first.get("place_id")
         if place_id_raw is not None:
-            try:
-                place_id = int(place_id_raw)
-                locality = _get_or_create_locality(
-                    place_id=place_id,
-                    oracle_cursor=None,  # passed below via context — see caller
-                    owner=owner,
-                    discipline_id=int(discipline.id),
-                    geography_treedef_id=int(discipline.geographytreedef_id),
-                    run_ts=run_ts,
-                    dry_run=dry_run,
-                    locality_cache=locality_cache,
-                    stats=stats,
+            place_id = int(place_id_raw)
+            if discipline.geographytreedef_id is None:
+                raise RuntimeError(
+                    f"Discipline id={discipline.id!r} has no geographytreedef_id — "
+                    "initialize geography in Specify before migrating localities."
                 )
-            except Exception as exc:  # noqa: BLE001
-                _log("warning", "object_id=%s: locality creation failed place_id=%s: %s", object_id, place_id_raw, exc)
-                locality = None
+            locality = _get_or_create_locality(
+                place_id=place_id,
+                oracle_cursor=oracle_cursor,
+                owner=owner,
+                discipline_id=int(discipline.id),
+                geography_treedef_id=int(discipline.geographytreedef_id),
+                run_ts=run_ts,
+                dry_run=dry_run,
+                locality_cache=locality_cache,
+                stats=stats,
+            )
 
         # 2. CollectingEvent
         start_date = _coerce_date(first.get("from_date"))
@@ -892,7 +955,7 @@ def _write_one_object(
             collection=collection,
             collectionmemberid=int(collection.id),
             remarks=_trunc(first.get("uuid"), 128),
-            text1=text1_payload,
+            text3=json_payload,
             fieldnumber=_trunc(first.get("identifier_num"), 50),
         )
         # Object withheld → visibility flag (1=private, 0=public)
@@ -1144,29 +1207,18 @@ def load_musit_dataset(
                 _log("debug", "object_id=%s: no specimen rows returned; skipping", oid)
                 continue
 
-            # Pass oracle_cursor into the locality helper via a closure trick — we need
-            # to inject it without changing the _get_or_create_locality signature contract.
-            # We do this by monkey-patching the None sentinel passed in _write_one_object:
-            # the locality helper will receive the real cursor via a module-level thread-local.
-            _current_oracle_cursor.cursor = oracle_cursor
-
-            try:
-                _write_one_object(
-                    object_id=oid,
-                    rows=rows,
-                    config=config,
-                    collection=collection,
-                    discipline=discipline,
-                    run_ts=run_ts,
-                    dry_run=dry_run,
-                    locality_cache=locality_cache,
-                    stats=stats,
-                )
-            except Exception as exc:  # noqa: BLE001
-                msg = f"object_id={oid}: {exc}"
-                _log("error", "load_musit_dataset | ERROR %s", msg)
-                if len(stats.errors) < _MAX_ERRORS:
-                    stats.errors.append(msg)
+            _write_one_object(
+                object_id=oid,
+                rows=rows,
+                config=config,
+                collection=collection,
+                discipline=discipline,
+                oracle_cursor=oracle_cursor,
+                run_ts=run_ts,
+                dry_run=dry_run,
+                locality_cache=locality_cache,
+                stats=stats,
+            )
 
             total_processed += 1
 
@@ -1228,37 +1280,3 @@ def load_musit_dataset(
         _format_duration(stats.elapsed_s),
     )
     return stats
-
-
-# ---------------------------------------------------------------------------
-# Thread-local oracle cursor carrier
-# (avoids changing _get_or_create_locality signature while keeping modularity)
-# ---------------------------------------------------------------------------
-
-import threading as _threading  # noqa: E402
-
-
-class _OracleCursorHolder(_threading.local):
-    cursor: Any = None
-
-
-_current_oracle_cursor = _OracleCursorHolder()
-
-
-# Patch _get_or_create_locality to use the holder when oracle_cursor is None.
-_orig_get_or_create_locality = _get_or_create_locality
-
-
-def _get_or_create_locality(  # type: ignore[no-redef]
-    *,
-    place_id: int,
-    oracle_cursor: Any,
-    **kwargs: Any,
-) -> Any:
-    if oracle_cursor is None:
-        oracle_cursor = _current_oracle_cursor.cursor
-    return _orig_get_or_create_locality(
-        place_id=place_id,
-        oracle_cursor=oracle_cursor,
-        **kwargs,
-    )
