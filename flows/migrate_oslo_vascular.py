@@ -52,7 +52,7 @@ OSLO_VASCULAR_CONFIG = MusitDatasetConfig(
     oracle_schema="MUSIT_BOTANIKK_FELLES",
     institutioncode="O",
     collectioncode="V",
-    specify_collection_code="NHM-karplanter",
+    specify_collection_code="NHM",
     specify_discipline_name="Karplanter Moser",
     dataset_label="oslo-vascular-v1",
 )

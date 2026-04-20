@@ -130,7 +130,7 @@ deployments:
     description: "Destructive maintenance: delete all CollectionObjects/CollectingEvents/Localities for NHM-karplanter; keeps Agents and Geography."
     entrypoint: flows/purge_specify_dataset.py:purge_specify_dataset_flow
     parameters:
-      collection_code: "NHM-karplanter"
+      collection_code: "NHM"
       dry_run: true
       clear_objectmap_rows: true
       clear_placemap_rows: false
