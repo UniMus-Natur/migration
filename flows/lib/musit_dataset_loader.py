@@ -361,6 +361,17 @@ def _resolve_agent(schema: str, actor_id: Any) -> Any:
     return Agent.objects.filter(remarks__startswith=marker).first()
 
 
+def _oracle_row_is_nominal_world_shell(r: dict[str, Any]) -> bool:
+    """True when this hierarchical row is MUSIT's synthetic global shell (WORLD / Verden / …).
+
+    Those nodes must not become a separate ``Geography`` under Earth (they would pick the
+    Continent rank when ``TYPES`` is NULL).  Alias the Oracle HIERARCH_PLACE_ID to Earth instead.
+    """
+    from flows.lib.oracle_geography_load import _NULL_ORACLE_TYPE_REDUNDANT_PARENT_NAMES, _norm_type
+
+    return _norm_type(r.get("name")) in _NULL_ORACLE_TYPE_REDUNDANT_PARENT_NAMES
+
+
 def _fetch_hierarchical_chain_rows_for_place(
     oracle_cursor: Any,
     owner: str,
@@ -502,7 +513,9 @@ def _ensure_geography_for_place(
     from specifyweb.specify.models import Geography
 
     from flows.lib.oracle_geography_load import (
+        HierRow,
         _deepest_geography_for_place,
+        _effective_parent_geography_for_untyped,
         _fetch_place_text,
         _rank_items_by_name_lower,
         _resolve_rank_item,
@@ -513,7 +526,8 @@ def _ensure_geography_for_place(
     earth = _ensure_earth_root_for_treedef(treedef_id=geography_treedef_id, dry_run=dry_run)
     if earth is None:
         return None
-    geo_rankid_by_pk[int(earth.id)] = int(getattr(earth, "rankid", 0) or 0)
+    _erk = getattr(earth, "rankid", None)
+    geo_rankid_by_pk[int(earth.id)] = int(_erk) if _erk is not None else 0
 
     rank_items = _rank_items_by_name_lower(geography_treedef_id)
     ordered_items = _treedef_items_ordered_by_rank(geography_treedef_id)
@@ -564,10 +578,23 @@ def _ensure_geography_for_place(
     for r in rows:
         hid = int(r["hid"])
         guid = f"{guid_prefix}{hid}"
+
+        # Synthetic WORLD / Verden shell — map Oracle id to Specify Earth, do not insert a row.
+        # Must run before the GUID reuse branch so a mistaken continent "WORLD" from an older run
+        # is not re-linked via ``oracle_hid_to_geo``.
+        if _oracle_row_is_nominal_world_shell(r):
+            if not dry_run:
+                oracle_hid_to_geo[hid] = int(earth.id)
+                geo_cache[int(earth.id)] = earth
+                _e = getattr(earth, "rankid", None)
+                geo_rankid_by_pk[int(earth.id)] = int(_e) if _e is not None else 0
+            continue
+
         existing = Geography.objects.filter(definition_id=geography_treedef_id, guid=guid).first()
         if existing is not None:
             oracle_hid_to_geo[hid] = int(existing.id)
-            geo_rankid_by_pk[int(existing.id)] = int(getattr(existing, "rankid", 0) or 0)
+            _er = getattr(existing, "rankid", None)
+            geo_rankid_by_pk[int(existing.id)] = int(_er) if _er is not None else 0
             geo_cache[int(existing.id)] = existing
             continue
 
@@ -577,6 +604,9 @@ def _ensure_geography_for_place(
             parent_geo_id = oracle_hid_to_geo.get(int(parent_hid))
             if parent_geo_id is not None:
                 parent_geo = _geo(parent_geo_id) or earth
+
+        hier = HierRow(hid, r["name"], r["partof"], r.get("type_name"))
+        parent_geo = _effective_parent_geography_for_untyped(parent_geo, hier, earth)
 
         # Earth has rankid=0 — never use ``(rankid or -1)`` here: 0 is falsy and would become -1,
         # then ``next(rankid > -1)`` picks the *Earth* treedef item again → duplicate rank 0 under
@@ -613,7 +643,8 @@ def _ensure_geography_for_place(
             )
         gid = int(g.id)
         oracle_hid_to_geo[hid] = gid
-        geo_rankid_by_pk[gid] = int(getattr(g, "rankid", 0) or 0)
+        _gr = getattr(g, "rankid", None)
+        geo_rankid_by_pk[gid] = int(_gr) if _gr is not None else 0
         geo_cache[gid] = g
         stats.geography_created += 1
 
