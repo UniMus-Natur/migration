@@ -9,6 +9,8 @@ Usage:
   specify_api --collection NHM "/api/specify/taxon/?limit=5"  # GET any path, pretty JSON
   specify_api --collection NHM --text-fields                  # CollectionObject text-field labels
   specify_api --collection NHM --geography-tree               # GeographyTreeDef + Discipline link
+  specify_api --collection NHM --purge-geography-treedef 2 --dry-run   # count API purge impact
+  specify_api --collection NHM --purge-geography-all --yes            # DELETE all geography (REST)
   specify_api --collection NHM --json "/api/specify/collectionobject/?limit=2"  # raw JSON
   specify_api --collection NHM --table "/api/specify/agent/?limit=10"           # ASCII table
 
@@ -151,6 +153,102 @@ def _get(session: requests.Session, base: str, path: str) -> dict | list:
     if not r.ok:
         sys.exit(f"GET {path} → {r.status_code}\n{r.text[:600]}")
     return r.json()
+
+
+def _csrf(session: requests.Session) -> str:
+    return session.cookies.get("csrftoken", "") or ""
+
+
+def _put(session: requests.Session, base: str, path: str, body: dict) -> dict | list:
+    url = f"{base}{path}" if path.startswith("/") else path
+    r = session.put(
+        url,
+        json=body,
+        headers={
+            "X-CSRFToken": _csrf(session),
+            "Referer": base,
+            "Content-Type": "application/json",
+        },
+        timeout=120,
+    )
+    if not r.ok:
+        sys.exit(f"PUT {path} → {r.status_code}\n{r.text[:800]}")
+    if r.text:
+        return r.json()
+    return {}
+
+
+def _delete(session: requests.Session, base: str, path: str) -> None:
+    url = f"{base}{path}" if path.startswith("/") else path
+    r = session.delete(
+        url,
+        headers={"X-CSRFToken": _csrf(session), "Referer": base},
+        timeout=120,
+    )
+    if r.status_code not in (200, 204):
+        sys.exit(f"DELETE {path} → {r.status_code}\n{r.text[:800]}")
+
+
+def _post(session: requests.Session, base: str, path: str, body: dict) -> dict:
+    url = f"{base}{path}" if path.startswith("/") else path
+    r = session.post(
+        url,
+        json=body,
+        headers={
+            "X-CSRFToken": _csrf(session),
+            "Referer": base,
+            "Content-Type": "application/json",
+        },
+        timeout=120,
+    )
+    if r.status_code not in (200, 201):
+        sys.exit(f"POST {path} → {r.status_code}\n{r.text[:800]}")
+    if r.text:
+        return r.json()
+    return {}
+
+
+def _resource_pk(uri: str | None) -> int | None:
+    if not uri or not isinstance(uri, str):
+        return None
+    parts = uri.rstrip("/").split("/")
+    try:
+        return int(parts[-1])
+    except (ValueError, IndexError):
+        return None
+
+
+def _iter_list_endpoint(session: requests.Session, base: str, query: str) -> list[dict]:
+    """GET all pages from a ``/api/specify/<model>/`` list URL (uses ``meta.total_count`` when present)."""
+    offset = 0
+    limit = 300
+    out: list[dict] = []
+    total: int | None = None
+    while True:
+        sep = "&" if "?" in query else "?"
+        path = f"{query}{sep}limit={limit}&offset={offset}"
+        data = _get(session, base, path)
+        if not isinstance(data, dict):
+            break
+        objs = data.get("objects") or []
+        meta = data.get("meta") or {}
+        if total is None and meta.get("total_count") is not None:
+            total = int(meta["total_count"])
+        out.extend(objs)
+        offset += len(objs)
+        if not objs:
+            break
+        if total is not None and offset >= total:
+            break
+        if len(objs) < limit:
+            break
+    return out
+
+
+def _strip_meta_for_put(obj: dict) -> dict:
+    """Remove read-only / response-only keys before PUT."""
+    skip = frozenset({"resource_uri", "recordset_info", "_tableName"})
+    return {k: v for k, v in obj.items() if k not in skip}
 
 
 # ---------------------------------------------------------------------------
@@ -329,6 +427,154 @@ def _cmd_geography_tree(session: requests.Session, base: str) -> None:
     _print_table(_get(session, base, "/api/specify/geographytreedefitem/?limit=100"))
 
 
+def _cmd_purge_geography_via_api(
+    session: requests.Session,
+    base: str,
+    *,
+    treedef_id: int | None,
+    dry_run: bool,
+    yes: bool,
+) -> None:
+    """Mirror ``flows.lib.specify_geography_purge`` using REST: null FKs, delete leaves-up, POST Earth.
+
+    Uses ``domainfilter=false`` so Locality / Geography are not limited to the logged-in collection.
+    Requires an account with permission to update/delete those rows (often institution admin).
+
+    * ``treedef_id`` — if set, only rows with ``definition`` = that id; otherwise every treedef.
+
+    Does **not** truncate ``migration_oracle_placemap`` (the Django purge helpers do). Clear that
+    table separately if placemap rows must match a wiped geography tree.
+    """
+    if not dry_run and not yes:
+        sys.exit(
+            "Refusing destructive geography purge without --yes.\n"
+            "  Add --dry-run to only print counts, or --yes to execute."
+        )
+
+    geo_query = "/api/specify/geography/?domainfilter=false"
+    if treedef_id is not None:
+        geo_query += f"&definition={int(treedef_id)}"
+
+    geo_rows = _iter_list_endpoint(session, base, geo_query)
+    target_ids = {int(o["id"]) for o in geo_rows if o.get("id") is not None}
+
+    loc_rows = _iter_list_endpoint(
+        session,
+        base,
+        "/api/specify/locality/?domainfilter=false&geography__isnull=false",
+    )
+    loc_touch = [o for o in loc_rows if _resource_pk(o.get("geography")) in target_ids]
+
+    ag_rows = _iter_list_endpoint(session, base, "/api/specify/agentgeography/?domainfilter=false")
+    ag_touch = [o for o in ag_rows if _resource_pk(o.get("geography")) in target_ids]
+
+    acc_touch = [
+        o
+        for o in geo_rows
+        if _resource_pk(o.get("acceptedgeography")) in target_ids
+    ]
+
+    print(
+        json.dumps(
+            {
+                "dry_run": dry_run,
+                "treedef_id": treedef_id,
+                "geography_rows": len(geo_rows),
+                "localities_to_null_geography": len(loc_touch),
+                "agentgeography_to_delete": len(ag_touch),
+                "geography_accepted_to_clear": len(acc_touch),
+            },
+            indent=2,
+        )
+    )
+
+    if dry_run:
+        return
+
+    for o in loc_touch:
+        lid = int(o["id"])
+        full = _get(session, base, f"/api/specify/locality/{lid}/")
+        body = _strip_meta_for_put(full)
+        body["geography"] = None
+        _put(session, base, f"/api/specify/locality/{lid}/", body)
+        print(f"[purge] locality {lid}: geography nulled", file=sys.stderr)
+
+    for o in ag_touch:
+        aid = int(o["id"])
+        _delete(session, base, f"/api/specify/agentgeography/{aid}/")
+        print(f"[purge] agentgeography {aid} deleted", file=sys.stderr)
+
+    for o in acc_touch:
+        gid = int(o["id"])
+        full = _get(session, base, f"/api/specify/geography/{gid}/")
+        body = _strip_meta_for_put(full)
+        body["acceptedgeography"] = None
+        _put(session, base, f"/api/specify/geography/{gid}/", body)
+        print(f"[purge] geography {gid}: acceptedgeography cleared", file=sys.stderr)
+
+    deleted_geo = 0
+    guard = 0
+    while True:
+        guard += 1
+        if guard > 25000:
+            sys.exit("purge geography: iteration guard exceeded (possible cycle or API error)")
+        geo_now = _iter_list_endpoint(session, base, geo_query)
+        if not geo_now:
+            break
+        parent_ids = {
+            int(_resource_pk(x["parent"]))
+            for x in geo_now
+            if x.get("parent")
+        }
+        leaves = [x for x in geo_now if int(x["id"]) not in parent_ids]
+        if not leaves:
+            sys.exit("purge geography: no leaf nodes but geography rows remain — check tree integrity")
+        for x in leaves:
+            gid = int(x["id"])
+            _delete(session, base, f"/api/specify/geography/{gid}/")
+            deleted_geo += 1
+        print(f"[purge] geography batch deleted={len(leaves)} total_deleted={deleted_geo}", file=sys.stderr)
+
+    treedefs_to_seed: list[int]
+    if treedef_id is not None:
+        treedefs_to_seed = [int(treedef_id)]
+    else:
+        td_data = _get(session, base, "/api/specify/geographytreedef/?limit=500")
+        treedefs_to_seed = sorted({int(x["id"]) for x in td_data.get("objects", []) if x.get("id") is not None})
+
+    for tid in treedefs_to_seed:
+        roots = _iter_list_endpoint(
+            session,
+            base,
+            f"/api/specify/geographytreedefitem/?treedef={tid}&parent__isnull=true&orderby=rankid",
+        )
+        if not roots:
+            print(f"[purge] skip Earth for treedef {tid} (no GeographyTreeDefItem rows)", file=sys.stderr)
+            continue
+        top = min(roots, key=lambda it: int(it.get("rankid") or 0))
+        di_uri = top.get("resource_uri") or f"/api/specify/geographytreedefitem/{top['id']}/"
+        rankid = int(top.get("rankid") or 0)
+        guid = f"urn:migration:geography-root:treedef-{tid}"[:128]
+        body = {
+            "name": "Earth",
+            "fullname": "Planet",
+            "definition": f"/api/specify/geographytreedef/{tid}/",
+            "definitionitem": di_uri,
+            "parent": None,
+            "rankid": rankid,
+            "isaccepted": True,
+            "iscurrent": True,
+            "guid": guid,
+        }
+        created = _post(session, base, "/api/specify/geography/", body)
+        print(
+            f"[purge] Earth root POST treedef={tid} geography_id={created.get('id')} rankid={rankid}",
+            file=sys.stderr,
+        )
+
+    print(json.dumps({"ok": True, "geography_deleted": deleted_geo, "earth_treedefs_seeded": treedefs_to_seed}, indent=2))
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -375,9 +621,44 @@ def main() -> None:
         "--list-collections", action="store_true",
         help="List all collections visible to the logged-in user",
     )
+    parser.add_argument(
+        "--purge-geography-all",
+        action="store_true",
+        help="DELETE every Geography row (all treedefs) via REST, null FKs, then POST one Earth per treedef",
+    )
+    parser.add_argument(
+        "--purge-geography-treedef",
+        type=int,
+        metavar="ID",
+        default=None,
+        help="Same as --purge-geography-all but only for GeographyTreeDef ID (e.g. 2)",
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Confirm destructive --purge-geography-* (not required with --dry-run)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="With --purge-geography-*: print counts only, no writes",
+    )
     args = parser.parse_args()
 
+    if args.purge_geography_all and args.purge_geography_treedef is not None:
+        parser.error("Use only one of --purge-geography-all or --purge-geography-treedef")
+
     session, base = _login(args.collection)
+
+    if args.purge_geography_all or args.purge_geography_treedef is not None:
+        _cmd_purge_geography_via_api(
+            session,
+            base,
+            treedef_id=args.purge_geography_treedef,
+            dry_run=args.dry_run,
+            yes=args.yes,
+        )
+        return
 
     if args.list_collections:
         _cmd_list_collections(session, base)
@@ -393,7 +674,7 @@ def main() -> None:
 
     if not args.path:
         parser.print_help()
-        sys.exit(1)
+        sys.exit("Provide an API path, or use --purge-geography-all / --purge-geography-treedef / --help.")
 
     data = _get(session, base, args.path)
 
