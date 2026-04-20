@@ -177,6 +177,90 @@ SELECT COUNT(DISTINCT hierachical_place_id) FROM musit_botanikk_felles.place_hie
 
 Geography and locality records are migrated during per-dataset runs rather than by a dedicated standalone flow. Use schema-qualified Oracle identifiers (`owner + PLACE_ID`, `owner + KOORDINATE_PLACE_ID`) as stable keys and keep writes idempotent (update existing rows when the source record already has a mapped Specify row).
 
+### Source-native Oslo vascular slice (no DwC view)
+
+For source-driven migration, use **`MUSIT_BOTANIKK_FELLES.V_OBJECT_ATTRIBUTES`** as the
+selection gate and then join to the normalized MUSIT event/place/taxon tables by `OBJECT_ID`.
+`V_OBJECT_ATTRIBUTES` is backed by `OBJECT_ATTRIBUTES` and adds institution/collection via
+`pkg_search.get_institutioncode(object_id)` and `pkg_search.get_collectioncode(object_id)`.
+
+Core filter:
+
+```sql
+SELECT COUNT(*)
+  FROM MUSIT_BOTANIKK_FELLES.v_object_attributes
+ WHERE institutioncode = 'O'
+   AND collectioncode = 'V'
+```
+
+Observed count in PROD snapshot used during exploration: **1,149,083** rows.
+
+#### Connected data verified for this slice
+
+For sampled `OBJECT_ID` rows in this filter, the following joins worked and returned usable data:
+
+- `OBJECT_ATTRIBUTES` + `MUSEUM_OBJECT`:
+  - workflow/status fields (`IS_REG`, `IS_APPROVED`, `OBJECT_WITHHELD`, `OBJECT_STATE`)
+  - identifiers (`IDENTIFIER_STRING`, `IDENTIFIER_NUM`)
+  - media pointer (`MEDIAGRUPPE_ENHETS_ID`, often null)
+- `EVENT_MUSEUM_OBJECT` + `EVENT` + `COLLECTING_EVENT`:
+  - multiple event types per object (collecting + determination/history events)
+- `PLACE_EVENT_ROLE` + `PLACE_LOCALITY_PLACE` + `LOCALITY_PLACE`:
+  - place/locality text for collecting events
+- `KOORDINATE_PLACE_PLACE` + `KOORDINATE_PLACE`:
+  - coordinate string / datum / decimal lat-lon (coverage varies)
+- `CLASSIFICATION_EVENT` + `CLASSIFICATION_TERM` + `CLASSTERM_LATIN_NAME` + `LATIN_NAMES`:
+  - determination history + taxon identifiers (`NHM_TAXON_ID`, `ADB_LATIN_NAME_ID`)
+- `EVENT_ROLE_PERSON_NAME`:
+  - person-role links present for sampled records (while `EVENT_ROLE_ACTOR` may be empty)
+
+Reference query skeleton (one object envelope with collecting event + place/locality + taxonomy):
+
+```sql
+SELECT
+  voa.object_id,
+  oa.uuid,
+  mo.identifier_string,
+  oa.is_reg,
+  oa.is_approved,
+  ce.event_id AS collecting_event_id,
+  ce.collectiontype_id,
+  por.place_id,
+  lp.locality,
+  kp.coordinate_string,
+  kp.latitude_l,
+  kp.longitude_l,
+  cte.classification_type_id,
+  ct.classterm,
+  ln.latin_name,
+  ln.nhm_taxon_id,
+  ln.adb_latin_name_id
+FROM MUSIT_BOTANIKK_FELLES.v_object_attributes voa
+JOIN MUSIT_BOTANIKK_FELLES.object_attributes oa ON oa.object_id = voa.object_id
+JOIN MUSIT_BOTANIKK_FELLES.museum_object mo ON mo.object_id = voa.object_id
+LEFT JOIN MUSIT_BOTANIKK_FELLES.event_museum_object emo ON emo.object_id = voa.object_id
+LEFT JOIN MUSIT_BOTANIKK_FELLES.collecting_event ce ON ce.event_id = emo.event_id
+LEFT JOIN MUSIT_BOTANIKK_FELLES.place_event_role por ON por.event_id = ce.event_id
+LEFT JOIN MUSIT_BOTANIKK_FELLES.place_locality_place plp ON plp.place_id = por.place_id
+LEFT JOIN MUSIT_BOTANIKK_FELLES.locality_place lp ON lp.locality_place_id = plp.locality_place_id
+LEFT JOIN MUSIT_BOTANIKK_FELLES.koordinate_place_place kpp ON kpp.place_id = por.place_id
+LEFT JOIN MUSIT_BOTANIKK_FELLES.koordinate_place kp ON kp.koordinate_place_id = kpp.koordinate_place_id
+LEFT JOIN MUSIT_BOTANIKK_FELLES.classification_event cte ON cte.event_id = emo.event_id
+LEFT JOIN MUSIT_BOTANIKK_FELLES.classification_term ct ON ct.class_term_id = cte.class_term_id
+LEFT JOIN MUSIT_BOTANIKK_FELLES.classterm_latin_name ctl ON ctl.classterm_id = ct.class_term_id
+LEFT JOIN MUSIT_BOTANIKK_FELLES.latin_names ln ON ln.latin_name_id = ctl.latin_name_id
+WHERE voa.institutioncode = 'O'
+  AND voa.collectioncode = 'V'
+  AND voa.object_id = :object_id
+```
+
+Notes:
+
+- `EVENT_MUSEUM_OBJECT` is one-to-many from object to events, so object-level queries should
+  either aggregate per event type or select a specific event class (collecting, classification, etc.).
+- `UUID` coverage is partial in this source slice (many rows have null UUID), so `OBJECT_ID` remains
+  the most stable internal key for source-native migration.
+
 ## Storage model (MUSIT botany)
 
 There is **no** dedicated `DATASET` table in `MUSIT_BOTANIKK_FELLES`. Logical grouping uses columns on **`OBJECT_ATTRIBUTES`**, keyed by **`OBJECT_ID`** to **`MUSEUM_OBJECT`** (same pattern as in the schema overview: central object + attributes row).
