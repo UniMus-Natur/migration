@@ -166,15 +166,9 @@ Specify's default Geography ranks: `Planet → Continent → Country → State/P
 
 > ⚠️ Geography nodes are shared across all Specify collections. Build this tree once, completely, before any specimens are migrated. All four botany museums and the zoology collection will reference the same nodes.
 
-**Prefect implementation — `migrate_oracle_geography`**
+**Implementation note**
 
-- **Flow:** [`flows/migrate_oracle_geography.py`](../flows/migrate_oracle_geography.py) (`migrate_oracle_geography_flow`). **Deployment:** `migrate-oracle-geography-dev` in [`prefect.yaml`](../prefect.yaml).
-- **Shared tree:** Sets every biology discipline’s `GeographyTreeDefID` to match **Karplanter Moser** (skips Geologi). Then imports **`HIERARCHICAL_PLACE_OLD`** into `Geography` via the **Django ORM** only (`Geography.save()` / Specify’s tree rules), wrapping each insert in **`transaction.atomic()`** so parent row locking is valid. No raw SQL post-pass on MariaDB for geography rows.
-- **Municipality rank:** Adds a **Municipality** rank under **County** (or **Fylke**) when missing.
-- **Locality:** For each `PLACE_ID` referenced by `PLACE_OBJECT_ROLE` or `PLACE_EVENT_ROLE`, creates one **`Locality` per discipline** that shares that treedef (same `GeographyID` where resolved). **`Locality` is discipline-scoped in Specify** — this duplicates rows by design until a later dedupe pass.
-- **Bridge table:** Creates `migration_oracle_placemap` in Specify MariaDB (`source_owner`, `source_kind`, `source_id`, `specify_geography_id`, `specify_locality_id`, `specify_discipline_id`, `run_ts`) for specimen migration to join `(owner, PLACE_ID)` → `LocalityID`.
-- **Report:** JSON manifest under S3 prefix `migration-reports/oracle-geography-to-specify/{timestamp}/report.json` (category `REPORT_CATEGORY_ORACLE_GEOGRAPHY_TO_SPECIFY` in [`flows/lib/migration_report_s3.py`](../flows/lib/migration_report_s3.py)); requires `S3_BUCKET` on the worker. Use `dry_run=true` (default) to inventory + plan only; `dry_run=false` to write Specify + placemap.
-- **Optional purge (`purge_existing_geography_for_treedef`):** Deletes all `Geography` rows for the canonical treedef (e.g. structure-sync seed data), sets `Locality.GeographyID` to NULL where it pointed at those nodes, removes blocking `Agentgeography` rows, recreates a minimal **Earth** root, and by default **`TRUNCATE`s `migration_oracle_placemap`**. Does **not** delete `Locality` rows. Use `dry_run=true` with purge enabled to see counts only. Implementation: [`flows/lib/specify_geography_purge.py`](../flows/lib/specify_geography_purge.py).
+Geography and locality loading now run as part of per-dataset migration, not as a dedicated standalone Prefect flow. Keep the same idempotency rule: resolve by stable source identifiers and update existing Specify rows instead of inserting duplicates.
 
 #### Step 1.3 — Taxonomy
 

@@ -173,20 +173,9 @@ SELECT COUNT(DISTINCT hierachical_place_id) FROM musit_botanikk_felles.place_hie
 
 (Column name **`hierachical_place_id`** matches Oracle spelling in `PLACE_HIERACHICAL_PLACE`.)
 
-### Prefect: Oracle geography → Specify
+### Geography/locality migration scope
 
-The **Migrate Oracle geography to Specify** Prefect flow loads MUSIT admin geography and referenced places into Specify 7 using the **Django ORM**, then uploads a **JSON report to S3** (same pattern as user / NorTaxa migrations).
-
-| Item | Location |
-|------|----------|
-| Flow entrypoint | [`flows/migrate_oracle_geography.py`](../flows/migrate_oracle_geography.py) (`migrate_oracle_geography_flow`) |
-| Shared treedef helper | [`flows/lib/specify_geography_shared.py`](../flows/lib/specify_geography_shared.py) |
-| Oracle inventory helpers | [`flows/lib/oracle_geography_inventory.py`](../flows/lib/oracle_geography_inventory.py) |
-| Geography / Locality load | [`flows/lib/oracle_geography_load.py`](../flows/lib/oracle_geography_load.py) |
-| Placemap DDL + upsert | [`flows/lib/migration_oracle_placemap.py`](../flows/lib/migration_oracle_placemap.py) |
-| S3 report category | `REPORT_CATEGORY_ORACLE_GEOGRAPHY_TO_SPECIFY` in [`flows/lib/migration_report_s3.py`](../flows/lib/migration_report_s3.py) |
-
-Run after **Sync Specify structure** so disciplines exist. Default `dry_run=true` only inventories and describes treedef linking; set `dry_run=false` to persist rows. Optional `max_places` caps how many distinct `PLACE_ID` values receive a `Locality` in one run (testing).
+Geography and locality records are migrated during per-dataset runs rather than by a dedicated standalone flow. Use schema-qualified Oracle identifiers (`owner + PLACE_ID`, `owner + KOORDINATE_PLACE_ID`) as stable keys and keep writes idempotent (update existing rows when the source record already has a mapped Specify row).
 
 ## Storage model (MUSIT botany)
 

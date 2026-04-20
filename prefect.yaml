@@ -99,27 +99,15 @@ deployments:
       name: dev-process
       work_queue_name: default
 
-  - name: migrate-oracle-geography-dev
+  - name: purge-specify-geography-locality-dev
     version: 1.0.0
-    tags: ["oracle", "specify", "geography", "locality", "migration", "dev"]
-    description: "Phase 1.2: Shared GeographyTreeDef for biology; HIERARCHICAL_PLACE_OLD → Geography; PLACE → Locality + migration_oracle_placemap; S3 report"
-    entrypoint: flows/migrate_oracle_geography.py:migrate_oracle_geography_flow
+    tags: ["specify", "geography", "locality", "purge", "maintenance", "dev"]
+    description: "Destructive maintenance: clear CollectingEvent localities, delete all Locality and Geography rows"
+    entrypoint: flows/purge_specify_geography_locality.py:purge_specify_geography_locality_flow
     parameters:
-      oracle_env: "PROD"
       dry_run: true
-      musit_schemas:
-        - MUSIT_BOTANIKK_FELLES
-        - MUSIT_ZOOLOGI_ENTOMOLOGI
-      canonical_discipline_name: "Karplanter Moser"
-      max_places: null
-      # After a partial locality run: skip Oracle geography pass; optional skip_first_n in sorted PLACE_ID order.
-      skip_geography_load: false
-      locality_skip_first_n_places: 0
-      locality_place_batch_size: 2048
-      # Wipe every Geography row (all treedefs) before Oracle import — staging only.
-      purge_all_geography_trees_before_oracle_import: false
-      purge_existing_geography_for_treedef: false
-      truncate_placemap_when_purging_geography: true
+      clear_placemap_rows: true
     work_pool:
       name: dev-process
       work_queue_name: default
+
