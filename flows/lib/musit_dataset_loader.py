@@ -226,78 +226,6 @@ def _format_duration(seconds: float) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Coordinate sanitization (mirrors logic from oracle_geography_load.py)
-# ---------------------------------------------------------------------------
-
-
-def _parse_dms_coordinate(coordinate_string: str | None) -> tuple[float | None, float | None]:
-    """Try to parse DMS string like ``59°48.185'N 10°44.478'E`` into decimal degrees."""
-    if not coordinate_string:
-        return None, None
-    import re
-    pattern = re.compile(
-        r"(\d+)[°º]\s*([\d.]+)[''′]\s*([NS])\s+"
-        r"(\d+)[°º]\s*([\d.]+)[''′]\s*([EW])",
-        re.IGNORECASE,
-    )
-    m = pattern.search(coordinate_string)
-    if not m:
-        return None, None
-    try:
-        lat_deg, lat_min, lat_hem = float(m.group(1)), float(m.group(2)), m.group(3).upper()
-        lon_deg, lon_min, lon_hem = float(m.group(4)), float(m.group(5)), m.group(6).upper()
-        lat = lat_deg + lat_min / 60.0
-        lon = lon_deg + lon_min / 60.0
-        if lat_hem == "S":
-            lat = -lat
-        if lon_hem == "W":
-            lon = -lon
-        if -90 <= lat <= 90 and -180 <= lon <= 180:
-            return lat, lon
-    except (ValueError, TypeError):
-        pass
-    return None, None
-
-
-def _sanitize_lat_lng(
-    lat: Any,
-    lng: Any,
-    coordinate_string: str | None,
-) -> tuple[float | None, float | None]:
-    """Return valid (lat, lng) decimals or None, with DMS-string fallback."""
-    def _to_float(v: Any) -> float | None:
-        if v is None:
-            return None
-        try:
-            return float(v)
-        except (TypeError, ValueError):
-            return None
-
-    lat_f = _to_float(lat)
-    lng_f = _to_float(lng)
-
-    # Try DMS string first when numerics are out of range.
-    if lat_f is None or not (-90 <= lat_f <= 90):
-        dms_lat, dms_lng = _parse_dms_coordinate(coordinate_string)
-        if dms_lat is not None:
-            return dms_lat, dms_lng
-        # Heuristic: strip leading extra hundreds digit (e.g. 559.80 → 59.80)
-        if lat_f is not None and 100 < abs(lat_f) < 1000:
-            candidate = lat_f - (int(lat_f / 100) * 100)
-            if -90 <= candidate <= 90:
-                lng_candidate = lng_f
-                if lng_f is not None and not (-180 <= lng_f <= 180):
-                    lng_candidate = None
-                return candidate, lng_candidate
-        return None, None
-
-    if lng_f is not None and not (-180 <= lng_f <= 180):
-        lng_f = None
-
-    return lat_f, lng_f
-
-
-# ---------------------------------------------------------------------------
 # Specify lookup helpers
 # ---------------------------------------------------------------------------
 
@@ -682,6 +610,7 @@ def _get_or_create_locality(
         _fetch_first_coordinate,
         _fetch_place_text,
         _place_locality_guid,
+        locality_spatial_kwargs_from_musit_koordinate,
     )
 
     if oracle_cursor is None:
@@ -755,11 +684,6 @@ def _get_or_create_locality(
 
     locality_name = (loc_text or agg or f"Place {place_id}")[:1024]
     verbatim = agg[:8192] if agg else None
-    lat_raw = coord.get("latitude_l")
-    lng_raw = coord.get("longitude_l")
-    coord_str = coord.get("coordinate_string")
-    lat, lng = _sanitize_lat_lng(lat_raw, lng_raw, coord_str)
-    datum = (coord.get("datum") or "")[:50] or None
     guid = _place_locality_guid(owner_lower, place_id, discipline_id)
 
     if dry_run:
@@ -771,16 +695,12 @@ def _get_or_create_locality(
             "discipline_id": discipline_id,
             "localityname": locality_name,
             "geography_id": geo_id,
-            "latitude1": lat,
-            "longitude1": lng,
             "srclatlongunit": 0,
             "guid": guid,
-            "datum": datum,
         }
+        loc_kwargs.update(locality_spatial_kwargs_from_musit_koordinate(coord))
         if verbatim:
             loc_kwargs["text1"] = verbatim
-        if coord_str:
-            loc_kwargs["lat1text"] = coord_str[:50] if len(coord_str) > 50 else coord_str
 
         loc = Locality(**loc_kwargs)
         loc.save()
