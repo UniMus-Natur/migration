@@ -157,7 +157,13 @@ _SPECIMEN_SQL = """
       ln.adb_latin_name_id,
       ln.is_valid          AS taxon_is_valid,
       erp.actor_id,
-      erp.role_id
+      erp.role_id,
+      (SELECT MIN(pn.actor_id)
+         FROM {schema}.event_role_person_name erpn
+         JOIN {schema}.person_name pn
+           ON pn.person_name_id = erpn.person_name_id
+        WHERE erpn.event_id = ce.event_id
+      ) AS person_name_actor_id
     FROM {schema}.v_object_attributes voa
     JOIN {schema}.object_attributes oa
       ON oa.object_id = voa.object_id
@@ -286,8 +292,27 @@ def _resolve_agent(schema: str, actor_id: Any) -> Any:
     if actor_id is None:
         return None
     from specifyweb.specify.models import Agent
-    marker = f"MUSIT-migration: ACTOR; schema={schema}; ACTOR_ID={int(actor_id)}"
+
+    sch = str(schema).strip().upper()
+    marker = f"MUSIT-migration: ACTOR; schema={sch}; ACTOR_ID={int(actor_id)}"
     return Agent.objects.filter(remarks__startswith=marker).first()
+
+
+def _first_non_null_collector_actor_id(rows: list[dict]) -> Any:
+    """Prefer ``EVENT_ROLE_ACTOR``; fall back to ``EVENT_ROLE_PERSON_NAME`` → ``PERSON_NAME``.
+
+    Oracle row order is undefined and the join envelope can put null ``actor_id`` on the
+    first row even when another row for the same object has a value.
+    """
+    for r in rows:
+        aid = r.get("actor_id")
+        if aid is not None:
+            return aid
+    for r in rows:
+        aid = r.get("person_name_actor_id")
+        if aid is not None:
+            return aid
+    return None
 
 
 def _oracle_row_is_nominal_world_shell(r: dict[str, Any]) -> bool:
@@ -973,7 +998,7 @@ def _write_one_object(
         stats.ce_created += 1
 
         # 3. Collector link (primary agent on the collecting event)
-        actor_id = first.get("actor_id")
+        actor_id = _first_non_null_collector_actor_id(rows)
         agent = _resolve_agent(owner, actor_id)
         if agent is not None:
             stats.agent_matched += 1
@@ -1079,8 +1104,9 @@ def _write_one_object(
                 else:
                     stats.taxon_unresolved += 1
 
-                # Determiner
-                det_actor = dr.get("actor_id")
+                # Determiner (same envelope columns as collector; classification-specific
+                # determiner roles are not wired yet — see EVENT_ROLE_* on classification_event.)
+                det_actor = dr.get("actor_id") or dr.get("person_name_actor_id")
                 determiner = _resolve_agent(owner, det_actor) if det_actor else None
 
                 det = Determination(
