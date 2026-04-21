@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import logging
+import mimetypes
 import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
@@ -737,6 +738,93 @@ def _group_rows_by_object_id(rows: list[dict]) -> dict[int, list[dict]]:
     return out
 
 
+def _fetch_media_rows_for_group(oracle_cursor: Any, media_group_id: int) -> list[dict[str, Any]]:
+    """Return URL-addressable media rows for one ``MEDIAGRUPPE_ENHETS_ID``.
+
+    URL-only mode: we do not migrate binary files, only links.
+    """
+    oracle_cursor.execute(
+        """
+        SELECT mf.MEDIAFIL_ID, mf.OPPRINNELIG_FILNAVN, mf.ID_I_SAMLING, mf.TITTEL, mf.FORMAT, mf.MEDIA_TYPE
+          FROM USD_FELLES.MEDIA_FIL mf
+         WHERE mf.MEDIAGRUPPE_ENHETS_ID = :gid
+           AND (mf.MEDIA_TYPE = '1' OR mf.MEDIA_TYPE IS NULL)
+         ORDER BY mf.MEDIAFIL_ID
+        """,
+        {"gid": int(media_group_id)},
+    )
+    out: list[dict[str, Any]] = []
+    for r in oracle_cursor.fetchall():
+        out.append(
+            {
+                "mediafil_id": r[0],
+                "opprinnelig_filnavn": r[1],
+                "id_i_samling": r[2],
+                "tittel": r[3],
+                "format": r[4],
+                "media_type": r[5],
+            }
+        )
+    return out
+
+
+def _unimus_media_url(*, media_group_id: int, mediafil_id: int | None = None) -> str:
+    if mediafil_id is not None:
+        return f"https://www.unimus.no/felles/bilder/web_hent_bilde.php?mediafil_id={int(mediafil_id)}&type=jpeg"
+    return f"https://www.unimus.no/felles/bilder/web_hent_bilde.php?id={int(media_group_id)}&type=jpeg"
+
+
+def _attach_media_urls_to_collection_object(
+    *,
+    oracle_cursor: Any,
+    co: Any,
+    media_group_id: int | None,
+) -> int:
+    """Create one Attachment + CollectionObjectAttachment per media row."""
+    if media_group_id is None:
+        return 0
+
+    from specifyweb.specify.models import Attachment, Collectionobjectattachment
+
+    rows = _fetch_media_rows_for_group(oracle_cursor, int(media_group_id))
+    if not rows:
+        return 0
+
+    table_id = int(getattr(getattr(co, "specify_model", None), "tableId", 1) or 1)
+    created = 0
+    for idx, r in enumerate(rows, start=1):
+        mfid = r.get("mediafil_id")
+        url = _unimus_media_url(media_group_id=int(media_group_id), mediafil_id=int(mfid) if mfid is not None else None)
+        orig = (
+            (r.get("opprinnelig_filnavn") or "").strip()
+            or (r.get("id_i_samling") or "").strip()
+            or f"mediafil_{mfid or idx}.jpg"
+        )
+        guessed, _ = mimetypes.guess_type(orig)
+        fmt = (r.get("format") or "").strip().lower()
+        mime = guessed or ("image/tiff" if fmt in {"tif", "tiff"} else "image/jpeg")
+        title = ((r.get("tittel") or "").strip() or orig)[:255]
+
+        att = Attachment(
+            attachmentlocation=url[:128],
+            origfilename=orig,
+            title=title,
+            mimetype=mime,
+            tableid=table_id,
+            ispublic=True,
+            remarks=f"MUSIT media_group_id={int(media_group_id)} mediafil_id={mfid}",
+        )
+        att.save()
+        Collectionobjectattachment.objects.create(
+            attachment=att,
+            collectionobject=co,
+            collectionmemberid=int(co.collectionmemberid),
+            ordinal=idx,
+        )
+        created += 1
+    return created
+
+
 def _coerce_date(val: Any) -> date | None:
     if val is None:
         return None
@@ -919,6 +1007,18 @@ def _write_one_object(
             co.visibility = 1
         co.save()
         stats.co_created += 1
+
+        # 4b. URL-only image attachments from USD_FELLES MEDIA tables (all rows per group).
+        mgid_raw = first.get("mediagruppe_enhets_id")
+        if mgid_raw is not None:
+            try:
+                _attach_media_urls_to_collection_object(
+                    oracle_cursor=oracle_cursor,
+                    co=co,
+                    media_group_id=int(mgid_raw),
+                )
+            except Exception as exc:  # noqa: BLE001
+                _log("warning", "object_id=%s: media URL attachment migration failed: %s", object_id, exc)
 
         # 5. Determination(s) — deduplicate by best available source keys/text.
         seen_det_keys: set[tuple] = set()
