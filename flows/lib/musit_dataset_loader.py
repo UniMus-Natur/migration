@@ -920,13 +920,23 @@ def _write_one_object(
         co.save()
         stats.co_created += 1
 
-        # 5. Determination(s) — deduplicate by (adb_latin_name_id, latin_name_id)
+        # 5. Determination(s) — deduplicate by best available source keys/text.
         seen_det_keys: set[tuple] = set()
         taxontreedef_id = int(discipline.taxontreedef_id)
 
         # Sort rows so that the "most current" determination (lowest class_event_id = oldest,
         # highest = most recent — we treat highest event_id as current).
-        det_rows_all = [r for r in rows if r.get("latin_name_id") is not None]
+        det_rows_all = [
+            r
+            for r in rows
+            if (
+                r.get("latin_name_id") is not None
+                or r.get("adb_latin_name_id") is not None
+                or r.get("nhm_taxon_id") is not None
+                or r.get("valid_classterm")
+                or r.get("classterm")
+            )
+        ]
         if not det_rows_all:
             # No determination data; create a blank determination so the CO is valid.
             Determination.objects.create(
@@ -948,7 +958,12 @@ def _write_one_object(
             for idx, dr in enumerate(det_rows_sorted):
                 adb_id = dr.get("adb_latin_name_id")
                 ln_id = dr.get("latin_name_id")
-                det_key = (adb_id, ln_id)
+                det_key = (
+                    adb_id,
+                    ln_id,
+                    _trunc(dr.get("valid_classterm"), 255),
+                    _trunc(dr.get("classterm"), 255),
+                )
                 if det_key in seen_det_keys:
                     continue
                 seen_det_keys.add(det_key)
@@ -956,7 +971,7 @@ def _write_one_object(
                 taxon = _resolve_taxon(
                     adb_latin_name_id=adb_id,
                     nhm_taxon_id=dr.get("nhm_taxon_id"),
-                    latin_name=dr.get("latin_name"),
+                    latin_name=dr.get("latin_name") or dr.get("valid_classterm") or dr.get("classterm"),
                     taxontreedef_id=taxontreedef_id,
                 )
                 if taxon is not None:
