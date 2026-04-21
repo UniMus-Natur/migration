@@ -701,6 +701,46 @@ def _parse_dms_coordinate(coordinate_string: str | None) -> tuple[float | None, 
     return None, None
 
 
+def _parse_dms_coordinate_range(
+    coordinate_string: str | None,
+) -> tuple[float | None, float | None, float | None, float | None]:
+    """Parse DMS range strings like ``17°7'-17°8'N 25°3'-25°4'W``.
+
+    Returns ``(lat_low, lat_high, lon_low, lon_high)`` in signed decimal degrees.
+    """
+    if not coordinate_string:
+        return None, None, None, None
+    s = coordinate_string.strip()
+    pattern = re.compile(
+        r"(\d+)[°º]\s*([\d.]+)'\s*-\s*(\d+)[°º]\s*([\d.]+)'\s*([NS])\s+"
+        r"(\d+)[°º]\s*([\d.]+)'\s*-\s*(\d+)[°º]\s*([\d.]+)'\s*([EW])",
+        re.IGNORECASE,
+    )
+    m = pattern.search(s)
+    if not m:
+        return None, None, None, None
+    try:
+        lat_a = float(m.group(1)) + float(m.group(2)) / 60.0
+        lat_b = float(m.group(3)) + float(m.group(4)) / 60.0
+        lon_a = float(m.group(6)) + float(m.group(7)) / 60.0
+        lon_b = float(m.group(8)) + float(m.group(9)) / 60.0
+        lat_hemi = m.group(5).upper()
+        lon_hemi = m.group(10).upper()
+        if lat_hemi == "S":
+            lat_a, lat_b = -lat_a, -lat_b
+        if lon_hemi == "W":
+            lon_a, lon_b = -lon_a, -lon_b
+        lat_low, lat_high = (lat_a, lat_b) if lat_a <= lat_b else (lat_b, lat_a)
+        lon_low, lon_high = (lon_a, lon_b) if lon_a <= lon_b else (lon_b, lon_a)
+        if not (-90 <= lat_low <= 90 and -90 <= lat_high <= 90):
+            return None, None, None, None
+        if not (-180 <= lon_low <= 180 and -180 <= lon_high <= 180):
+            return None, None, None, None
+        return lat_low, lat_high, lon_low, lon_high
+    except (TypeError, ValueError):
+        return None, None, None, None
+
+
 def _sanitize_lat_lng(
     lat: Any,
     lng: Any,
@@ -768,6 +808,18 @@ def locality_spatial_kwargs_from_musit_koordinate(coord: dict[str, Any]) -> dict
 
     lat_h = _to_decimal_or_none(coord.get("latitude_h"))
     lon_h = _to_decimal_or_none(coord.get("longitude_h"))
+    if lat_h is None or lon_h is None:
+        # Many MUSIT rows store range bounds only in COORDINATE_STRING.
+        rlat_low, rlat_high, rlon_low, rlon_high = _parse_dms_coordinate_range(coord_str)
+        if lat is not None and rlat_low is not None and lat_h is None:
+            # Prefer the opposite range endpoint as latitude2.
+            lat_h = rlat_high if abs(lat - rlat_low) <= abs(lat - rlat_high) else rlat_low
+        elif lat_h is None and rlat_high is not None:
+            lat_h = rlat_high
+        if lng is not None and rlon_low is not None and lon_h is None:
+            lon_h = rlon_high if abs(lng - rlon_low) <= abs(lng - rlon_high) else rlon_low
+        elif lon_h is None and rlon_high is not None:
+            lon_h = rlon_high
     if lat_h is not None:
         out["latitude2"] = lat_h
     if lon_h is not None:
