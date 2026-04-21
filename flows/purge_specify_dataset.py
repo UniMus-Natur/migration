@@ -265,7 +265,7 @@ def _purge_dataset(
                     batch + batch,
                 )
                 loc_deleted += cur.rowcount
-            out["locality_deleted"] = loc_deleted
+            out["locality_deleted_orphan_only"] = loc_deleted
 
             logger.info(
                 "purge_specify_dataset | deleted %s CEs, %s Localities", ce_deleted, loc_deleted
@@ -280,14 +280,53 @@ def _purge_dataset(
                 out["objectmap_rows_deleted"] = cur.rowcount
                 logger.info("purge_specify_dataset | objectmap rows deleted: %s", cur.rowcount)
 
-            # Step 9: clear placemap rows for this discipline (optional).
+            # Step 9: when clearing placemap rows, force-delete mapped localities for this discipline.
+            #
+            # Why: orphan-only delete above can leave stale localities if they are still referenced
+            # by CollectingEvents outside the just-deleted CO set. For "clean re-run" use cases
+            # (purge_before_run), remove those localities too by first nulling all CE FK references.
             if clear_placemap_rows and discipline_id and _table_exists(cur, PLACEMAP_TABLE):
+                cur.execute(
+                    f"SELECT DISTINCT specify_locality_id FROM {PLACEMAP_TABLE}"
+                    " WHERE specify_discipline_id = %s AND specify_locality_id IS NOT NULL",
+                    [discipline_id],
+                )
+                mapped_loc_ids = [int(r[0]) for r in cur.fetchall() if r and r[0] is not None]
+                force_loc_deleted = 0
+                force_ce_nulled = 0
+                for i in range(0, len(mapped_loc_ids), _CHUNK):
+                    batch = mapped_loc_ids[i : i + _CHUNK]
+                    placeholders = ",".join(["%s"] * len(batch))
+                    cur.execute(
+                        f"UPDATE collectingevent SET LocalityID = NULL"
+                        f" WHERE LocalityID IN ({placeholders})",
+                        batch,
+                    )
+                    force_ce_nulled += int(cur.rowcount if cur.rowcount is not None else 0)
+                    cur.execute(
+                        f"DELETE FROM locality WHERE localityid IN ({placeholders})",
+                        batch,
+                    )
+                    force_loc_deleted += int(cur.rowcount if cur.rowcount is not None else 0)
+                out["locality_force_deleted_from_placemap"] = force_loc_deleted
+                out["collectingevent_locality_nulled_for_force_delete"] = force_ce_nulled
+
                 cur.execute(
                     f"DELETE FROM {PLACEMAP_TABLE} WHERE specify_discipline_id = %s",
                     [discipline_id],
                 )
                 out["placemap_rows_deleted"] = cur.rowcount
-                logger.info("purge_specify_dataset | placemap rows deleted: %s", cur.rowcount)
+                logger.info(
+                    "purge_specify_dataset | force locality delete=%s ce_nulled=%s placemap rows deleted: %s",
+                    force_loc_deleted,
+                    force_ce_nulled,
+                    cur.rowcount,
+                )
+
+            # Backward-compatible total locality metric.
+            out["locality_deleted"] = int(
+                out.get("locality_deleted_orphan_only", 0) + out.get("locality_force_deleted_from_placemap", 0)
+            )
 
         finally:
             cur.execute("SET FOREIGN_KEY_CHECKS=1")
