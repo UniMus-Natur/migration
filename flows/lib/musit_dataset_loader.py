@@ -1336,7 +1336,7 @@ def _write_one_object(
                     fallback_debug = created_nodes[0] if created_nodes else {}
                     candidate_scores = fallback_debug.get("fallback_candidates", [])
                     _log(
-                        "warning",
+                        "debug",
                         "object_id=%s catalog=%s unresolved taxon det_class_term_id=%r det_latin_name_id=%r det_latin_name=%r probe=%r top_candidates=%s adb_taxon_id=%r adb_latin_name_id=%r nhm_taxon_id=%r",
                         object_id,
                         first.get("identifier_string"),
@@ -1583,7 +1583,7 @@ def load_musit_dataset(
                 _log(
                     "info",
                     "load_musit_dataset | %s/%s (%.1f%%) co=%s ce=%s loc_new=%s det=%s"
-                    " taxon_ok=%s agent_ok=%s err=%s elapsed=%s",
+                    " taxon_ok=%s taxon_fallback=%s taxon_unresolved=%s agent_ok=%s err=%s elapsed=%s",
                     total_processed,
                     total_oracle,
                     pct,
@@ -1592,6 +1592,8 @@ def load_musit_dataset(
                     stats.locality_created,
                     stats.determination_created,
                     stats.taxon_matched,
+                    stats.taxon_fallback_matched,
+                    stats.taxon_unresolved,
                     stats.agent_matched,
                     len(stats.errors),
                     _format_duration(elapsed),
