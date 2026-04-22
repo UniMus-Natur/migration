@@ -252,14 +252,7 @@ def _resolve_taxon(
     latin_name: str | None,
     taxontreedef_id: int,
 ) -> Any:
-    """Look up an existing Specify ``Taxon`` row; never creates one.
-
-    Resolution order:
-    1. ``taxonomicserialnumber`` = ``ADB_TAXON_ID`` (NorTaxa taxon id)
-    2. ``taxonomicserialnumber`` = ``ADB_LATIN_NAME_ID`` (legacy fallback)
-    3. ``text1`` = ``NHM_TAXON_ID`` (internal MUSIT taxon key)
-    4. ``name`` match (last resort, may match wrong rank)
-    """
+    """Look up an existing Specify ``Taxon`` row by NorTaxa id only."""
     from specifyweb.specify.models import Taxon
 
     if adb_taxon_id is not None:
@@ -273,38 +266,6 @@ def _resolve_taxon(
                 return t
         except (TypeError, ValueError):
             pass
-
-    if adb_latin_name_id is not None:
-        try:
-            adb_str = str(int(adb_latin_name_id))
-            t = Taxon.objects.filter(
-                taxonomicserialnumber=adb_str,
-                definition_id=taxontreedef_id,
-            ).first()
-            if t is not None:
-                return t
-        except (TypeError, ValueError):
-            pass
-
-    if nhm_taxon_id is not None:
-        try:
-            nhm_str = str(int(nhm_taxon_id))
-            t = Taxon.objects.filter(
-                text1=nhm_str,
-                definition_id=taxontreedef_id,
-            ).first()
-            if t is not None:
-                return t
-        except (TypeError, ValueError):
-            pass
-
-    if latin_name:
-        t = Taxon.objects.filter(
-            name=latin_name.strip(),
-            definition_id=taxontreedef_id,
-        ).first()
-        if t is not None:
-            return t
 
     return None
 
@@ -427,7 +388,12 @@ def _pick_taxon_rank_item(
     if logical and logical in by_name and int(by_name[logical].rankid) > parent_rankid:
         return by_name[logical]
 
-    return next((it for it in ordered if int(it.rankid) > parent_rankid), None)
+    # Unknown/empty MUSIT rank: prefer Species when legal; otherwise pick the deepest legal rank.
+    species_item = by_name.get("species")
+    if species_item is not None and int(species_item.rankid) > parent_rankid:
+        return species_item
+    candidates = [it for it in ordered if int(it.rankid) > parent_rankid]
+    return candidates[-1] if candidates else None
 
 
 def _resolve_or_create_taxon(
@@ -444,8 +410,17 @@ def _resolve_or_create_taxon(
     taxontreedef_id: int,
     lineage_cache: dict[int, dict[str, Any]],
     rank_item_cache: dict[int, dict[str, Any]],
+    object_id: int,
+    catalog_number: str | None,
 ) -> tuple[Any, list[dict[str, Any]]]:
-    """Resolve a taxon in the discipline tree; create missing lineage-aware nodes."""
+    """Resolve/create taxon by NorTaxa-anchored lineage.
+
+    Policy:
+    - Never match by plain name globally.
+    - Find nearest ancestor in source lineage with ADB_TAXON_ID present in Specify.
+    - Create only descendants under that anchored parent.
+    - If no ancestor has resolvable ADB_TAXON_ID, fail hard.
+    """
     from specifyweb.specify.models import Taxon
     created_nodes: list[dict[str, Any]] = []
 
@@ -458,18 +433,6 @@ def _resolve_or_create_taxon(
     )
     if existing is not None:
         return existing, created_nodes
-
-    name = (latin_name or "").strip()
-    if not name:
-        return None, created_nodes
-
-    # Re-check by normalized name to avoid duplicates from case/spacing drift.
-    by_name = Taxon.objects.filter(
-        definition_id=taxontreedef_id,
-        name__iexact=name,
-    ).first()
-    if by_name is not None:
-        return by_name, created_nodes
 
     root = Taxon.objects.filter(
         definition_id=taxontreedef_id,
@@ -504,17 +467,39 @@ def _resolve_or_create_taxon(
             "tax_cath_name": None,
         }]
 
-    parent = root
-    last = root
-    for node in lineage:
+    anchor_idx = -1
+    parent = None
+    for i, node in enumerate(lineage):
+        if node.get("adb_taxon_id") is None:
+            continue
+        candidate = _resolve_taxon(
+            adb_taxon_id=node.get("adb_taxon_id"),
+            adb_latin_name_id=None,
+            nhm_taxon_id=None,
+            latin_name=None,
+            taxontreedef_id=taxontreedef_id,
+        )
+        if candidate is not None:
+            anchor_idx = i
+            parent = candidate
+
+    if parent is None:
+        raise RuntimeError(
+            "Unanchored taxon lineage: no ancestor with resolvable ADB_TAXON_ID for "
+            f"object_id={object_id} catalog={catalog_number!r} latin_name={latin_name!r} "
+            f"adb_taxon_id={adb_taxon_id!r} adb_latin_name_id={adb_latin_name_id!r} nhm_taxon_id={nhm_taxon_id!r}"
+        )
+
+    last = parent
+    for node in lineage[anchor_idx + 1 :]:
         node_name = (node.get("latin_name") or "").strip()
         if not node_name:
             continue
         candidate = _resolve_taxon(
             adb_taxon_id=node.get("adb_taxon_id"),
-            adb_latin_name_id=node.get("adb_latin_name_id"),
-            nhm_taxon_id=node.get("nhm_taxon_id"),
-            latin_name=node_name,
+            adb_latin_name_id=None,
+            nhm_taxon_id=None,
+            latin_name=None,
             taxontreedef_id=taxontreedef_id,
         )
         if candidate is not None:
@@ -1414,6 +1399,8 @@ def _write_one_object(
                     taxontreedef_id=taxontreedef_id,
                     lineage_cache=latin_name_lineage_cache,
                     rank_item_cache=rank_item_cache,
+                    object_id=object_id,
+                    catalog_number=_trunc(first.get("identifier_string"), 32),
                 )
                 if created_nodes:
                     _log(
