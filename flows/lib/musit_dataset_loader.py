@@ -153,8 +153,11 @@ _SPECIMEN_SQL = """
       ln.latin_name,
       ln.full_name,
       ln.full_name_author,
+      ln.parent_latin_name_id,
       ln.nhm_taxon_id,
       ln.adb_latin_name_id,
+      tx.adb_taxon_id,
+      ln.tax_cath_id,
       ln.is_valid          AS taxon_is_valid,
       erp.actor_id,
       erp.role_id,
@@ -202,6 +205,11 @@ _SPECIMEN_SQL = """
       ON ctl.classterm_id = ct.class_term_id
     LEFT JOIN {schema}.latin_names ln
       ON ln.latin_name_id = ctl.latin_name_id
+    LEFT JOIN {schema}.classification_taxon ctax
+      ON ctax.class_term_id = ct.class_term_id
+    LEFT JOIN {schema}.taxon tx
+      ON REGEXP_LIKE(ctax.tax_id, '^[0-9]+$')
+     AND tx.taxon_id = TO_NUMBER(ctax.tax_id)
     LEFT JOIN {schema}.event_role_actor erp
       ON erp.event_id = ce.event_id
     WHERE voa.object_id IN ({placeholders})
@@ -238,6 +246,7 @@ def _format_duration(seconds: float) -> str:
 
 
 def _resolve_taxon(
+    adb_taxon_id: Any,
     adb_latin_name_id: Any,
     nhm_taxon_id: Any,
     latin_name: str | None,
@@ -246,17 +255,30 @@ def _resolve_taxon(
     """Look up an existing Specify ``Taxon`` row; never creates one.
 
     Resolution order:
-    1. ``taxonomicserialnumber`` = ``ADB_LATIN_NAME_ID`` (Artsdatabanken id; set during NorTaxa merge)
-    2. ``text1`` = ``NHM_TAXON_ID`` (internal MUSIT taxon key)
-    3. ``name`` match (last resort, may match wrong rank)
+    1. ``taxonomicserialnumber`` = ``ADB_TAXON_ID`` (NorTaxa taxon id)
+    2. ``taxonomicserialnumber`` = ``ADB_LATIN_NAME_ID`` (legacy fallback)
+    3. ``text1`` = ``NHM_TAXON_ID`` (internal MUSIT taxon key)
+    4. ``name`` match (last resort, may match wrong rank)
     """
     from specifyweb.specify.models import Taxon
 
+    if adb_taxon_id is not None:
+        try:
+            adb_taxon_str = str(int(adb_taxon_id))
+            t = Taxon.objects.filter(
+                taxonomicserialnumber=adb_taxon_str,
+                definition_id=taxontreedef_id,
+            ).first()
+            if t is not None:
+                return t
+        except (TypeError, ValueError):
+            pass
+
     if adb_latin_name_id is not None:
         try:
-            adb_int = int(adb_latin_name_id)
+            adb_str = str(int(adb_latin_name_id))
             t = Taxon.objects.filter(
-                taxonomicserialnumber=adb_int,
+                taxonomicserialnumber=adb_str,
                 definition_id=taxontreedef_id,
             ).first()
             if t is not None:
@@ -287,23 +309,147 @@ def _resolve_taxon(
     return None
 
 
+def _fetch_latin_name_lineage(
+    *,
+    oracle_cursor: Any,
+    owner: str,
+    latin_name_id: int,
+    lineage_cache: dict[int, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return Latin-name lineage from root to leaf for one ``LATIN_NAME_ID``."""
+    o = owner.upper()
+    lineage_leaf_to_root: list[dict[str, Any]] = []
+    current = int(latin_name_id)
+    seen: set[int] = set()
+
+    while current not in seen:
+        seen.add(current)
+        row = lineage_cache.get(current)
+        if row is None:
+            oracle_cursor.execute(
+                f"""
+                SELECT
+                  ln.latin_name_id,
+                  ln.parent_latin_name_id,
+                  ln.latin_name,
+                  ln.full_name,
+                  ln.full_name_author,
+                  ln.nhm_taxon_id,
+                  ln.adb_latin_name_id,
+                  tx.adb_taxon_id,
+                  tc.tax_cath_code,
+                  tc.tax_cath_name
+                FROM {o}.latin_names ln
+                LEFT JOIN {o}.taxon tx
+                  ON tx.valid_latin_name_id = ln.latin_name_id
+                LEFT JOIN {o}.taxon_cathegory tc
+                  ON tc.tax_cath_id = ln.tax_cath_id
+                WHERE ln.latin_name_id = :lnid
+                """,
+                {"lnid": current},
+            )
+            rec = oracle_cursor.fetchone()
+            if not rec:
+                break
+            row = {
+                "latin_name_id": rec[0],
+                "parent_latin_name_id": rec[1],
+                "latin_name": rec[2],
+                "full_name": rec[3],
+                "full_name_author": rec[4],
+                "nhm_taxon_id": rec[5],
+                "adb_latin_name_id": rec[6],
+                "adb_taxon_id": rec[7],
+                "tax_cath_code": rec[8],
+                "tax_cath_name": rec[9],
+            }
+            lineage_cache[current] = row
+        lineage_leaf_to_root.append(row)
+        parent = row.get("parent_latin_name_id")
+        if parent is None:
+            break
+        try:
+            current = int(parent)
+        except (TypeError, ValueError):
+            break
+
+    return list(reversed(lineage_leaf_to_root))
+
+
+def _pick_taxon_rank_item(
+    *,
+    taxontreedef_id: int,
+    parent_rankid: int,
+    tax_cath_code: str | None,
+    tax_cath_name: str | None,
+    rank_item_cache: dict[int, dict[str, Any]],
+) -> Any:
+    from specifyweb.specify.models import Taxontreedefitem
+
+    if taxontreedef_id not in rank_item_cache:
+        rank_item_cache[taxontreedef_id] = {
+            "ordered": list(Taxontreedefitem.objects.filter(treedef_id=taxontreedef_id).order_by("rankid")),
+            "by_name": {},
+        }
+        by_name: dict[str, Any] = {}
+        for it in rank_item_cache[taxontreedef_id]["ordered"]:
+            nm = (it.name or "").strip().lower()
+            if nm and nm not in by_name:
+                by_name[nm] = it
+        rank_item_cache[taxontreedef_id]["by_name"] = by_name
+
+    by_name = rank_item_cache[taxontreedef_id]["by_name"]
+    ordered = rank_item_cache[taxontreedef_id]["ordered"]
+
+    raw = f"{tax_cath_code or ''} {tax_cath_name or ''}".strip().lower()
+    aliases = {
+        "art": "species",
+        "species": "species",
+        "subspecies": "subspecies",
+        "underart": "subspecies",
+        "varietas": "variety",
+        "variety": "variety",
+        "genus": "genus",
+        "slekt": "genus",
+        "familie": "family",
+        "family": "family",
+        "orden": "order",
+        "order": "order",
+        "klasse": "class",
+        "class": "class",
+        "fylum": "phylum",
+        "phylum": "phylum",
+        "rike": "kingdom",
+        "kingdom": "kingdom",
+    }
+    logical = aliases.get(raw) or aliases.get((tax_cath_code or "").strip().lower()) or aliases.get((tax_cath_name or "").strip().lower())
+
+    if logical and logical in by_name and int(by_name[logical].rankid) > parent_rankid:
+        return by_name[logical]
+
+    return next((it for it in ordered if int(it.rankid) > parent_rankid), None)
+
+
 def _resolve_or_create_taxon(
     *,
+    oracle_cursor: Any,
+    owner: str,
+    latin_name_id: Any,
+    adb_taxon_id: Any,
     adb_latin_name_id: Any,
     nhm_taxon_id: Any,
     latin_name: str | None,
+    full_name: str | None,
     full_name_author: str | None,
     taxontreedef_id: int,
+    lineage_cache: dict[int, dict[str, Any]],
+    rank_item_cache: dict[int, dict[str, Any]],
 ) -> Any:
-    """Resolve a taxon in the discipline tree; create one when missing.
-
-    Creation policy for non-NorTaxa names:
-    - keep migration moving by inserting a leaf taxon under the discipline root
-    - preserve source identifiers in ``taxonomicserialnumber`` / ``text1`` when available
-    """
-    from specifyweb.specify.models import Taxon, Taxontreedefitem
+    """Resolve a taxon in the discipline tree; create missing lineage-aware nodes."""
+    from specifyweb.specify.models import Taxon
 
     existing = _resolve_taxon(
+        adb_taxon_id=adb_taxon_id,
         adb_latin_name_id=adb_latin_name_id,
         nhm_taxon_id=nhm_taxon_id,
         latin_name=latin_name,
@@ -333,47 +479,97 @@ def _resolve_or_create_taxon(
             f"TaxonTreeDef {taxontreedef_id} has no root taxon; run tree bootstrap before specimen migration."
         )
 
-    species_item = Taxontreedefitem.objects.filter(
-        treedef_id=taxontreedef_id,
-        name__iexact="species",
-    ).order_by("rankid").first()
-    if species_item is None:
-        species_item = Taxontreedefitem.objects.filter(
-            treedef_id=taxontreedef_id,
-            rankid__gt=int(root.rankid),
-        ).order_by("-rankid").first()
-    if species_item is None:
-        raise RuntimeError(
-            f"TaxonTreeDef {taxontreedef_id} has no rank below root; cannot insert unresolved taxon {name!r}."
+    lineage: list[dict[str, Any]] = []
+    if latin_name_id is not None:
+        try:
+            lineage = _fetch_latin_name_lineage(
+                oracle_cursor=oracle_cursor,
+                owner=owner,
+                latin_name_id=int(latin_name_id),
+                lineage_cache=lineage_cache,
+            )
+        except Exception:
+            lineage = []
+
+    if not lineage:
+        lineage = [{
+            "latin_name": latin_name,
+            "full_name": full_name,
+            "full_name_author": full_name_author,
+            "adb_taxon_id": adb_taxon_id,
+            "adb_latin_name_id": adb_latin_name_id,
+            "nhm_taxon_id": nhm_taxon_id,
+            "tax_cath_code": None,
+            "tax_cath_name": None,
+        }]
+
+    parent = root
+    last = root
+    for node in lineage:
+        node_name = (node.get("latin_name") or "").strip()
+        if not node_name:
+            continue
+        candidate = _resolve_taxon(
+            adb_taxon_id=node.get("adb_taxon_id"),
+            adb_latin_name_id=node.get("adb_latin_name_id"),
+            nhm_taxon_id=node.get("nhm_taxon_id"),
+            latin_name=node_name,
+            taxontreedef_id=taxontreedef_id,
         )
+        if candidate is not None:
+            parent = candidate
+            last = candidate
+            continue
 
-    adb_serial = None
-    if adb_latin_name_id is not None:
-        try:
-            adb_serial = str(int(adb_latin_name_id))
-        except (TypeError, ValueError):
-            adb_serial = None
+        parent_rankid = int(getattr(parent, "rankid", 0))
+        rank_item = _pick_taxon_rank_item(
+            taxontreedef_id=taxontreedef_id,
+            parent_rankid=parent_rankid,
+            tax_cath_code=_trunc(node.get("tax_cath_code"), 64),
+            tax_cath_name=_trunc(node.get("tax_cath_name"), 64),
+            rank_item_cache=rank_item_cache,
+        )
+        if rank_item is None:
+            raise RuntimeError(
+                f"No taxon rank item above parent rankid={parent_rankid} for unresolved taxon {node_name!r}."
+            )
 
-    nhm_text = None
-    if nhm_taxon_id is not None:
-        try:
-            nhm_text = str(int(nhm_taxon_id))
-        except (TypeError, ValueError):
-            nhm_text = None
+        adb_serial = None
+        for key in ("adb_taxon_id", "adb_latin_name_id"):
+            raw = node.get(key)
+            if raw is None:
+                continue
+            try:
+                adb_serial = str(int(raw))
+                break
+            except (TypeError, ValueError):
+                continue
 
-    return root.children.create(
-        name=name[:256],
-        fullname=name[:512],
-        author=_trunc(full_name_author, 128),
-        definition_id=taxontreedef_id,
-        definitionitem=species_item,
-        rankid=int(species_item.rankid),
-        isaccepted=True,
-        source="MUSIT",
-        taxonomicserialnumber=_trunc(adb_serial, 50),
-        text1=_trunc(nhm_text, 32),
-        remarks=_trunc("MUSIT migration: created during determination taxon resolution", 255),
-    )
+        nhm_text = None
+        raw_nhm = node.get("nhm_taxon_id")
+        if raw_nhm is not None:
+            try:
+                nhm_text = str(int(raw_nhm))
+            except (TypeError, ValueError):
+                nhm_text = None
+
+        created = parent.children.create(
+            name=node_name[:256],
+            fullname=_trunc(node.get("full_name") or node_name, 512),
+            author=_trunc(node.get("full_name_author"), 128),
+            definition_id=taxontreedef_id,
+            definitionitem=rank_item,
+            rankid=int(rank_item.rankid),
+            isaccepted=True,
+            source="MUSIT",
+            taxonomicserialnumber=_trunc(adb_serial, 50),
+            text1=_trunc(nhm_text, 32),
+            remarks=_trunc("MUSIT migration: created during determination taxon resolution", 255),
+        )
+        parent = created
+        last = created
+
+    return last if last is not root else None
 
 
 def _resolve_agent(schema: str, actor_id: Any) -> Any:
@@ -1078,7 +1274,13 @@ def _write_one_object(
             stats.ce_created += 1
             stats.co_created += 1
             # Count determinations
-            det_rows = [r for r in rows if r.get("adb_latin_name_id") is not None or r.get("latin_name")]
+            det_rows = [
+                r
+                for r in rows
+                if r.get("adb_taxon_id") is not None
+                or r.get("adb_latin_name_id") is not None
+                or r.get("latin_name")
+            ]
             stats.determination_created += max(1, len(det_rows))
             return
 
@@ -1137,6 +1339,8 @@ def _write_one_object(
         # 5. Determination(s) — deduplicate by best available source keys/text.
         seen_det_keys: set[tuple] = set()
         taxontreedef_id = int(discipline.taxontreedef_id)
+        latin_name_lineage_cache: dict[int, dict[str, Any]] = {}
+        rank_item_cache: dict[int, dict[str, Any]] = {}
 
         # Sort rows so that the "most current" determination (lowest class_event_id = oldest,
         # highest = most recent — we treat highest event_id as current).
@@ -1145,6 +1349,7 @@ def _write_one_object(
             for r in rows
             if (
                 r.get("latin_name_id") is not None
+                or r.get("adb_taxon_id") is not None
                 or r.get("adb_latin_name_id") is not None
                 or r.get("nhm_taxon_id") is not None
                 or r.get("valid_classterm")
@@ -1170,9 +1375,11 @@ def _write_one_object(
             det_rows_sorted = sorted(det_rows_all, key=_det_sort_key)
 
             for idx, dr in enumerate(det_rows_sorted):
+                adb_taxon_id = dr.get("adb_taxon_id")
                 adb_id = dr.get("adb_latin_name_id")
                 ln_id = dr.get("latin_name_id")
                 det_key = (
+                    adb_taxon_id,
                     adb_id,
                     ln_id,
                     _trunc(dr.get("valid_classterm"), 255),
@@ -1183,11 +1390,18 @@ def _write_one_object(
                 seen_det_keys.add(det_key)
 
                 taxon = _resolve_or_create_taxon(
+                    oracle_cursor=oracle_cursor,
+                    owner=owner,
+                    latin_name_id=ln_id,
+                    adb_taxon_id=adb_taxon_id,
                     adb_latin_name_id=adb_id,
                     nhm_taxon_id=dr.get("nhm_taxon_id"),
                     latin_name=dr.get("latin_name") or dr.get("valid_classterm") or dr.get("classterm"),
+                    full_name=dr.get("full_name"),
                     full_name_author=dr.get("full_name_author"),
                     taxontreedef_id=taxontreedef_id,
+                    lineage_cache=latin_name_lineage_cache,
+                    rank_item_cache=rank_item_cache,
                 )
                 if taxon is not None:
                     stats.taxon_matched += 1
@@ -1199,6 +1413,7 @@ def _write_one_object(
                             f"(latin_name={dr.get('latin_name')!r}, "
                             f"valid_classterm={dr.get('valid_classterm')!r}, "
                             f"classterm={dr.get('classterm')!r}, "
+                            f"adb_taxon_id={adb_taxon_id!r}, "
                             f"adb_latin_name_id={adb_id!r}, nhm_taxon_id={dr.get('nhm_taxon_id')!r})"
                         )
 
