@@ -444,9 +444,10 @@ def _resolve_or_create_taxon(
     taxontreedef_id: int,
     lineage_cache: dict[int, dict[str, Any]],
     rank_item_cache: dict[int, dict[str, Any]],
-) -> Any:
+) -> tuple[Any, list[dict[str, Any]]]:
     """Resolve a taxon in the discipline tree; create missing lineage-aware nodes."""
     from specifyweb.specify.models import Taxon
+    created_nodes: list[dict[str, Any]] = []
 
     existing = _resolve_taxon(
         adb_taxon_id=adb_taxon_id,
@@ -456,11 +457,11 @@ def _resolve_or_create_taxon(
         taxontreedef_id=taxontreedef_id,
     )
     if existing is not None:
-        return existing
+        return existing, created_nodes
 
     name = (latin_name or "").strip()
     if not name:
-        return None
+        return None, created_nodes
 
     # Re-check by normalized name to avoid duplicates from case/spacing drift.
     by_name = Taxon.objects.filter(
@@ -468,7 +469,7 @@ def _resolve_or_create_taxon(
         name__iexact=name,
     ).first()
     if by_name is not None:
-        return by_name
+        return by_name, created_nodes
 
     root = Taxon.objects.filter(
         definition_id=taxontreedef_id,
@@ -566,10 +567,21 @@ def _resolve_or_create_taxon(
             text1=_trunc(nhm_text, 32),
             remarks=_trunc("MUSIT migration: created during determination taxon resolution", 255),
         )
+        created_nodes.append(
+            {
+                "id": int(created.id),
+                "name": created.name,
+                "rankid": int(created.rankid),
+                "parent_id": int(parent.id) if getattr(parent, "id", None) is not None else None,
+                "adb_taxon_id": node.get("adb_taxon_id"),
+                "adb_latin_name_id": node.get("adb_latin_name_id"),
+                "nhm_taxon_id": node.get("nhm_taxon_id"),
+            }
+        )
         parent = created
         last = created
 
-    return last if last is not root else None
+    return (last if last is not root else None), created_nodes
 
 
 def _resolve_agent(schema: str, actor_id: Any) -> Any:
@@ -1389,7 +1401,7 @@ def _write_one_object(
                     continue
                 seen_det_keys.add(det_key)
 
-                taxon = _resolve_or_create_taxon(
+                taxon, created_nodes = _resolve_or_create_taxon(
                     oracle_cursor=oracle_cursor,
                     owner=owner,
                     latin_name_id=ln_id,
@@ -1403,6 +1415,18 @@ def _write_one_object(
                     lineage_cache=latin_name_lineage_cache,
                     rank_item_cache=rank_item_cache,
                 )
+                if created_nodes:
+                    _log(
+                        "warning",
+                        "object_id=%s catalog=%s created_taxa=%s det_latin_name=%r adb_taxon_id=%r adb_latin_name_id=%r nhm_taxon_id=%r",
+                        object_id,
+                        first.get("identifier_string"),
+                        created_nodes,
+                        dr.get("latin_name") or dr.get("valid_classterm") or dr.get("classterm"),
+                        adb_taxon_id,
+                        adb_id,
+                        dr.get("nhm_taxon_id"),
+                    )
                 if taxon is not None:
                     stats.taxon_matched += 1
                 else:
