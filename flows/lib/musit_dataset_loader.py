@@ -212,8 +212,8 @@ _SPECIMEN_SQL = """
     LEFT JOIN {schema}.classification_taxon ctax
       ON ctax.class_term_id = ct.class_term_id
     LEFT JOIN {schema}.taxon tx
-      ON REGEXP_LIKE(ctax.tax_id, '^[0-9]+$')
-     AND tx.taxon_id = TO_NUMBER(ctax.tax_id)
+      ON REGEXP_LIKE(TRIM(ctax.tax_id), '^[0-9]+$')
+     AND tx.taxon_id = TO_NUMBER(TRIM(ctax.tax_id))
     LEFT JOIN {schema}.event_role_actor erp
       ON erp.event_id = ce.event_id
     WHERE voa.object_id IN ({placeholders})
@@ -1411,10 +1411,12 @@ def _write_one_object(
                 if created_nodes:
                     _log(
                         "warning",
-                        "object_id=%s catalog=%s created_taxa=%s det_latin_name=%r adb_taxon_id=%r adb_latin_name_id=%r nhm_taxon_id=%r",
+                        "object_id=%s catalog=%s created_taxa=%s det_class_term_id=%r det_latin_name_id=%r det_latin_name=%r adb_taxon_id=%r adb_latin_name_id=%r nhm_taxon_id=%r",
                         object_id,
                         first.get("identifier_string"),
                         created_nodes,
+                        dr.get("class_term_id"),
+                        dr.get("latin_name_id"),
                         dr.get("latin_name") or dr.get("valid_classterm") or dr.get("classterm"),
                         adb_taxon_id,
                         adb_id,
@@ -1427,6 +1429,8 @@ def _write_one_object(
                     if len(stats.errors) < _MAX_ERRORS:
                         stats.errors.append(
                             f"object_id={object_id}: unresolved taxon "
+                            f"(class_term_id={dr.get('class_term_id')!r}, "
+                            f"latin_name_id={dr.get('latin_name_id')!r}, "
                             f"(latin_name={dr.get('latin_name')!r}, "
                             f"valid_classterm={dr.get('valid_classterm')!r}, "
                             f"classterm={dr.get('classterm')!r}, "

@@ -104,7 +104,7 @@ def _build_report(
     }
 
 
-@task(retries=1, retry_delay_seconds=10)
+@task(retries=0, retry_delay_seconds=10)
 def migrate_oslo_vascular_task(
     oracle_env: str,
     dry_run: bool,
