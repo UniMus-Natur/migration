@@ -287,6 +287,95 @@ def _resolve_taxon(
     return None
 
 
+def _resolve_or_create_taxon(
+    *,
+    adb_latin_name_id: Any,
+    nhm_taxon_id: Any,
+    latin_name: str | None,
+    full_name_author: str | None,
+    taxontreedef_id: int,
+) -> Any:
+    """Resolve a taxon in the discipline tree; create one when missing.
+
+    Creation policy for non-NorTaxa names:
+    - keep migration moving by inserting a leaf taxon under the discipline root
+    - preserve source identifiers in ``taxonomicserialnumber`` / ``text1`` when available
+    """
+    from specifyweb.specify.models import Taxon, Taxontreedefitem
+
+    existing = _resolve_taxon(
+        adb_latin_name_id=adb_latin_name_id,
+        nhm_taxon_id=nhm_taxon_id,
+        latin_name=latin_name,
+        taxontreedef_id=taxontreedef_id,
+    )
+    if existing is not None:
+        return existing
+
+    name = (latin_name or "").strip()
+    if not name:
+        return None
+
+    # Re-check by normalized name to avoid duplicates from case/spacing drift.
+    by_name = Taxon.objects.filter(
+        definition_id=taxontreedef_id,
+        name__iexact=name,
+    ).first()
+    if by_name is not None:
+        return by_name
+
+    root = Taxon.objects.filter(
+        definition_id=taxontreedef_id,
+        parent_id__isnull=True,
+    ).first()
+    if root is None:
+        raise RuntimeError(
+            f"TaxonTreeDef {taxontreedef_id} has no root taxon; run tree bootstrap before specimen migration."
+        )
+
+    species_item = Taxontreedefitem.objects.filter(
+        treedef_id=taxontreedef_id,
+        name__iexact="species",
+    ).order_by("rankid").first()
+    if species_item is None:
+        species_item = Taxontreedefitem.objects.filter(
+            treedef_id=taxontreedef_id,
+            rankid__gt=int(root.rankid),
+        ).order_by("-rankid").first()
+    if species_item is None:
+        raise RuntimeError(
+            f"TaxonTreeDef {taxontreedef_id} has no rank below root; cannot insert unresolved taxon {name!r}."
+        )
+
+    adb_serial = None
+    if adb_latin_name_id is not None:
+        try:
+            adb_serial = str(int(adb_latin_name_id))
+        except (TypeError, ValueError):
+            adb_serial = None
+
+    nhm_text = None
+    if nhm_taxon_id is not None:
+        try:
+            nhm_text = str(int(nhm_taxon_id))
+        except (TypeError, ValueError):
+            nhm_text = None
+
+    return root.children.create(
+        name=name[:256],
+        fullname=name[:512],
+        author=_trunc(full_name_author, 128),
+        definition_id=taxontreedef_id,
+        definitionitem=species_item,
+        rankid=int(species_item.rankid),
+        isaccepted=True,
+        source="MUSIT",
+        taxonomicserialnumber=_trunc(adb_serial, 50),
+        text1=_trunc(nhm_text, 32),
+        remarks=_trunc("MUSIT migration: created during determination taxon resolution", 255),
+    )
+
+
 def _resolve_agent(schema: str, actor_id: Any) -> Any:
     """Look up an existing Specify ``Agent`` by remarks marker; never creates one."""
     if actor_id is None:
@@ -1093,16 +1182,25 @@ def _write_one_object(
                     continue
                 seen_det_keys.add(det_key)
 
-                taxon = _resolve_taxon(
+                taxon = _resolve_or_create_taxon(
                     adb_latin_name_id=adb_id,
                     nhm_taxon_id=dr.get("nhm_taxon_id"),
                     latin_name=dr.get("latin_name") or dr.get("valid_classterm") or dr.get("classterm"),
+                    full_name_author=dr.get("full_name_author"),
                     taxontreedef_id=taxontreedef_id,
                 )
                 if taxon is not None:
                     stats.taxon_matched += 1
                 else:
                     stats.taxon_unresolved += 1
+                    if len(stats.errors) < _MAX_ERRORS:
+                        stats.errors.append(
+                            f"object_id={object_id}: unresolved taxon "
+                            f"(latin_name={dr.get('latin_name')!r}, "
+                            f"valid_classterm={dr.get('valid_classterm')!r}, "
+                            f"classterm={dr.get('classterm')!r}, "
+                            f"adb_latin_name_id={adb_id!r}, nhm_taxon_id={dr.get('nhm_taxon_id')!r})"
+                        )
 
                 # Determiner (same envelope columns as collector; classification-specific
                 # determiner roles are not wired yet — see EVENT_ROLE_* on classification_event.)
