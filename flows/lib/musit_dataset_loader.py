@@ -155,8 +155,8 @@ _SPECIMEN_SQL = """
       ln.full_name_author,
       ln.parent_latin_name_id,
       ln.nhm_taxon_id,
-      ln.adb_latin_name_id,
-      tx.adb_taxon_id,
+      COALESCE(ln.adb_latin_name_id, labd.adb_latin_name) AS adb_latin_name_id,
+      COALESCE(txv.adb_taxon_id, tx.adb_taxon_id) AS adb_taxon_id,
       ln.tax_cath_id,
       ln.is_valid          AS taxon_is_valid,
       erp.actor_id,
@@ -205,6 +205,10 @@ _SPECIMEN_SQL = """
       ON ctl.classterm_id = ct.class_term_id
     LEFT JOIN {schema}.latin_names ln
       ON ln.latin_name_id = ctl.latin_name_id
+    LEFT JOIN {schema}.latinname_adb labd
+      ON labd.latin_name_id = ln.latin_name_id
+    LEFT JOIN {schema}.taxon txv
+      ON txv.valid_latin_name_id = ln.latin_name_id
     LEFT JOIN {schema}.classification_taxon ctax
       ON ctax.class_term_id = ct.class_term_id
     LEFT JOIN {schema}.taxon tx
@@ -296,11 +300,13 @@ def _fetch_latin_name_lineage(
                   ln.full_name,
                   ln.full_name_author,
                   ln.nhm_taxon_id,
-                  ln.adb_latin_name_id,
+                  COALESCE(ln.adb_latin_name_id, labd.adb_latin_name) AS adb_latin_name_id,
                   tx.adb_taxon_id,
                   tc.tax_cath_code,
                   tc.tax_cath_name
                 FROM {o}.latin_names ln
+                LEFT JOIN {o}.latinname_adb labd
+                  ON labd.latin_name_id = ln.latin_name_id
                 LEFT JOIN {o}.taxon tx
                   ON tx.valid_latin_name_id = ln.latin_name_id
                 LEFT JOIN {o}.taxon_cathegory tc
