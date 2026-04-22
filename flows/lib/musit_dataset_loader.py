@@ -30,6 +30,7 @@ import json
 import logging
 import mimetypes
 import time
+from difflib import SequenceMatcher
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Any
@@ -83,6 +84,7 @@ class DatasetLoadStats:
     geography_created: int = 0
     determination_created: int = 0
     taxon_matched: int = 0
+    taxon_fallback_matched: int = 0
     taxon_unresolved: int = 0
     agent_matched: int = 0
     agent_unresolved: int = 0
@@ -274,6 +276,78 @@ def _resolve_taxon(
     return None
 
 
+def _normalize_taxon_name(raw_name: str | None) -> str:
+    """Normalize determination text for conservative fallback matching.
+
+    Keep canonical core tokens and strip trailing authorship noise.
+    """
+    if not raw_name:
+        return ""
+    s = " ".join(str(raw_name).strip().split())
+    if not s:
+        return ""
+    tokens = s.split(" ")
+    if len(tokens) < 2:
+        return s.lower()
+    rank_markers = {"subsp.", "subsp", "ssp.", "ssp", "var.", "var", "forma", "f."}
+    if len(tokens) >= 4 and tokens[2].lower() in rank_markers:
+        return f"{tokens[0]} {tokens[1]} {tokens[2]} {tokens[3]}".lower()
+    return f"{tokens[0]} {tokens[1]}".lower()
+
+
+def _find_taxon_by_conservative_name(
+    *,
+    taxontreedef_id: int,
+    latin_name: str | None,
+) -> tuple[Any, list[dict[str, Any]]]:
+    """Conservative fallback:
+    - same genus required
+    - high similarity threshold
+    - accept only a single unambiguous candidate
+    """
+    from specifyweb.specify.models import Taxon
+
+    probe = _normalize_taxon_name(latin_name)
+    if not probe or " " not in probe:
+        return None, []
+
+    genus = probe.split(" ", 1)[0]
+    candidates_qs = Taxon.objects.filter(
+        definition_id=taxontreedef_id,
+        name__istartswith=f"{genus} ",
+    ).only("id", "name", "source")
+
+    scored: list[dict[str, Any]] = []
+    for c in candidates_qs:
+        c_norm = _normalize_taxon_name(getattr(c, "name", None))
+        if not c_norm:
+            continue
+        ratio = SequenceMatcher(None, probe, c_norm).ratio()
+        if ratio < 0.965:
+            continue
+        scored.append(
+            {
+                "id": int(c.id),
+                "name": c.name,
+                "source": c.source,
+                "probe": probe,
+                "candidate_norm": c_norm,
+                "score": round(ratio, 4),
+            }
+        )
+
+    scored.sort(key=lambda r: r["score"], reverse=True)
+    if not scored:
+        return None, scored
+    top = scored[0]
+    if len(scored) == 1:
+        return Taxon.objects.filter(pk=top["id"]).first(), scored
+    second = scored[1]
+    if top["score"] >= 0.985 and (top["score"] - second["score"]) >= 0.02:
+        return Taxon.objects.filter(pk=top["id"]).first(), scored
+    return None, scored
+
+
 def _fetch_latin_name_lineage(
     *,
     oracle_cursor: Any,
@@ -419,15 +493,10 @@ def _resolve_or_create_taxon(
     object_id: int,
     catalog_number: str | None,
 ) -> tuple[Any, list[dict[str, Any]]]:
-    """Resolve/create taxon by NorTaxa-anchored lineage.
+    """Resolve taxon by NorTaxa id first, then conservative fallback on name.
 
-    Policy:
-    - Never match by plain name globally.
-    - Find nearest ancestor in source lineage with ADB_TAXON_ID present in Specify.
-    - Create only descendants under that anchored parent.
-    - If no ancestor has resolvable ADB_TAXON_ID, fail hard.
+    No automatic taxon creation in this path.
     """
-    from specifyweb.specify.models import Taxon
     created_nodes: list[dict[str, Any]] = []
 
     existing = _resolve_taxon(
@@ -440,139 +509,27 @@ def _resolve_or_create_taxon(
     if existing is not None:
         return existing, created_nodes
 
-    root = Taxon.objects.filter(
-        definition_id=taxontreedef_id,
-        parent_id__isnull=True,
-    ).first()
-    if root is None:
-        raise RuntimeError(
-            f"TaxonTreeDef {taxontreedef_id} has no root taxon; run tree bootstrap before specimen migration."
-        )
+    fallback, candidate_scores = _find_taxon_by_conservative_name(
+        taxontreedef_id=taxontreedef_id,
+        latin_name=latin_name or full_name_author or full_name,
+    )
+    if fallback is not None:
+        return fallback, created_nodes
 
-    lineage: list[dict[str, Any]] = []
-    if latin_name_id is not None:
-        try:
-            lineage = _fetch_latin_name_lineage(
-                oracle_cursor=oracle_cursor,
-                owner=owner,
-                latin_name_id=int(latin_name_id),
-                lineage_cache=lineage_cache,
-            )
-        except Exception:
-            lineage = []
-
-    if not lineage:
-        lineage = [{
-            "latin_name": latin_name,
-            "full_name": full_name,
-            "full_name_author": full_name_author,
+    # carry candidate debug info for unresolved logging
+    created_nodes.append(
+        {
+            "fallback_probe": _normalize_taxon_name(latin_name or full_name_author or full_name),
+            "fallback_candidates": candidate_scores[:10],
+            "object_id": object_id,
+            "catalog": catalog_number,
+            "latin_name_id": latin_name_id,
             "adb_taxon_id": adb_taxon_id,
             "adb_latin_name_id": adb_latin_name_id,
             "nhm_taxon_id": nhm_taxon_id,
-            "tax_cath_code": None,
-            "tax_cath_name": None,
-        }]
-
-    anchor_idx = -1
-    parent = None
-    for i, node in enumerate(lineage):
-        if node.get("adb_taxon_id") is None:
-            continue
-        candidate = _resolve_taxon(
-            adb_taxon_id=node.get("adb_taxon_id"),
-            adb_latin_name_id=None,
-            nhm_taxon_id=None,
-            latin_name=None,
-            taxontreedef_id=taxontreedef_id,
-        )
-        if candidate is not None:
-            anchor_idx = i
-            parent = candidate
-
-    if parent is None:
-        raise RuntimeError(
-            "Unanchored taxon lineage: no ancestor with resolvable ADB_TAXON_ID for "
-            f"object_id={object_id} catalog={catalog_number!r} latin_name={latin_name!r} "
-            f"adb_taxon_id={adb_taxon_id!r} adb_latin_name_id={adb_latin_name_id!r} nhm_taxon_id={nhm_taxon_id!r}"
-        )
-
-    last = parent
-    for node in lineage[anchor_idx + 1 :]:
-        node_name = (node.get("latin_name") or "").strip()
-        if not node_name:
-            continue
-        candidate = _resolve_taxon(
-            adb_taxon_id=node.get("adb_taxon_id"),
-            adb_latin_name_id=None,
-            nhm_taxon_id=None,
-            latin_name=None,
-            taxontreedef_id=taxontreedef_id,
-        )
-        if candidate is not None:
-            parent = candidate
-            last = candidate
-            continue
-
-        parent_rankid = int(getattr(parent, "rankid", 0))
-        rank_item = _pick_taxon_rank_item(
-            taxontreedef_id=taxontreedef_id,
-            parent_rankid=parent_rankid,
-            tax_cath_code=_trunc(node.get("tax_cath_code"), 64),
-            tax_cath_name=_trunc(node.get("tax_cath_name"), 64),
-            rank_item_cache=rank_item_cache,
-        )
-        if rank_item is None:
-            raise RuntimeError(
-                f"No taxon rank item above parent rankid={parent_rankid} for unresolved taxon {node_name!r}."
-            )
-
-        adb_serial = None
-        for key in ("adb_taxon_id", "adb_latin_name_id"):
-            raw = node.get(key)
-            if raw is None:
-                continue
-            try:
-                adb_serial = str(int(raw))
-                break
-            except (TypeError, ValueError):
-                continue
-
-        nhm_text = None
-        raw_nhm = node.get("nhm_taxon_id")
-        if raw_nhm is not None:
-            try:
-                nhm_text = str(int(raw_nhm))
-            except (TypeError, ValueError):
-                nhm_text = None
-
-        created = parent.children.create(
-            name=node_name[:256],
-            fullname=_trunc(node.get("full_name") or node_name, 512),
-            author=_trunc(node.get("full_name_author"), 128),
-            definition_id=taxontreedef_id,
-            definitionitem=rank_item,
-            rankid=int(rank_item.rankid),
-            isaccepted=True,
-            source="MUSIT",
-            taxonomicserialnumber=_trunc(adb_serial, 50),
-            text1=_trunc(nhm_text, 32),
-            remarks=_trunc("MUSIT migration: created during determination taxon resolution", 255),
-        )
-        created_nodes.append(
-            {
-                "id": int(created.id),
-                "name": created.name,
-                "rankid": int(created.rankid),
-                "parent_id": int(parent.id) if getattr(parent, "id", None) is not None else None,
-                "adb_taxon_id": node.get("adb_taxon_id"),
-                "adb_latin_name_id": node.get("adb_latin_name_id"),
-                "nhm_taxon_id": node.get("nhm_taxon_id"),
-            }
-        )
-        parent = created
-        last = created
-
-    return (last if last is not root else None), created_nodes
+        }
+    )
+    return None, created_nodes
 
 
 def _resolve_agent(schema: str, actor_id: Any) -> Any:
@@ -1409,31 +1366,39 @@ def _write_one_object(
                     catalog_number=_trunc(first.get("identifier_string"), 32),
                 )
                 if created_nodes:
+                    _log("debug", "object_id=%s catalog=%s fallback_debug=%s", object_id, first.get("identifier_string"), created_nodes[0])
+                if taxon is not None:
+                    stats.taxon_matched += 1
+                    if adb_taxon_id is None:
+                        stats.taxon_fallback_matched += 1
+                else:
+                    stats.taxon_unresolved += 1
+                    fallback_debug = created_nodes[0] if created_nodes else {}
+                    candidate_scores = fallback_debug.get("fallback_candidates", [])
                     _log(
                         "warning",
-                        "object_id=%s catalog=%s created_taxa=%s det_class_term_id=%r det_latin_name_id=%r det_latin_name=%r adb_taxon_id=%r adb_latin_name_id=%r nhm_taxon_id=%r",
+                        "object_id=%s catalog=%s unresolved taxon det_class_term_id=%r det_latin_name_id=%r det_latin_name=%r probe=%r top_candidates=%s adb_taxon_id=%r adb_latin_name_id=%r nhm_taxon_id=%r",
                         object_id,
                         first.get("identifier_string"),
-                        created_nodes,
                         dr.get("class_term_id"),
                         dr.get("latin_name_id"),
                         dr.get("latin_name") or dr.get("valid_classterm") or dr.get("classterm"),
+                        fallback_debug.get("fallback_probe"),
+                        candidate_scores[:5],
                         adb_taxon_id,
                         adb_id,
                         dr.get("nhm_taxon_id"),
                     )
-                if taxon is not None:
-                    stats.taxon_matched += 1
-                else:
-                    stats.taxon_unresolved += 1
                     if len(stats.errors) < _MAX_ERRORS:
                         stats.errors.append(
                             f"object_id={object_id}: unresolved taxon "
                             f"(class_term_id={dr.get('class_term_id')!r}, "
                             f"latin_name_id={dr.get('latin_name_id')!r}, "
-                            f"(latin_name={dr.get('latin_name')!r}, "
+                            f"latin_name={dr.get('latin_name')!r}, "
                             f"valid_classterm={dr.get('valid_classterm')!r}, "
                             f"classterm={dr.get('classterm')!r}, "
+                            f"probe={fallback_debug.get('fallback_probe')!r}, "
+                            f"top_candidates={candidate_scores[:5]!r}, "
                             f"adb_taxon_id={adb_taxon_id!r}, "
                             f"adb_latin_name_id={adb_id!r}, nhm_taxon_id={dr.get('nhm_taxon_id')!r})"
                         )
