@@ -30,7 +30,6 @@ import json
 import logging
 import mimetypes
 import time
-from difflib import SequenceMatcher
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Any
@@ -276,76 +275,35 @@ def _resolve_taxon(
     return None
 
 
-def _normalize_taxon_name(raw_name: str | None) -> str:
-    """Normalize determination text for conservative fallback matching.
-
-    Keep canonical core tokens and strip trailing authorship noise.
-    """
-    if not raw_name:
-        return ""
-    s = " ".join(str(raw_name).strip().split())
-    if not s:
-        return ""
-    tokens = s.split(" ")
-    if len(tokens) < 2:
-        return s.lower()
-    rank_markers = {"subsp.", "subsp", "ssp.", "ssp", "var.", "var", "forma", "f."}
-    if len(tokens) >= 4 and tokens[2].lower() in rank_markers:
-        return f"{tokens[0]} {tokens[1]} {tokens[2]} {tokens[3]}".lower()
-    return f"{tokens[0]} {tokens[1]}".lower()
-
-
-def _find_taxon_by_conservative_name(
+def _find_taxon_by_valid_classterm(
     *,
     taxontreedef_id: int,
-    latin_name: str | None,
+    valid_classterm: str | None,
 ) -> tuple[Any, list[dict[str, Any]]]:
-    """Conservative fallback:
-    - same genus required
-    - high similarity threshold
-    - accept only a single unambiguous candidate
-    """
+    """Strict fallback: case-insensitive exact match on valid_classterm."""
     from specifyweb.specify.models import Taxon
 
-    probe = _normalize_taxon_name(latin_name)
-    if not probe or " " not in probe:
+    probe = " ".join((valid_classterm or "").strip().split())
+    if not probe:
         return None, []
 
-    genus = probe.split(" ", 1)[0]
     candidates_qs = Taxon.objects.filter(
         definition_id=taxontreedef_id,
-        name__istartswith=f"{genus} ",
+        name__iexact=probe,
     ).only("id", "name", "source")
 
-    scored: list[dict[str, Any]] = []
-    for c in candidates_qs:
-        c_norm = _normalize_taxon_name(getattr(c, "name", None))
-        if not c_norm:
-            continue
-        ratio = SequenceMatcher(None, probe, c_norm).ratio()
-        if ratio < 0.965:
-            continue
-        scored.append(
-            {
-                "id": int(c.id),
-                "name": c.name,
-                "source": c.source,
-                "probe": probe,
-                "candidate_norm": c_norm,
-                "score": round(ratio, 4),
-            }
-        )
-
-    scored.sort(key=lambda r: r["score"], reverse=True)
-    if not scored:
-        return None, scored
-    top = scored[0]
-    if len(scored) == 1:
-        return Taxon.objects.filter(pk=top["id"]).first(), scored
-    second = scored[1]
-    if top["score"] >= 0.985 and (top["score"] - second["score"]) >= 0.02:
-        return Taxon.objects.filter(pk=top["id"]).first(), scored
-    return None, scored
+    rows = [
+        {
+            "id": int(c.id),
+            "name": c.name,
+            "source": c.source,
+            "probe": probe,
+        }
+        for c in candidates_qs
+    ]
+    if len(rows) == 1:
+        return Taxon.objects.filter(pk=rows[0]["id"]).first(), rows
+    return None, rows
 
 
 def _fetch_latin_name_lineage(
@@ -485,6 +443,7 @@ def _resolve_or_create_taxon(
     adb_latin_name_id: Any,
     nhm_taxon_id: Any,
     latin_name: str | None,
+    valid_classterm: str | None,
     full_name: str | None,
     full_name_author: str | None,
     taxontreedef_id: int,
@@ -509,9 +468,9 @@ def _resolve_or_create_taxon(
     if existing is not None:
         return existing, created_nodes
 
-    fallback, candidate_scores = _find_taxon_by_conservative_name(
+    fallback, candidate_scores = _find_taxon_by_valid_classterm(
         taxontreedef_id=taxontreedef_id,
-        latin_name=latin_name or full_name_author or full_name,
+        valid_classterm=valid_classterm,
     )
     if fallback is not None:
         return fallback, created_nodes
@@ -519,7 +478,7 @@ def _resolve_or_create_taxon(
     # carry candidate debug info for unresolved logging
     created_nodes.append(
         {
-            "fallback_probe": _normalize_taxon_name(latin_name or full_name_author or full_name),
+            "fallback_probe": " ".join((valid_classterm or "").strip().split()),
             "fallback_candidates": candidate_scores[:10],
             "object_id": object_id,
             "catalog": catalog_number,
@@ -1357,6 +1316,7 @@ def _write_one_object(
                     adb_latin_name_id=adb_id,
                     nhm_taxon_id=dr.get("nhm_taxon_id"),
                     latin_name=dr.get("latin_name") or dr.get("valid_classterm") or dr.get("classterm"),
+                    valid_classterm=dr.get("valid_classterm"),
                     full_name=dr.get("full_name"),
                     full_name_author=dr.get("full_name_author"),
                     taxontreedef_id=taxontreedef_id,
