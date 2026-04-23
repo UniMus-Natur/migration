@@ -167,7 +167,17 @@ _SPECIMEN_SQL = """
          JOIN {schema}.person_name pn
            ON pn.person_name_id = erpn.person_name_id
         WHERE erpn.event_id = ce.event_id
-      ) AS person_name_actor_id
+      ) AS person_name_actor_id,
+      (SELECT MIN(era.actor_id)
+         FROM {schema}.event_role_actor era
+        WHERE era.event_id = cte.event_id
+      ) AS classification_actor_id,
+      (SELECT MIN(pn.actor_id)
+         FROM {schema}.event_role_person_name erpn
+         JOIN {schema}.person_name pn
+           ON pn.person_name_id = erpn.person_name_id
+        WHERE erpn.event_id = cte.event_id
+      ) AS classification_person_name_actor_id
     FROM {schema}.v_object_attributes voa
     JOIN {schema}.object_attributes oa
       ON oa.object_id = voa.object_id
@@ -514,6 +524,39 @@ def _first_non_null_collector_actor_id(rows: list[dict]) -> Any:
             return aid
     for r in rows:
         aid = r.get("person_name_actor_id")
+        if aid is not None:
+            return aid
+    return None
+
+
+def _determination_dedupe_key(r: dict[str, Any]) -> tuple:
+    return (
+        r.get("adb_taxon_id"),
+        r.get("adb_latin_name_id"),
+        r.get("latin_name_id"),
+        _trunc(r.get("valid_classterm"), 255),
+        _trunc(r.get("classterm"), 255),
+    )
+
+
+def _first_non_null_classification_determiner_actor_id(
+    det_rows: list[dict[str, Any]], det_key: tuple
+) -> Any:
+    """Within rows sharing a determination dedupe key, pick a classification-event actor.
+
+    Oracle join order can leave ``classification_*_actor_id`` null on the first row even when
+    another row for the same determination envelope has a value.
+    """
+    for r in det_rows:
+        if _determination_dedupe_key(r) != det_key:
+            continue
+        aid = r.get("classification_actor_id")
+        if aid is not None:
+            return aid
+    for r in det_rows:
+        if _determination_dedupe_key(r) != det_key:
+            continue
+        aid = r.get("classification_person_name_actor_id")
         if aid is not None:
             return aid
     return None
@@ -1297,13 +1340,7 @@ def _write_one_object(
                 adb_taxon_id = dr.get("adb_taxon_id")
                 adb_id = dr.get("adb_latin_name_id")
                 ln_id = dr.get("latin_name_id")
-                det_key = (
-                    adb_taxon_id,
-                    adb_id,
-                    ln_id,
-                    _trunc(dr.get("valid_classterm"), 255),
-                    _trunc(dr.get("classterm"), 255),
-                )
+                det_key = _determination_dedupe_key(dr)
                 if det_key in seen_det_keys:
                     continue
                 seen_det_keys.add(det_key)
@@ -1363,9 +1400,10 @@ def _write_one_object(
                             f"adb_latin_name_id={adb_id!r}, nhm_taxon_id={dr.get('nhm_taxon_id')!r})"
                         )
 
-                # Determiner (same envelope columns as collector; classification-specific
-                # determiner roles are not wired yet — see EVENT_ROLE_* on classification_event.)
-                det_actor = dr.get("actor_id") or dr.get("person_name_actor_id")
+                # Determiner: MUSIT roles on the classification (determination) event — not the collecting event.
+                det_actor = _first_non_null_classification_determiner_actor_id(
+                    det_rows_all, det_key
+                )
                 determiner = _resolve_agent(owner, det_actor) if det_actor else None
 
                 det = Determination(
