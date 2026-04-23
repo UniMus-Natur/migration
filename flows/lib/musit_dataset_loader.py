@@ -29,9 +29,10 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+import re
 import time
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time as dtime, timezone
 from typing import Any
 
 from django.db import close_old_connections, transaction
@@ -147,6 +148,10 @@ _SPECIMEN_SQL = """
       kp.datum,
       cte.classification_type_id,
       cte.event_id         AS class_event_id,
+      cts.from_date        AS class_from_date,
+      cts.to_date          AS class_to_date,
+      cts.time_as_text     AS class_time_as_text,
+      cts.uncertain        AS class_date_uncertain,
       ct.classterm,
       ct.entered_classterm,
       ct.valid_classterm,
@@ -210,6 +215,10 @@ _SPECIMEN_SQL = """
       ON kp.koordinate_place_id = kpp.koordinate_place_id
     LEFT JOIN {schema}.classification_event cte
       ON cte.event_id = emo.event_id
+    LEFT JOIN {schema}.event cev
+      ON cev.event_id = cte.event_id
+    LEFT JOIN {schema}.timespan cts
+      ON cts.timespan_id = cev.timespan_id
     LEFT JOIN {schema}.classification_term ct
       ON ct.class_term_id = cte.class_term_id
     LEFT JOIN {schema}.classterm_latin_name ctl
@@ -1110,6 +1119,26 @@ def _coerce_date(val: Any) -> date | None:
     return None
 
 
+def _coerce_datetime_with_optional_time(d: date | None, time_text: Any) -> datetime | None:
+    if d is None:
+        return None
+    if time_text is None:
+        return datetime.combine(d, dtime.min)
+    s = str(time_text).strip()
+    if not s:
+        return datetime.combine(d, dtime.min)
+    m = re.search(r"(\d{1,2}):(\d{2})(?::(\d{2}))?", s)
+    if not m:
+        return datetime.combine(d, dtime.min)
+    try:
+        hh = int(m.group(1))
+        mm = int(m.group(2))
+        ss = int(m.group(3)) if m.group(3) is not None else 0
+        return datetime.combine(d, dtime(hour=hh, minute=mm, second=ss))
+    except ValueError:
+        return datetime.combine(d, dtime.min)
+
+
 def _trunc(s: Any, max_len: int) -> str | None:
     if s is None:
         return None
@@ -1405,6 +1434,12 @@ def _write_one_object(
                     det_rows_all, det_key
                 )
                 determiner = _resolve_agent(owner, det_actor) if det_actor else None
+                det_date = _coerce_date(dr.get("class_from_date")) or _coerce_date(
+                    dr.get("class_to_date")
+                )
+                det_datetime = _coerce_datetime_with_optional_time(
+                    det_date, dr.get("class_time_as_text")
+                )
 
                 det = Determination(
                     collectionobject=co,
@@ -1414,6 +1449,8 @@ def _write_one_object(
                     text1=_trunc(dr.get("classterm"), 255),
                     text2=_trunc(dr.get("valid_classterm"), 255),
                     determiner=determiner,
+                    determineddate=det_datetime,
+                    determineddateprecision=(1 if det_datetime is not None else None),
                 )
                 det.save()
                 stats.determination_created += 1
