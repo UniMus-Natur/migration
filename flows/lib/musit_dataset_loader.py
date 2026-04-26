@@ -162,7 +162,8 @@ _SPECIMEN_SQL = """
       ln.parent_latin_name_id,
       ln.nhm_taxon_id,
       COALESCE(ln.adb_latin_name_id, labd.adb_latin_name) AS adb_latin_name_id,
-      COALESCE(txv.adb_taxon_id, tx.adb_taxon_id) AS adb_taxon_id,
+      -- NorTaxa id: prefer CLASSIFICATION_TAXON → TAXON; valid_latin_name path can disagree.
+      COALESCE(tx.adb_taxon_id, txv.adb_taxon_id) AS adb_taxon_id,
       ln.tax_cath_id,
       ln.is_valid          AS taxon_is_valid,
       erp.actor_id,
@@ -325,6 +326,37 @@ def _find_taxon_by_valid_classterm(
     return None, rows
 
 
+def _norm_taxon_label(s: Any) -> str:
+    if s is None:
+        return ""
+    v = re.sub(r"[^0-9A-Za-z]+", " ", str(s).strip().lower())
+    return " ".join(v.split())
+
+
+def _taxon_matches_valid_classterm(taxon: Any, valid_classterm: str | None) -> bool:
+    """Guardrail: ID matches must not contradict the determination text."""
+    probe = _norm_taxon_label(valid_classterm)
+    if not probe:
+        return True
+
+    names = [
+        _norm_taxon_label(getattr(taxon, "name", None)),
+        _norm_taxon_label(getattr(taxon, "fullname", None)),
+        _norm_taxon_label(getattr(taxon, "fullnamewithauthor", None)),
+    ]
+    names = [n for n in names if n]
+    if not names:
+        return True
+
+    probe_tokens = probe.split()
+    for cand in names:
+        if cand == probe:
+            return True
+        if len(probe_tokens) >= 2 and (probe.startswith(cand) or cand.startswith(probe)):
+            return True
+    return False
+
+
 def _fetch_latin_name_lineage(
     *,
     oracle_cursor: Any,
@@ -485,7 +517,18 @@ def _resolve_or_create_taxon(
         taxontreedef_id=taxontreedef_id,
     )
     if existing is not None:
-        return existing, created_nodes
+        if _taxon_matches_valid_classterm(existing, valid_classterm):
+            return existing, created_nodes
+        created_nodes.append(
+            {
+                "mismatch_reason": "id_match_conflicts_with_valid_classterm",
+                "resolved_taxon_id": int(existing.id),
+                "resolved_taxon_name": getattr(existing, "name", None),
+                "valid_classterm": valid_classterm,
+                "object_id": object_id,
+                "catalog": catalog_number,
+            }
+        )
 
     fallback, candidate_scores = _find_taxon_by_valid_classterm(
         taxontreedef_id=taxontreedef_id,
@@ -1364,6 +1407,7 @@ def _write_one_object(
                     return 0
 
             det_rows_sorted = sorted(det_rows_all, key=_det_sort_key)
+            has_current = False
 
             for idx, dr in enumerate(det_rows_sorted):
                 adb_taxon_id = dr.get("adb_taxon_id")
@@ -1444,7 +1488,7 @@ def _write_one_object(
                 det = Determination(
                     collectionobject=co,
                     taxon=taxon,
-                    iscurrent=(idx == 0),  # most recent row → current
+                    iscurrent=(not has_current),
                     typestatusname=None,
                     text1=_trunc(dr.get("classterm"), 255),
                     text2=_trunc(dr.get("valid_classterm"), 255),
@@ -1453,6 +1497,8 @@ def _write_one_object(
                     determineddateprecision=(1 if det_datetime is not None else None),
                 )
                 det.save()
+                if det.iscurrent:
+                    has_current = True
                 stats.determination_created += 1
 
         # 6. Upsert objectmap row
