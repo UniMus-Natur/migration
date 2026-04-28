@@ -23,6 +23,7 @@ This documentation covers the planning, architecture, and execution of migrating
 - [**User migration report**](user_migration_report.md): `migration_report.json` from the Migrate Users Prefect flow (Phase 1.4).
 - [**MUSIT collection agents migration**](migrate_musit_agents.md): `ACTOR` / `PERSON_NAME` → Specify `Agent` (Phase 1.1; Prefect flow `migrate_musit_agents_flow`).
 - [**Specify structure sync**](sync_specify_structure.md): `sync_specify_structure_flow` — create divisions, disciplines, and collections from YAML (post-bootstrap, idempotent).
+- [**Specify forms git sync**](specify_forms_git_sync.md): Export/import scripts for tracking form XML in git and applying changes back to Specify.
 - [**Migration reports on S3**](migration_s3_reports.md): Shared bucket folder layout and `report.json` conventions.
 - [**Migration (ETL Technical)**](migration.md): ETL pipeline implementation details from Oracle to MariaDB.
 - [**NIRD Application Text**](nird_application.md): Text used in the Sigma2/NIRD application.
