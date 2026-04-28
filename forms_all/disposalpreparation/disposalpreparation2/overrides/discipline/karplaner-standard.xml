@@ -1,0 +1,63 @@
+<viewset name="Karplaner - standard" source="db" level="Discipline">
+  <views>
+    <view name="DisposalPreparation2" objtitle="DisposalPreparation2" class="edu.ku.brc.specify.datamodel.DisposalPreparation">
+      <desc>Subform within forms other than the Disposal form.</desc>
+      <altviews>
+        <altview name="DisposalPreparation2 View" viewdef="DisposalPreparation2" mode="view" />
+        <altview name="DisposalPreparation2 Edit" viewdef="DisposalPreparation2" mode="edit" default="true" />
+        <altview name="DisposalPreparation Table View" viewdef="DisposalPreparation Table" mode="view" />
+        <altview name="DisposalPreparation Table Edit" viewdef="DisposalPreparation Table" mode="edit" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="DisposalPreparation" class="edu.ku.brc.specify.datamodel.DisposalPreparation" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The DisposalPreparation subform for Disposal form.</desc>
+      <enableRules />
+      <columnDef>105px,2px,120px,5px,80px,2px,120px,5px,120px,2px,130px,5px,73px,2px,56px,p:g</columnDef>
+      <columnDef os="lnx">130px,2px,112px,5px,95px,2px,90px,5px,130px,2px,158px,5px,53px,2px,81px,p:g</columnDef>
+      <columnDef os="mac">130px,2px,141px,5px,110px,2px,145px,5px,153px,2px,175px,5px,90px,2px,75px,p:g</columnDef>
+      <columnDef os="exp">p,2px,p:g,5px:g,p,2px,p:g,5px:g,p,2px,p:g,5px,p:g,2px,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2px" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="9" />
+          <cell type="field" id="9" name="preparation.collectionObject.catalogNumber" uitype="text" readonly="true" />
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="quantity" uitype="spinner" initialize="max=5000" />
+          <cell type="label" labelfor="ac" />
+          <cell type="field" id="ac" name="preparation.collectionObject.accession.accessionNumber" uitype="text" readonly="true" />
+        </row>
+        <row>
+          <cell type="label" labelfor="3" />
+          <cell type="field" id="3" name="remarks" uitype="textareabrief" rows="2" colspan="13" />
+        </row>
+      </rows>
+    </viewdef>
+    <viewdef type="formtable" name="DisposalPreparation Table" class="edu.ku.brc.specify.datamodel.DisposalPreparation" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The Agent subform for the disposal form.</desc>
+      <definition>DisposalPreparation</definition>
+    </viewdef>
+    <viewdef type="form" name="DisposalPreparation2" class="edu.ku.brc.specify.datamodel.DisposalPreparation" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The DisposalPreparation subform for Disposal form.</desc>
+      <enableRules />
+      <columnDef>100px,2px,210px,5px,110px,2px,155px,243px,p:g</columnDef>
+      <columnDef os="lnx">115px,2px,230px,5px,98px,2px,155px,290px,p:g</columnDef>
+      <columnDef os="mac">130px,2px,215px,5px,153px,2px,189px,336px,p:g</columnDef>
+      <columnDef os="exp">p,2px,p,5px,85px,2px,p:g(2),p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2px" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="2" />
+          <cell type="field" id="2" name="disposal" uitype="querycbx" initialize="name=Disposal" />
+          <cell type="label" labelfor="q" />
+          <cell type="field" id="q" name="quantity" uitype="spinner" initialize="max=5000" />
+        </row>
+        <row>
+          <cell type="label" labelfor="3" />
+          <cell type="field" id="3" name="remarks" uitype="textareabrief" rows="2" colspan="6" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

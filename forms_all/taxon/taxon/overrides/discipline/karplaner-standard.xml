@@ -1,0 +1,94 @@
+<viewset name="Karplaner - standard" source="db" level="Discipline">
+  <views>
+    <view name="Taxon" class="edu.ku.brc.specify.datamodel.Taxon" busrules="edu.ku.brc.specify.datamodel.busrules.TaxonBusRules" isinternal="false" resourcelabels="false">
+      <desc>Taxon data entry form.</desc>
+      <altviews>
+        <altview name="Taxon View" viewdef="Taxon" mode="view" />
+        <altview name="Taxon Edit" viewdef="Taxon" mode="edit" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef name="Taxon" class="edu.ku.brc.specify.datamodel.Taxon" type="form" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj" useresourcelabels="true">
+      <desc>New Taxon Node Form</desc>
+      <enableRules>
+        <rule id="hybridParent1">isHybrid.isSelected()</rule>
+        <rule id="hybridParent2">isHybrid.isSelected()</rule>
+        <rule id="definitionItem">parent.getValue() != null</rule>
+      </enableRules>
+      <columnDef>100px,2px,325px,5px,133px,2px,155px,10px,95px,15px,p:g</columnDef>
+      <columnDef os="lnx">115px,2px,375px,5px,143px,2px,160px,10px,105px,15px,p:g</columnDef>
+      <columnDef os="mac">130px,2px,398px,5px,141px,2px,235px,10px,110px,15px,p:g</columnDef>
+      <columnDef os="exp">p,2px,p:g(2),5px:g,p,2px,p:g(2),10px,p,p,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2dlu" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="parent" />
+          <cell type="field" id="parent" uitype="querycbx" isrequired="true" colspan="3" initialize="name=Taxon;title=Taxon;viewbtn=true;newbtn=false;editoncreate=true" name="parent" />
+        </row>
+        <row>
+          <cell type="label" labelfor="name" />
+          <cell type="field" id="name" uitype="text" name="name" />
+          <cell type="label" labelfor="definitionItem" />
+          <cell type="field" id="definitionItem" uitype="combobox" name="definitionItem" colspan="3" />
+        </row>
+        <row>
+          <cell type="label" labelfor="fullName" />
+          <cell type="field" id="fullName" uitype="text" name="fullName" colspan="3" readonly="true" />
+        </row>
+        <row>
+          <cell type="label" labelfor="acceptedParent" />
+          <cell type="field" id="acceptedParent" uitype="querycbx" initialize="name=Taxon;title=Taxon;editbtn=false;newbtn=false" name="acceptedParent" colspan="5" />
+          <cell type="field" id="isAccepted" uitype="checkbox" name="isAccepted" default="true" />
+        </row>
+        <row>
+          <cell type="label" labelfor="commonName" />
+          <cell type="field" id="commonName" uitype="text" name="commonName" colspan="5" />
+          <cell type="field" id="isHybrid" uitype="checkbox" name="isHybrid" default="false" />
+        </row>
+        <row>
+          <cell type="label" labelfor="author" />
+          <cell type="field" id="author" uitype="text" name="author" />
+          <cell type="label" labelfor="source" />
+          <cell type="field" id="source" uitype="text" name="source" colspan="3" />
+        </row>
+        <row>
+          <cell type="panel" colspan="10" coldef="115px,2px,375px,5px,143px,2px,160px,10px,105px,15px,p:g">
+            <rows>
+              <row />
+            </rows>
+            <rows condition="IsHybrid=Yes">
+              <row>
+                <cell type="label" labelfor="hybridParent1" />
+                <cell type="field" id="hybridParent1" uitype="querycbx" initialize="name=Taxon;title=Taxon;editbtn=false;newbtn=false" name="hybridParent1" colspan="7" />
+              </row>
+              <row>
+                <cell type="label" labelfor="hybridParent2" />
+                <cell type="field" id="hybridParent2" uitype="querycbx" initialize="name=Taxon;title=Taxon;editbtn=false;newbtn=false" name="hybridParent2" colspan="7" />
+              </row>
+            </rows>
+          </cell>
+        </row>
+        <row>
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" uitype="text" name="guid" colspan="7" readonly="true" />
+        </row>
+        <row>
+          <cell type="subview" viewname="TaxonSubform" id="acceptedChildren" name="acceptedChildren" colspan="10" />
+        </row>
+        <row>
+          <cell type="subview" viewname="TaxonSubform" id="children" name="children" colspan="10" />
+        </row>
+        <row>
+          <cell type="subview" viewname="TaxonCitation" id="taxonCitations" name="taxonCitations" colspan="10" />
+        </row>
+        <row>
+          <cell type="separator" label="ATTACHMENTS" colspan="10" />
+        </row>
+        <row>
+          <cell type="subview" id="attachments" viewname="ObjectAttachment" name="taxonAttachments" colspan="10" initialize="btn=true;icon=TaxonAttachment" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

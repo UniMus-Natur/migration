@@ -1,0 +1,38 @@
+<viewset name="Karplaner - standard" source="db" level="Discipline">
+  <views>
+    <view name="ProjectSub" class="edu.ku.brc.specify.datamodel.Project">
+      <desc>Project form.</desc>
+      <altviews>
+        <altview name="ProjectSub Table View" viewdef="ProjectSub Table" mode="view" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="ProjectSub" class="edu.ku.brc.specify.datamodel.Project" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>Form For Project</desc>
+      <columnDef>100px,2px,195px,5px,93px,2px,90px,5px,65px,2px,86px,5px,85px,2px,90px,p:g</columnDef>
+      <columnDef os="lnx">115px,2px,200px,5px,110px,2px,80px,5px,84px,2px,100px,5px,105px,2px,100px,p:g</columnDef>
+      <columnDef os="mac">130px,2px,215px,5px,125px,2px,115px,5px,90px,2px,109px,5px,115px,2px,110px,p:g</columnDef>
+      <columnDef os="exp">p,2px,p:g,5px:g,p,2px,p:g(2),5px:g,p,2px,p:g(2),5px:g,p,2px,p:g(2),0px</columnDef>
+      <rowDef auto="true" sep="2px" cell="p" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="5" />
+          <cell type="field" id="5" name="projectName" uitype="text" colspan="9" />
+        </row>
+        <row>
+          <cell type="label" labelfor="6" />
+          <cell type="field" id="6" name="projectNumber" uitype="text" />
+          <cell type="label" labelfor="8" />
+          <cell type="field" id="8" name="startDate" uitype="formattedtext" uifieldformatter="Date" />
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="endDate" uitype="formattedtext" uifieldformatter="Date" />
+        </row>
+      </rows>
+    </viewdef>
+    <viewdef type="formtable" name="ProjectSub Table" class="edu.ku.brc.specify.datamodel.Project" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>Project Subform for Collection Object.</desc>
+      <definition>ProjectSub</definition>
+    </viewdef>
+  </viewdefs>
+</viewset>

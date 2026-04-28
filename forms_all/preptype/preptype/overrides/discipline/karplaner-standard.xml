@@ -1,0 +1,25 @@
+<viewset name="Karplaner - standard" source="db" level="Discipline">
+  <views>
+    <view name="PrepType" class="edu.ku.brc.specify.datamodel.PrepType" busrules="edu.ku.brc.specify.datamodel.busrules.PrepTypeBusRules" resourcelabels="false">
+      <desc>The PrepType Object form.</desc>
+      <altviews>
+        <altview name="PrepType View" viewdef="PrepType" mode="view" validated="false" />
+        <altview name="PrepType Edit" viewdef="PrepType" mode="edit" validated="true" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef name="PrepType" class="edu.ku.brc.specify.datamodel.PrepType" type="form" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>PrepType Data Entry Form</desc>
+      <columnDef>p,3dlu,p,6dlu,p</columnDef>
+      <rowDef>p,2dlu,p</rowDef>
+      <rows>
+        <row>
+          <cell type="label" labelfor="1" label="Name" />
+          <cell type="field" id="1" name="name" uitype="text" isrequired="true" />
+          <cell type="field" id="2" name="isLoanable" uitype="checkbox" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

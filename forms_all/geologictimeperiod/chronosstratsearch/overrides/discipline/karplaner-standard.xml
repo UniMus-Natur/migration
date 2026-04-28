@@ -1,0 +1,24 @@
+<viewset name="Karplaner - standard" source="db" level="Discipline">
+  <views>
+    <view name="ChronosStratSearch" class="edu.ku.brc.specify.datamodel.GeologicTimePeriod" usedefbusrule="false" resourcelabels="false">
+      <desc>The GeologicTimePeriod Search Form</desc>
+      <altviews>
+        <altview name="ChronosStratSearch" viewdef="ChronosStratSearch" mode="edit" validated="true" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="ChronosStratSearch" class="edu.ku.brc.specify.datamodel.GeologicTimePeriod" gettable="edu.ku.brc.af.ui.forms.DataGetterForHashMap" settable="edu.ku.brc.af.ui.forms.DataSetterForHashMap">
+      <desc>The GeologicTimePeriod Search Form</desc>
+      <enableRules />
+      <columnDef>p,3dlu,p</columnDef>
+      <rowDef>p,2dlu,p</rowDef>
+      <rows>
+        <row>
+          <cell type="label" labelfor="FullName" />
+          <cell type="field" id="FullName" name="FullName" isrequired="true" uitype="text" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

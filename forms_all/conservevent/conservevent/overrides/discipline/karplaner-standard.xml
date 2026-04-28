@@ -1,0 +1,48 @@
+<viewset name="Karplaner - standard" source="db" level="Discipline">
+  <views>
+    <view name="ConservEvent" class="edu.ku.brc.specify.datamodel.ConservEvent" busrules="edu.ku.brc.specify.datamodel.busrules.ConservEventBusRules">
+      <desc>Conservation Event</desc>
+      <altviews>
+        <altview name="Conservation Event View" viewdef="ConservEvent" mode="view" />
+        <altview name="Conservation Event Edit" viewdef="ConservEvent" mode="edit" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="ConservEvent" class="edu.ku.brc.specify.datamodel.ConservEvent" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>Conservation Event</desc>
+      <enableRules />
+      <columnDef>100px,2px,205px,5px,85px,2px,215px,5px,100px,2px,215px,0px,p:g</columnDef>
+      <columnDef os="lnx">115px,2px,210px,5px,120px,2px,210px,5px,140px,2px,210px,0px,p:g</columnDef>
+      <columnDef os="mac">130px,2px,250px,5px,143px,2px,260px,5px,158px,2px,260px,0px,p:g</columnDef>
+      <columnDef os="exp">p,2px,p:g(2),5px:g,p,2px,p:g,5px:g,p,2px,p:g,0px</columnDef>
+      <rowDef auto="true" cell="p" sep="2px" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="5" />
+          <cell type="field" id="5" name="curator" uitype="querycbx" initialize="name=Agent;title=Agent" />
+          <cell type="label" labelfor="6" />
+          <cell type="field" id="6" uitype="plugin" name="this" initialize="name=PartialDateUI;df=curatorApprovalDate;tp=curatorApprovalDatePrecision" uifieldformatter="Date" />
+          <cell type="label" label="" />
+          <cell type="subview" id="4" name="conservEventAttachments" viewname="ObjectAttachment" initialize="align=right;btn=true;icon=ConservEventAttachment" />
+        </row>
+        <row>
+          <cell type="label" labelfor="13" />
+          <cell type="field" id="13" name="treatedByAgent" uitype="querycbx" initialize="name=Agent;title=Agent" />
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" uitype="plugin" name="this" initialize="name=PartialDateUI;df=examDate;tp=examDatePrecision" uifieldformatter="Date" default="today" />
+          <cell type="label" labelfor="3" />
+          <cell type="field" id="3" uitype="plugin" name="this" initialize="name=PartialDateUI;df=completedDate;tp=completedDatePrecision" uifieldformatter="Date" />
+        </row>
+        <row>
+          <cell type="label" labelfor="7" />
+          <cell type="field" id="7" name="treatmentReport" uitype="textareabrief" rows="2" colspan="10" />
+        </row>
+        <row>
+          <cell type="label" labelfor="2" />
+          <cell type="field" id="2" name="conditionReport" uitype="textareabrief" rows="2" colspan="10" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

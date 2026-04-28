@@ -1,0 +1,52 @@
+<viewset name="Karplaner - standard" source="db" level="Discipline">
+  <views>
+    <view name="Project" class="edu.ku.brc.specify.datamodel.Project" isinternal="false">
+      <desc>Project form.</desc>
+      <altviews>
+        <altview name="Project View" viewdef="Project" mode="view" default="true" />
+        <altview name="Project Edit" viewdef="Project" mode="edit" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="Project" class="edu.ku.brc.specify.datamodel.Project" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>Form For Project</desc>
+      <columnDef>100px,2px,195px,5px,93px,2px,90px,5px,65px,2px,86px,5px,85px,2px,90px,0px,15px,p:g</columnDef>
+      <columnDef os="lnx">115px,2px,195px,5px,115px,2px,80px,5px,84px,2px,100px,5px,105px,2px,100px,0px,15px,p:g</columnDef>
+      <columnDef os="mac">130px,2px,215px,5px,125px,2px,115px,5px,90px,2px,109px,5px,115px,2px,110px,0px,15px,p:g</columnDef>
+      <columnDef os="exp">p,2px,p:g,5px:g,p,2px,p:g(2),5px:g,p,2px,p:g(2),5px:g,p,2px,p:g(2),0px,p,p:g</columnDef>
+      <rowDef auto="true" sep="2px" cell="p" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="5" />
+          <cell type="field" id="5" name="projectName" uitype="text" />
+          <cell type="label" labelfor="6" />
+          <cell type="field" id="6" name="projectNumber" uitype="text" />
+          <cell type="label" labelfor="8" />
+          <cell type="field" id="8" name="startDate" uitype="formattedtext" uifieldformatter="Date" />
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="endDate" uitype="formattedtext" uifieldformatter="Date" />
+        </row>
+        <row>
+          <cell type="label" labelfor="10" />
+          <cell type="field" id="10" name="agent" uitype="querycbx" initialize="name=Agent" />
+          <cell type="label" labelfor="2" />
+          <cell type="field" id="2" name="grantAgency" uitype="text" colspan="5" />
+          <cell type="label" labelfor="3" />
+          <cell type="field" id="3" name="grantNumber" uitype="text" />
+        </row>
+        <row>
+          <cell type="label" labelfor="4" />
+          <cell type="field" id="4" name="projectDescription" uitype="textareabrief" rows="2" colspan="14" />
+        </row>
+        <row>
+          <cell type="label" labelfor="7" />
+          <cell type="field" id="7" name="remarks" uitype="textareabrief" rows="2" colspan="14" />
+        </row>
+        <row>
+          <cell type="subview" viewname="CollectionObjectSub" id="11" colspan="17" name="collectionObjects" initialize="addsearch=true" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

@@ -1,0 +1,67 @@
+<viewset name="Karplaner - standard" source="db" level="Discipline">
+  <views>
+    <view name="Gift" class="edu.ku.brc.specify.datamodel.Gift" busrules="edu.ku.brc.specify.datamodel.busrules.GiftBusRules">
+      <desc>Gift display form</desc>
+      <altviews>
+        <altview name="Gift View" viewdef="Gift" mode="view" default="true" />
+        <altview name="Gift Edit" viewdef="Gift" mode="edit" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="Gift" class="edu.ku.brc.specify.datamodel.Gift" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>Gift viewing form.</desc>
+      <columnDef>105px,2px,120px,5px,70px,2px,100px,5px,100px,2px,141px,15px,165px,0px,15px,p:g</columnDef>
+      <columnDef os="lnx">115px,2px,130px,5px,81px,2px,110px,5px,115px,2px,155px,15px,180px,0px,15px,p:g</columnDef>
+      <columnDef os="mac">130px,2px,140px,5px,96px,2px,125px,5px,130px,2px,185px,10px,200px,0px,15px,p:g</columnDef>
+      <columnDef os="exp">p,2px,min(p;150px),5px:g,p,2px,p:g(2),5px:g,p,2px,p:g(2),5px,p,0px,p,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="1dlu" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="giftNumber" uitype="formattedtext" />
+          <cell type="label" labelfor="3" />
+          <cell type="field" id="3" name="giftDate" uitype="formattedtext" uifieldformatter="Date" default="today" />
+          <cell type="label" labelfor="4" />
+          <cell type="field" id="4" name="purposeOfGift" uitype="text" />
+          <cell type="field" id="2" name="isFinancialResponsibility" uitype="checkbox" initialize="editable=true" />
+        </row>
+        <row>
+          <cell type="label" label="Total Preps:" initialize="align=right" />
+          <cell type="field" id="ti" name="totalPreps" uitype="text" readonly="true" />
+          <cell type="label" label="Total Items:" initialize="align=right" />
+          <cell type="field" id="tq" name="totalItems" uitype="text" readonly="true" />
+        </row>
+        <row>
+          <cell type="label" labelfor="5" />
+          <cell type="field" id="5" name="remarks" uitype="textareabrief" rows="2" colspan="12" />
+        </row>
+        <row>
+          <cell type="label" labelfor="ldqx" />
+          <cell type="field" id="ldqx" name="deaccession" uitype="querycbx" initialize="name=Deaccession;title=Deaccession" colspan="5" />
+        </row>
+        <row>
+          <cell type="subview" viewname="GiftAgent" id="8" name="giftAgents" desc="Agents" colspan="15" rows="2" />
+        </row>
+        <row>
+          <cell type="subview" viewname="Shipment" id="11" name="shipments" colspan="15" />
+        </row>
+        <row>
+          <cell type="subview" viewname="GiftItems" id="10" name="giftPreparations" defaulttype="table" colspan="15" rows="4" />
+        </row>
+        <row>
+          <cell type="panel" id="16" name="outerPanel" coldef="p,f:p:g" rowdef="p,4px,p" colspan="15">
+            <rows>
+              <row>
+                <cell type="field" id="13" uitype="checkbox" name="generateInvoice" label="Generate Invoice on Save" ignore="true" default="true" initialize="vis=false" />
+              </row>
+            </rows>
+          </cell>
+        </row>
+        <row>
+          <cell type="subview" id="attachments" viewname="ObjectAttachment" name="giftAttachments" colspan="15" initialize="btn=true;icon=GiftAttachment" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

@@ -1,0 +1,43 @@
+<viewset name="Karplaner - standard" source="db" level="Discipline">
+  <views>
+    <view name="Shipment" class="edu.ku.brc.specify.datamodel.Shipment" busrules="edu.ku.brc.specify.datamodel.busrules.LoanGiftShipmentBusRules">
+      <desc>Shipment Subform within the Loan Object form.</desc>
+      <altviews>
+        <altview name="Shipment View" viewdef="Shipment" mode="view" />
+        <altview name="Shipment Edit" viewdef="Shipment" mode="edit" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="Shipment" class="edu.ku.brc.specify.datamodel.Shipment" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>Shipment form.</desc>
+      <columnDef>105px,2px,140px,5px,123px,2px,140px,5px,113px,2px,195px,0px,p:g</columnDef>
+      <columnDef os="lnx">131px,2px,172px,5px,118px,2px,170px,5px,106px,2px,210px,0px,p:g</columnDef>
+      <columnDef os="mac">130px,2px,195px,5px,136px,2px,195px,5px,120px,2px,240px,0px,p:g</columnDef>
+      <columnDef os="exp">p,2px,p:g(2),5px:g,p,2px,p:g(2),5px:g,p,2px,p:g,0px</columnDef>
+      <rowDef auto="true" cell="p" sep="2dlu" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="2" />
+          <cell type="field" id="2" name="shipmentNumber" uitype="text" />
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="shipmentDate" uitype="formattedtext" uifieldformatter="Date" default="today" />
+          <cell type="label" labelfor="8" />
+          <cell type="field" id="8" name="shippedTo" uitype="querycbx" initialize="name=Agent" />
+        </row>
+        <row>
+          <cell type="label" labelfor="4" />
+          <cell type="field" id="4" name="numberOfPackages" uitype="text" default="1" />
+          <cell type="label" labelfor="3" />
+          <cell type="field" id="3" name="shipmentMethod" uitype="combobox" />
+          <cell type="label" labelfor="7" />
+          <cell type="field" id="7" name="shippedBy" uitype="querycbx" initialize="name=Agent" />
+        </row>
+        <row>
+          <cell type="label" labelfor="9" />
+          <cell type="field" id="9" name="remarks" uitype="textareabrief" rows="2" colspan="10" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

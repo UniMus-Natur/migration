@@ -1,0 +1,32 @@
+<viewset name="Karplaner - standard" source="db" level="Discipline">
+  <views>
+    <view name="CollectionObjectCitation" class="edu.ku.brc.specify.datamodel.CollectionObjectCitation">
+      <desc>The Collection Object form.</desc>
+      <altviews>
+        <altview name="CollectionObjectCitation View" viewdef="CollectionObjectCitation" mode="view" />
+        <altview name="CollectionObjectCitation Edit" viewdef="CollectionObjectCitation" mode="edit" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="CollectionObjectCitation" class="edu.ku.brc.specify.datamodel.CollectionObjectCitation" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>Form For CollectionObjectCitation</desc>
+      <columnDef>100px,2px,610px,25px,90px,0px,p:g</columnDef>
+      <columnDef os="lnx">115px,2px,685px,25px,95px,0px,p:g</columnDef>
+      <columnDef os="mac">130px,2px,705px,25px,95px,0px,p:g</columnDef>
+      <columnDef os="exp">p,2px,p:g(4),p:g,p,0px</columnDef>
+      <rowDef auto="true" sep="2px" cell="p" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="6" />
+          <cell type="field" id="6" name="referenceWork" uitype="querycbx" initialize="name=ReferenceWork;title=ReferenceWork" />
+          <cell type="field" id="1" name="isFigured" uitype="checkbox" />
+        </row>
+        <row>
+          <cell type="label" labelfor="2" />
+          <cell type="field" id="2" name="remarks" uitype="textareabrief" rows="2" colspan="4" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

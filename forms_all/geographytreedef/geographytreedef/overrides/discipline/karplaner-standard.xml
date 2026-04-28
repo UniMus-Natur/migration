@@ -1,0 +1,39 @@
+<viewset name="Karplaner - standard" source="db" level="Discipline">
+  <views>
+    <view name="GeographyTreeDef" objtitle="GeographyTreeDef" class="edu.ku.brc.specify.datamodel.GeographyTreeDef">
+      <altviews>
+        <altview name="GeographyTreeDef View" viewdef="GeographyTreeDef" mode="view" validated="false" />
+        <altview name="GeographyTreeDef Edit" viewdef="GeographyTreeDef" mode="edit" default="true" validated="false" />
+        <altview name="GeographyTreeDef Table View" viewdef="GeographyTreeDef Table" mode="view" validated="false" />
+        <altview name="GeographyTreeDef Table Edit" viewdef="GeographyTreeDef Table" mode="edit" validated="false" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef name="GeographyTreeDef" class="edu.ku.brc.specify.datamodel.GeographyTreeDef" type="form" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The GeographyTreeDef Table</desc>
+      <enableRules />
+      <columnDef>30px,2px,100px,2px,50px,2px,100px,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2px" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="name" />
+          <cell type="field" id="name" name="name" uitype="text" />
+          <cell type="label" labelfor="fullNameDir" />
+          <cell type="field" id="fullNameDir" name="fullNameDirection" default="1" uitype="combobox" />
+        </row>
+        <row>
+          <cell type="label" labelfor="remarks" />
+          <cell type="field" id="remarks" name="remarks" uitype="textareabrief" colspan="5" />
+        </row>
+        <row>
+          <cell type="subview" id="items" name="treeDefItems" colspan="8" defaulttype="table" initialize="sortField=rankId" />
+        </row>
+      </rows>
+    </viewdef>
+    <viewdef name="GeographyTreeDef Table" class="edu.ku.brc.specify.datamodel.GeographyTreeDef" type="formtable" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The GeographyTreeDef Table</desc>
+      <definition>GeographyTreeDef</definition>
+    </viewdef>
+  </viewdefs>
+</viewset>

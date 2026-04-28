@@ -171,16 +171,58 @@ def _parse_local_form(path: Path) -> tuple[ET.Element, dict[str, ET.Element]]:
     return local_view_copy, local_defs
 
 
-def _gather_local_forms(forms_dir: Path) -> list[Path]:
+def _norm_text(value: str | None) -> str:
+    return (value or "").strip()
+
+
+def _elements_equal(a: ET.Element, b: ET.Element) -> bool:
+    if a.tag != b.tag:
+        return False
+    if dict(a.attrib) != dict(b.attrib):
+        return False
+    if _norm_text(a.text) != _norm_text(b.text):
+        return False
+    ach = list(a)
+    bch = list(b)
+    if len(ach) != len(bch):
+        return False
+    for c1, c2 in zip(ach, bch):
+        if not _elements_equal(c1, c2):
+            return False
+    return True
+
+
+def _gather_local_forms(
+    forms_dir: Path,
+    *,
+    target_viewset_name: str,
+    source_mode: str,
+) -> list[Path]:
+    slug = _safe_name(target_viewset_name)
     candidates: list[Path] = []
-    for p in sorted(forms_dir.glob("*/*/*.xml")):
-        if p.name == "manifest.xml":
-            continue
-        if "overrides" in p.parts:
-            continue
-        candidates.append(p)
+
+    if source_mode == "defaults":
+        for p in sorted(forms_dir.glob("*/*/default.xml")):
+            candidates.append(p)
+    elif source_mode == "overrides":
+        for p in sorted(forms_dir.glob(f"*/*/overrides/*/{slug}.xml")):
+            candidates.append(p)
+    else:  # auto
+        if slug == "common":
+            for p in sorted(forms_dir.glob("*/*/default.xml")):
+                candidates.append(p)
+        else:
+            for p in sorted(forms_dir.glob(f"*/*/overrides/*/{slug}.xml")):
+                candidates.append(p)
+
     if not candidates:
-        sys.exit(f"No form XML files found at {forms_dir} (expected */*/*.xml, excluding overrides)")
+        if source_mode == "defaults":
+            mode = "default.xml files"
+        elif source_mode == "overrides":
+            mode = f"overrides files named {slug}.xml"
+        else:
+            mode = "auto (defaults for common, overrides for non-common)"
+        sys.exit(f"No matching form XML files found at {forms_dir} for viewset '{target_viewset_name}' ({mode})")
     return candidates
 
 
@@ -221,7 +263,11 @@ def _load_target_viewset(
 
 
 def _sync_forms_into_viewset(
-    root: ET.Element, local_form_paths: list[Path], *, verbose_missing: bool
+    root: ET.Element,
+    local_form_paths: list[Path],
+    *,
+    verbose_missing: bool,
+    create_missing_views: bool,
 ) -> dict[str, int]:
     views_root = root.find("views")
     if views_root is None:
@@ -245,26 +291,32 @@ def _sync_forms_into_viewset(
     changed_views = 0
     changed_defs = 0
     missing = 0
+    created_views = 0
 
     for path in local_form_paths:
         local_view, local_defs = _parse_local_form(path)
         key = (local_view.attrib.get("name", ""), local_view.attrib.get("class", ""))
         remote = remote_by_key.get(key)
         if remote is None:
-            missing += 1
-            if verbose_missing:
-                print(f"[import_specify_forms] missing remote view for {path} key={key}", file=sys.stderr)
-            continue
+            if create_missing_views:
+                views_root.append(local_view)
+                remote_by_key[key] = local_view
+                created_views += 1
+            else:
+                missing += 1
+                if verbose_missing:
+                    print(f"[import_specify_forms] missing remote view for {path} key={key}", file=sys.stderr)
+                continue
         matched += 1
 
-        old_view = ET.tostring(remote, encoding="unicode")
-        new_view = ET.tostring(local_view, encoding="unicode")
-        if old_view != new_view:
-            idx = list(views_root).index(remote)
-            views_root.remove(remote)
-            views_root.insert(idx, local_view)
-            remote_by_key[key] = local_view
-            changed_views += 1
+        remote = remote_by_key.get(key)
+        if remote is not None and remote is not local_view:
+            if not _elements_equal(remote, local_view):
+                idx = list(views_root).index(remote)
+                views_root.remove(remote)
+                views_root.insert(idx, local_view)
+                remote_by_key[key] = local_view
+                changed_views += 1
 
         for d_name, local_def in local_defs.items():
             existing = defs_by_name.get(d_name)
@@ -273,9 +325,7 @@ def _sync_forms_into_viewset(
                 defs_by_name[d_name] = local_def
                 changed_defs += 1
                 continue
-            old_def = ET.tostring(existing, encoding="unicode")
-            new_def = ET.tostring(local_def, encoding="unicode")
-            if old_def != new_def:
+            if not _elements_equal(existing, local_def):
                 idx = list(defs_root).index(existing)
                 defs_root.remove(existing)
                 defs_root.insert(idx, local_def)
@@ -285,6 +335,7 @@ def _sync_forms_into_viewset(
     return {
         "matched_forms": matched,
         "missing_forms": missing,
+        "created_views": created_views,
         "changed_views": changed_views,
         "changed_viewdefs": changed_defs,
     }
@@ -325,6 +376,17 @@ def main() -> None:
         action="store_true",
         help="Print each local XML that does not map to a view in the target viewset",
     )
+    parser.add_argument(
+        "--source-mode",
+        choices=("auto", "defaults", "overrides"),
+        default="auto",
+        help="Which local XML source to import: defaults, overrides, or auto",
+    )
+    parser.add_argument(
+        "--create-missing-views",
+        action="store_true",
+        help="Create missing <view> entries in target DB viewset from local XML",
+    )
     args = parser.parse_args()
 
     scripts_dir = Path(__file__).resolve().parent
@@ -334,14 +396,17 @@ def main() -> None:
     user = _require_env("SPECIFY7_USER")
     password = _require_env("SPECIFY7_PASSWORD")
 
-    forms_dir = Path(args.forms_dir)
-    if not forms_dir.exists():
-        sys.exit(f"Forms directory does not exist: {forms_dir}")
-    local_form_paths = _gather_local_forms(forms_dir)
-
     session = _login(base, user, password, args.collection)
     viewset_name = args.viewset_name or _discover_viewset_name(session, base)
     print(f"[import_specify_forms] target viewset: {viewset_name}", file=sys.stderr)
+    forms_dir = Path(args.forms_dir)
+    if not forms_dir.exists():
+        sys.exit(f"Forms directory does not exist: {forms_dir}")
+    local_form_paths = _gather_local_forms(
+        forms_dir,
+        target_viewset_name=viewset_name,
+        source_mode=args.source_mode,
+    )
 
     data_obj, root = _load_target_viewset(session, base, viewset_name)
     before_xml = ET.tostring(root, encoding="unicode")
@@ -350,7 +415,12 @@ def main() -> None:
         backup_path.parent.mkdir(parents=True, exist_ok=True)
         backup_path.write_text(before_xml, encoding="utf-8")
 
-    stats = _sync_forms_into_viewset(root, local_form_paths, verbose_missing=args.verbose_missing)
+    stats = _sync_forms_into_viewset(
+        root,
+        local_form_paths,
+        verbose_missing=args.verbose_missing,
+        create_missing_views=args.create_missing_views,
+    )
     ET.indent(root, space="  ")
     after_xml = ET.tostring(root, encoding="unicode")
     changed = before_xml != after_xml

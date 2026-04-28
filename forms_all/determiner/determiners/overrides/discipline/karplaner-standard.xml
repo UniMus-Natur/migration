@@ -1,0 +1,37 @@
+<viewset name="Karplaner - standard" source="db" level="Discipline">
+  <views>
+    <view name="Determiners" class="edu.ku.brc.specify.datamodel.Determiner" busrules="edu.ku.brc.specify.datamodel.busrules.DeterminerBusRules">
+      <desc>The Determiners Subform.</desc>
+      <altviews>
+        <altview name="Determiners Table View" viewdef="Determiners Table" mode="view" />
+        <altview name="Determiners Table Edit" viewdef="Determiners Table" mode="edit" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="Determiners" class="edu.ku.brc.specify.datamodel.Determiner" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The Determiners form - UNKNOWN use in database.</desc>
+      <enableRules />
+      <columnDef>p,5dlu,p:g,5dlu,p</columnDef>
+      <rowDef auto="true" cell="p" sep="2px" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="3" />
+          <cell type="field" id="3" name="agent.lastName" uitype="text" colspan="3" />
+        </row>
+        <row>
+          <cell type="label" labelfor="5" />
+          <cell type="field" id="5" name="agent.firstName" uitype="text" colspan="3" />
+        </row>
+        <row>
+          <cell type="label" labelfor="7" />
+          <cell type="field" id="7" name="remarks" uitype="text" colspan="3" />
+        </row>
+      </rows>
+    </viewdef>
+    <viewdef type="formtable" name="Determiners Table" class="edu.ku.brc.specify.datamodel.Determiner" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>Determiners grid view for Determination form.</desc>
+      <definition>Determiners</definition>
+    </viewdef>
+  </viewdefs>
+</viewset>

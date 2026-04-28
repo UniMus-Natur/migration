@@ -1,0 +1,65 @@
+<viewset name="Karplaner - standard" source="db" level="Discipline">
+  <views>
+    <view name="AccessionCO" class="edu.ku.brc.specify.datamodel.Accession" busrules="edu.ku.brc.specify.datamodel.busrules.AccessionBusRules">
+      <desc>The Accession form as seen in the CO form.</desc>
+      <altviews>
+        <altview name="AccessionCO View" viewdef="AccessionCO" mode="view" default="true" />
+        <altview name="AccessionCO Edit" viewdef="AccessionCO" mode="edit" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="AccessionCO" class="edu.ku.brc.specify.datamodel.Accession" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The Accession form.</desc>
+      <enableRules />
+      <columnDef>p,0px,190px,5px,130px,2px,141px,5px,110px,2px,140px,0px,15px,p:g</columnDef>
+      <columnDef os="lnx">135px,2px,200px,5px,135px,2px,156px,5px,125px,2px,150px,0px,15px,p:g</columnDef>
+      <columnDef os="mac">130px,2px,220px,5px,153px,2px,189px,5px,133px,2px,189px,0px,15px,p:g</columnDef>
+      <columnDef os="exp">p,0px,p:g,5px:g,p,2px,p:g(2),5px:g,p,2px,p:g(2),0px,p,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="1px" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="accessionNumber" uitype="formattedtext" />
+          <cell type="label" labelfor="3" />
+          <cell type="field" id="3" name="type" uitype="combobox" />
+          <cell type="label" labelfor="2" />
+          <cell type="field" id="2" name="status" uitype="combobox" />
+        </row>
+        <row>
+          <cell type="label" id="divLabel" label=" " initialize="align=right" />
+          <cell type="field" id="4" name="divisionCBX" uitype="combobox" ignore="true" />
+          <cell type="label" labelfor="5" />
+          <cell type="field" id="5" name="dateAccessioned" uitype="formattedtext" uifieldformatter="Date" default="today" />
+          <cell type="label" labelfor="6" />
+          <cell type="field" id="6" name="dateReceived" uitype="formattedtext" uifieldformatter="Date" default="today" />
+        </row>
+        <row>
+          <cell type="label" labelfor="7" />
+          <cell type="field" id="7" name="remarks" uitype="textareabrief" rows="2" colspan="10" />
+        </row>
+        <row>
+          <cell type="subview" viewname="AccessionAgent" id="8" name="accessionAgents" desc="Agents" colspan="13" />
+        </row>
+        <row>
+          <cell type="subview" viewname="AccessionAuthorization" id="9" desc="Authorization" name="accessionAuthorizations" colspan="13" />
+        </row>
+        <row>
+          <cell type="separator" label="Attachments" colspan="13" />
+        </row>
+        <row>
+          <cell type="subview" id="attachments" viewname="ObjectAttachment" name="accessionAttachments" colspan="13" initialize=";btn=true;icon=AccessionAttachment;hc=xxx" />
+        </row>
+        <row>
+          <cell type="separator" label="" colspan="13" />
+        </row>
+        <row>
+          <cell type="label" labelfor="10" />
+          <cell type="field" id="10" name="modifiedByAgent" uitype="label" readonly="true" uifieldformatter="Agent" />
+          <cell type="label" labelfor="11" />
+          <cell type="field" id="11" name="timestampModified" uitype="label" readonly="true" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

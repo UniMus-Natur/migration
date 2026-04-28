@@ -1,0 +1,39 @@
+<viewset name="Karplaner - standard" source="db" level="Discipline">
+  <views>
+    <view name="StorageTreeDef" objtitle="StorageTreeDef" class="edu.ku.brc.specify.datamodel.StorageTreeDef">
+      <altviews>
+        <altview name="StorageTreeDef View" viewdef="StorageTreeDef" mode="view" validated="false" />
+        <altview name="StorageTreeDef Edit" viewdef="StorageTreeDef" mode="edit" default="true" validated="false" />
+        <altview name="StorageTreeDef Table View" viewdef="StorageTreeDef Table" mode="view" validated="false" />
+        <altview name="StorageTreeDef Table Edit" viewdef="StorageTreeDef Table" mode="edit" validated="false" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef name="StorageTreeDef" class="edu.ku.brc.specify.datamodel.StorageTreeDef" type="form" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The StorageTreeDef Table</desc>
+      <enableRules />
+      <columnDef>30px,2px,100px,2px,50px,2px,100px,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2px" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="name" />
+          <cell type="field" id="name" name="name" uitype="text" />
+          <cell type="label" labelfor="fullNameDir" />
+          <cell type="field" id="fullNameDir" name="fullNameDirection" default="1" uitype="combobox" />
+        </row>
+        <row>
+          <cell type="label" labelfor="remarks" />
+          <cell type="field" id="remarks" name="remarks" uitype="textareabrief" colspan="5" />
+        </row>
+        <row>
+          <cell type="subview" id="items" name="treeDefItems" colspan="8" defaulttype="table" initialize="sortField=rankId" />
+        </row>
+      </rows>
+    </viewdef>
+    <viewdef name="StorageTreeDef Table" class="edu.ku.brc.specify.datamodel.StorageTreeDef" type="formtable" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The StorageTreeDef Table</desc>
+      <definition>StorageTreeDef</definition>
+    </viewdef>
+  </viewdefs>
+</viewset>

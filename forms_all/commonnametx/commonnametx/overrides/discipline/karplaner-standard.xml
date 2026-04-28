@@ -1,0 +1,33 @@
+<viewset name="Karplaner - standard" source="db" level="Discipline">
+  <views>
+    <view name="CommonNameTx" class="edu.ku.brc.specify.datamodel.CommonNameTx">
+      <desc>The Common Name form.</desc>
+      <altviews>
+        <altview name="CommonNameTx View" viewdef="CommonNameTx" mode="view" default="true" />
+        <altview name="CommonNameTx Edit" viewdef="CommonNameTx" mode="edit" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="CommonNameTx" class="edu.ku.brc.specify.datamodel.CommonNameTx" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>Common Name form</desc>
+      <enableRules />
+      <columnDef>200px,2px,p,10px,p,2px,p,2px,p,2px,200px,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2px" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="name" uitype="text" />
+        </row>
+        <row>
+          <cell type="label" labelfor="2" />
+          <cell type="field" id="2" name="language" uitype="combobox" picklist="Languages" colspan="10" />
+        </row>
+        <row>
+          <cell type="label" labelfor="3" />
+          <cell type="field" id="3" name="country" uitype="text" colspan="10" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

@@ -1,0 +1,55 @@
+<viewset name="Karplaner - standard" source="db" level="Discipline">
+  <views>
+    <view name="DisposalAgent" objtitle="Disposal Agent" class="edu.ku.brc.specify.datamodel.DisposalAgent">
+      <desc>Subform within the Disposal form.</desc>
+      <altviews>
+        <altview name="DisposalAgent View" viewdef="DisposalAgent" mode="view" />
+        <altview name="DisposalAgent Edit" viewdef="DisposalAgent" mode="edit" default="true" />
+        <altview name="DisposalAgent Table View" viewdef="DisposalAgent Table" mode="view" />
+        <altview name="DisposalAgent Table Edit" viewdef="DisposalAgent Table" mode="edit" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef name="DeaccessionAgent" class="edu.ku.brc.specify.datamodel.DeaccessionAgent" type="form" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The DeaccessionAgent subform for Deaccession form.</desc>
+      <enableRules />
+      <columnDef>30px,2px,300px,5px,20px,2px,130px,345px,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2px" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="agent" uitype="querycbx" initialize="name=Agent;title=Agent" />
+          <cell type="label" labelfor="2" />
+          <cell type="field" id="2" name="role" uitype="combobox" />
+        </row>
+        <row>
+          <cell type="label" labelfor="3" />
+          <cell type="field" id="3" name="remarks" uitype="textareabrief" colspan="6" />
+        </row>
+      </rows>
+    </viewdef>
+    <viewdef name="DisposalAgent" class="edu.ku.brc.specify.datamodel.DisposalAgent" type="form" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The DisposalAgent subform for Disposal form.</desc>
+      <enableRules />
+      <columnDef>30px,2px,300px,5px,20px,2px,130px,345px,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2px" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="agent" uitype="querycbx" initialize="name=Agent;title=Agent" />
+          <cell type="label" labelfor="2" />
+          <cell type="field" id="2" name="role" uitype="combobox" />
+        </row>
+        <row>
+          <cell type="label" labelfor="3" />
+          <cell type="field" id="3" name="remarks" uitype="textareabrief" colspan="6" />
+        </row>
+      </rows>
+    </viewdef>
+    <viewdef type="formtable" name="DisposalAgent Table" class="edu.ku.brc.specify.datamodel.DisposalAgent" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The Agent subform for the disposal form.</desc>
+      <definition>DeaccessionAgent</definition>
+    </viewdef>
+  </viewdefs>
+</viewset>

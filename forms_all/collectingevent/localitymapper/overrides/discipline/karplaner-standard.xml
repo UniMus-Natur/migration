@@ -1,0 +1,43 @@
+<viewset name="Karplaner - standard" source="db" level="Discipline">
+  <views>
+    <view name="LocalityMapper" class="edu.ku.brc.specify.datamodel.CollectingEvent" busrules="edu.ku.brc.specify.datamodel.busrules.CollectingEventBusRules">
+      <desc>CollectingEvent</desc>
+      <altviews>
+        <altview name="LocalityMapper View" viewdef="LocalityMapper" mode="view" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="LocalityMapper" class="java.util.Hashtable" gettable="edu.ku.brc.af.ui.forms.DataGetterForHashMap" settable="edu.ku.brc.af.ui.forms.DataSetterForHashMap">
+      <desc>Locality Mapper</desc>
+      <columnDef>p,2px,p,2px</columnDef>
+      <rowDef auto="true" cell="p" sep="2dlu" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="startDate" />
+          <cell type="field" id="startDate" name="startDate" uitype="formattedtext" uifieldformatter="Date" />
+        </row>
+        <row>
+          <cell type="label" labelfor="endDate" />
+          <cell type="field" id="endDate" name="endDate" uitype="formattedtext" uifieldformatter="Date" />
+        </row>
+        <row>
+          <cell type="label" labelfor="latitude1" />
+          <cell type="field" id="latitude1" name="latitude1" uitype="text" format="%8.4f" />
+        </row>
+        <row>
+          <cell type="label" labelfor="longitude1" />
+          <cell type="field" id="longitude1" name="longitude1" uitype="text" format="%8.4f" />
+        </row>
+        <row>
+          <cell type="label" labelfor="taxonItems" />
+          <cell type="field" id="taxonItems" name="taxonItems" uitype="list" dsptype="list" initialize="rows=5" />
+        </row>
+        <row>
+          <cell type="label" labelfor="image" />
+          <cell type="field" id="image" name="image" uitype="image" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

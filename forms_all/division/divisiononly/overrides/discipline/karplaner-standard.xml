@@ -1,0 +1,47 @@
+<viewset name="Karplaner - standard" source="db" level="Discipline">
+  <views>
+    <view name="DivisionOnly" class="edu.ku.brc.specify.datamodel.Division" busrules="edu.ku.brc.specify.datamodel.busrules.DivisionBusRules">
+      <desc>Subform within the Collection Object form.</desc>
+      <altviews>
+        <altview name="Division View" viewdef="DivisionOnly" mode="view" />
+        <altview name="Division Edit" viewdef="DivisionOnly" mode="edit" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef name="DivisionOnly" type="form" class="edu.ku.brc.specify.datamodel.Division" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>Division Form.</desc>
+      <enableRules />
+      <columnDef>100px,2px,361px,5px,70px,2px,80px,5px,80px,2px,120px,0px,p:g</columnDef>
+      <columnDef os="lnx">115px,2px,377px,5px,100px,2px,80px,5px,100px,2px,129px,0px,p:g</columnDef>
+      <columnDef os="mac">130px,2px,396px,5px,100px,2px,120px,5px,120px,2px,150px,p:g</columnDef>
+      <columnDef os="exp">100px,2px,p:g(2),5px:g,p,2px,p:g(2),5px:g,p,2px,p:g(2),0px</columnDef>
+      <rowDef auto="true" cell="p" sep="2px" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="name" uitype="text" isrequired="true" colspan="9" />
+        </row>
+        <row>
+          <cell type="label" labelfor="3" />
+          <cell type="field" id="3" name="altName" uitype="text" colspan="5" />
+          <cell type="label" labelfor="2" />
+          <cell type="field" id="2" name="abbrev" uitype="text" />
+        </row>
+        <row>
+          <cell type="label" labelfor="4" />
+          <cell type="field" id="4" name="uri" uitype="text" />
+          <cell type="label" labelfor="5" />
+          <cell type="field" id="5" name="iconURI" uitype="text" colspan="5" />
+        </row>
+        <row>
+          <cell type="label" labelfor="6" />
+          <cell type="field" id="6" name="description" uitype="textareabrief" rows="2" colspan="10" />
+        </row>
+        <row>
+          <cell type="subview" viewname="AddressSingle" id="10" name="address" colspan="12" initialize="btn=true" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>
