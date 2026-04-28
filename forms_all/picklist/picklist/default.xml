@@ -1,0 +1,58 @@
+<viewset name="SystemSetup" source="disk" level="Backstop" file="backstop/system.views.xml">
+  <views>
+    <view name="PickList" class="edu.ku.brc.specify.datamodel.PickList" busrules="edu.ku.brc.specify.datamodel.busrules.PickListBusRules" resourcelabels="false">
+      <desc>The PickList form.</desc>
+      <altviews>
+        <altview name="Pick List View" viewdef="PickList" mode="view" validated="false" />
+        <altview name="Pick List Edit" viewdef="PickList" mode="edit" validated="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef name="PickList" class="edu.ku.brc.specify.datamodel.PickList" type="form" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>Form for editing an PickList</desc>
+      <enableRules>
+        <rule id="sizeLimit">readOnly.isSelected() == false</rule>
+        <rule id="RemoveItem">items.getSelectedIndex() != -1</rule>
+        <rule id="AddItem">title.isNotEmpty() &amp;&amp; value.isNotEmpty()</rule>
+        <rule id="name">dataObj.getCreated() == null</rule>
+        <rule id="deletePL">dataObj.getCreated() != null &amp;&amp; processor.getNumUsed() == 0</rule>
+      </enableRules>
+      <columnDef>80px,2px,200px,2px,75px,2px,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2dlu" />
+      <rows>
+        <row>
+          <cell type="separator" label="Pick List" colspan="7" />
+        </row>
+        <row>
+          <cell type="label" labelfor="typesCBX" />
+          <cell type="field" id="typesCBX" name="typesCBX" uitype="combobox" ignore="true" />
+        </row>
+        <row>
+          <cell type="label" labelfor="name" />
+          <cell type="field" id="name" name="name" uitype="text" isrequired="true" colspan="1" initialize="editoncreate=true" />
+          <cell type="field" id="readOnly" name="readOnly" label="Read Only" uitype="checkbox" initialize="align=left" />
+        </row>
+        <row>
+          <cell type="label" labelfor="tablesCBX" />
+          <cell type="field" id="tablesCBX" name="tablesCBX" uitype="combobox" ignore="true" />
+        </row>
+        <row>
+          <cell type="label" labelfor="formatterCBX" />
+          <cell type="field" id="formatterCBX" name="formatterCBX" uitype="combobox" ignore="true" />
+        </row>
+        <row>
+          <cell type="label" labelfor="fieldsCBX" />
+          <cell type="field" id="fieldsCBX" name="fieldsCBX" uitype="combobox" ignore="true" />
+        </row>
+        <row>
+          <cell type="label" labelfor="sizeLimit" />
+          <cell type="field" id="sizeLimit" name="sizeLimit" uitype="spinner" initialize="min=-1" isrequired="true" />
+        </row>
+        <row>
+          <cell type="subview" viewname="PickListItem" id="5" name="pickListItems" colspan="6" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

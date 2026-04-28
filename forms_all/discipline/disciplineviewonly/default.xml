@@ -1,0 +1,31 @@
+<viewset name="common" source="disk" level="Common" file="common/common.views.xml">
+  <views>
+    <view name="DisciplineViewOnly" class="edu.ku.brc.specify.datamodel.Discipline" busrules="edu.ku.brc.specify.datamodel.busrules.DisciplineBusRules">
+      <desc>The Discipline Object form.</desc>
+      <altviews>
+        <altview name="Discipline View" viewdef="Discipline" mode="view" validated="false" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="Discipline" class="edu.ku.brc.specify.datamodel.Discipline" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>Discipline Data Entry Form</desc>
+      <columnDef>100px,2px,180px,5px,85px,2px,180px,5px,86px,2px,180px,15px,p:g</columnDef>
+      <columnDef os="lnx">115px,2px,195px,5px,92px,2px,200px,5px,96px,2px,203px,15px,p:g</columnDef>
+      <columnDef os="mac">130px,2px,218px,5px,112px,2px,220px,5px,116px,2px,220px,15px,p:g</columnDef>
+      <columnDef os="exp">100px,2px,p:g(2),5px:g,p,2px,p:g(2),5px:g,p,2px,p:g(2),15px,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2dlu" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="3" />
+          <cell type="field" id="3" name="name" uitype="text" isrequired="true" />
+          <cell type="label" labelfor="2" />
+          <cell type="field" id="2" name="type" uitype="combobox" isrequired="true" readonly="true" initialize="editoncreate=true" />
+        </row>
+        <row>
+          <cell type="subview" viewname="CollectionSub" id="5" name="collections" colspan="12" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

@@ -1,0 +1,31 @@
+<viewset name="Global" source="disk" level="Backstop" file="backstop/global.views.xml">
+  <views>
+    <view name="TaxonCitation" class="edu.ku.brc.specify.datamodel.TaxonCitation" resourcelabels="false">
+      <desc>Taxon data entry form.</desc>
+      <altviews>
+        <altview name="TaxonCitation View" viewdef="TaxonCitation" mode="view" />
+        <altview name="TaxonCitation Edit" viewdef="TaxonCitation" mode="edit" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef name="TaxonCitation" type="form" class="edu.ku.brc.specify.datamodel.TaxonCitation" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The ReferenceWork form</desc>
+      <columnDef>110px,2px,390px,325px,p:g</columnDef>
+      <columnDef os="lnx">115px,2px,425px,385px,p:g</columnDef>
+      <columnDef os="mac">130px,2px,492px,408px,p:g</columnDef>
+      <columnDef os="exp">p,2px,p:g,p:g(2)</columnDef>
+      <rowDef auto="true" cell="p" sep="2dlu" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="referenceWork" />
+          <cell type="field" id="referenceWork" uitype="querycbx" initialize="name=ReferenceWork" name="referenceWork" />
+        </row>
+        <row>
+          <cell type="label" labelfor="remarks" />
+          <cell type="field" id="remarks" name="remarks" uitype="textareabrief" rows="2" colspan="2" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

@@ -1,0 +1,24 @@
+<viewset name="Search" source="disk" level="Backstop" file="backstop/search.views.xml">
+  <views>
+    <view name="StorageSearch" class="edu.ku.brc.specify.datamodel.Storage" usedefbusrule="false" resourcelabels="false">
+      <desc>The Storage Search Form</desc>
+      <altviews>
+        <altview name="StorageSearch" viewdef="StorageSearch" mode="edit" validated="true" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="StorageSearch" class="edu.ku.brc.specify.datamodel.Storage" gettable="edu.ku.brc.af.ui.forms.DataGetterForHashMap" settable="edu.ku.brc.af.ui.forms.DataSetterForHashMap">
+      <desc>The Storage Search Form</desc>
+      <enableRules />
+      <columnDef>p,3dlu,p</columnDef>
+      <rowDef>p,2dlu,p</rowDef>
+      <rows>
+        <row>
+          <cell type="label" labelfor="Name" />
+          <cell type="field" id="Name" name="Name" isrequired="true" uitype="text" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

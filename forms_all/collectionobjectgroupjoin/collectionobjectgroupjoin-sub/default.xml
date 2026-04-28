@@ -1,0 +1,63 @@
+<viewset name="common" source="disk" level="Common" file="common/common.views.xml">
+  <views>
+    <view name="CollectionObjectGroupJoin_Sub" class="edu.ku.brc.specify.datamodel.CollectionObjectGroupJoin" busrules="edu.ku.brc.specify.datamodel.busrules.CollectionObjectGroupJoinBusRules" resourcelabels="false">
+      <desc>The Collection Object Group Join form.</desc>
+      <altviews>
+        <altview name="CollectionObjectGroupJoin View" viewdef="CollectionObjectGroupJoin_Sub" mode="view" default="true" />
+        <altview name="CollectionObjectGroupJoin Edit" viewdef="CollectionObjectGroupJoin_Sub" mode="edit" />
+        <altview name="CollectionObjectGroupJoin Table View" viewdef="CollectionObjectGroupJoin_Sub Table" mode="view" validated="false" />
+        <altview name="CollectionObjectGroupJoin Table Edit" viewdef="CollectionObjectGroupJoin_Sub Table" mode="edit" validated="false" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef name="CollectionObjectGroupJoin_GridView" class="edu.ku.brc.specify.datamodel.CollectionObjectGroupJoin" type="form" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The Collection Object Group Join Form</desc>
+      <enableRules />
+      <columnDef>50px,2px,30px,5px,50px,2px,30px,5px,50px,2px,100px,0px,50px,2px,100px,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2px" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="isPrimary" uitype="checkbox" default="false" readonly="true" />
+          <cell type="label" labelfor="2" />
+          <cell type="field" id="2" name="isSubstrate" uitype="checkbox" default="false" readonly="true" />
+          <cell type="label" labelfor="5" />
+          <cell type="field" id="5" name="childCo" uitype="querycbx" readonly="true" colspan="3" />
+          <cell type="label" label="CO Type" />
+          <cell type="field" id="objectType" name="childCo.collectionObjectType.Name" uitype="text" readonly="true" />
+          <cell type="label" label="Name" />
+          <cell type="field" id="currentDet" name="childCo.currentDetermination.preferredTaxon.fullName" uitype="text" readonly="true" />
+          <cell type="label" label="Collecting Event" />
+          <cell type="field" id="collectingEvent" name="childCo.collectingEvent.stationFieldNumber" uitype="text" readonly="true" />
+          <cell type="label" label="Locality" />
+          <cell type="field" id="locality" name="childCo.collectingEvent.locality.localityName" uitype="text" readonly="true" />
+          <cell type="label" labelfor="6" />
+          <cell type="field" id="6" name="childCog" uitype="querycbx" readonly="true" colspan="3" />
+          <cell type="label" label="COG Type" />
+          <cell type="field" id="typeOfGroup" name="childCog.COGType.Name" uitype="text" readonly="true" />
+        </row>
+      </rows>
+    </viewdef>
+    <viewdef name="CollectionObjectGroupJoin_Sub" class="edu.ku.brc.specify.datamodel.CollectionObjectGroupJoin" type="form" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The Collection Object Group Join Form</desc>
+      <enableRules />
+      <columnDef>70px,2px,30px,5px,70px,2px,30px,2px,70px,2px,500px,,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2px" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="isPrimary" uitype="checkbox" default="false" readonly="true" />
+          <cell type="label" labelfor="2" />
+          <cell type="field" id="2" name="isSubstrate" uitype="checkbox" default="false" readonly="true" />
+          <cell type="label" labelfor="5" />
+          <cell type="field" id="5" name="parentCog" uitype="querycbx" colspan="3" />
+        </row>
+      </rows>
+    </viewdef>
+    <viewdef name="CollectionObjectGroupJoin_Sub Table" class="edu.ku.brc.specify.datamodel.CollectionObjectGroupJoin" type="formtable" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The Collection Object Group Join Form Grid View</desc>
+      <definition>CollectionObjectGroupJoin_GridView</definition>
+    </viewdef>
+  </viewdefs>
+</viewset>

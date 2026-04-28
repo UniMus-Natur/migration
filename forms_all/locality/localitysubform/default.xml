@@ -1,0 +1,38 @@
+<viewset name="common" source="disk" level="Common" file="common/common.views.xml">
+  <views>
+    <view name="LocalitySubForm" class="edu.ku.brc.specify.datamodel.Locality" busrules="edu.ku.brc.specify.datamodel.busrules.LocalityBusRules">
+      <desc>Locality SubForm form.</desc>
+      <altviews>
+        <altview name="Locality SubForm View" viewdef="LocalitySubForm" mode="view" />
+        <altview name="Locality SubForm Edit" viewdef="LocalitySubForm" mode="edit" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="LocalitySubForm" class="edu.ku.brc.specify.datamodel.Locality" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>Locality SubForm</desc>
+      <columnDef>p,2px,p,10px,p,2px,p,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2dlu" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="6" />
+          <cell type="field" id="6" name="localityName" uitype="text" colspan="6" />
+        </row>
+        <row>
+          <cell type="label" labelfor="4" />
+          <cell type="field" id="4" name="this" uitype="plugin" initialize="name=LatLonUI" colspan="4" />
+        </row>
+        <row>
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="datum" uitype="text" />
+          <cell type="label" labelfor="2" />
+          <cell type="field" id="2" name="elevationMethod" uitype="text" />
+        </row>
+        <row>
+          <cell type="label" labelfor="5" />
+          <cell type="field" id="5" name="geography" uitype="querycbx" initialize="name=Geography" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

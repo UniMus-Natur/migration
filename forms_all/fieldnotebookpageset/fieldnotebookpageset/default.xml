@@ -1,0 +1,36 @@
+<viewset name="common" source="disk" level="Common" file="common/common.views.xml">
+  <views>
+    <view name="FieldNotebookPageSet" class="edu.ku.brc.specify.datamodel.FieldNotebookPageSet" resourcelables="false" busrules="edu.ku.brc.specify.datamodel.busrules.FieldNotebookPageSetBusRules">
+      <desc>Field Notebook Page.</desc>
+      <altviews>
+        <altview name="FieldNotebookPageSet Edit" viewdef="FieldNotebookPageSet" mode="edit" />
+        <altview name="FieldNotebookPageSet View" viewdef="FieldNotebookPageSet" mode="view" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="FieldNotebookPageSet" class="edu.ku.brc.specify.datamodel.FieldNotebookPageSet" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>Form For FieldNotebookPage</desc>
+      <columnDef>100px,2px,131px,5px,63px,2px,103px,2px,328px,5px,86px,0px,10px,p:g</columnDef>
+      <columnDef os="lnx">115px,2px,125px,5px,105px,2px,100px,2px,366px,5px,90px,0px,10px,p:g</columnDef>
+      <columnDef os="mac">130px,2px,154px,5px,95px,2px,115px,2px,432px,5px,90px,0px,10px,p:g</columnDef>
+      <columnDef os="exp">p,2px,p:g(2),5px:g,p,2px,p:g(2),p:g(2),p:g(2),0px,10px</columnDef>
+      <rowDef auto="true" sep="2px" cell="p" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="2" />
+          <cell type="field" id="2" name="startDate" uitype="formattedtext" uifieldformatter="Date" />
+          <cell type="label" labelfor="3" />
+          <cell type="field" id="3" name="endDate" uitype="formattedtext" uifieldformatter="Date" initialize="align=right" />
+          <cell type="label" label="" />
+          <cell type="subview" id="4" name="attachments" viewname="ObjectAttachment" initialize="align=right;btn=true;icon=FieldNotebookPageSetAttachment" />
+        </row>
+        <row>
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="description" uitype="textareabrief" rows="2" colspan="7" />
+          <cell type="subview" id="6" name="pages" viewname="FieldNotebookPage" initialize="align=right;btn=true" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

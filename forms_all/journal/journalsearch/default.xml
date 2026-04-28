@@ -1,0 +1,36 @@
+<viewset name="Search" source="disk" level="Backstop" file="backstop/search.views.xml">
+  <views>
+    <view name="JournalSearch" class="edu.ku.brc.specify.datamodel.Journal" usedefbusrule="false" resourcelabels="false">
+      <desc>The Journal Search Form</desc>
+      <altviews>
+        <altview name="JournalSearch" viewdef="JournalSearch" mode="edit" validated="true" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="JournalSearch" class="edu.ku.brc.specify.datamodel.Journal" gettable="edu.ku.brc.af.ui.forms.DataGetterForHashMap" settable="edu.ku.brc.af.ui.forms.DataSetterForHashMap">
+      <desc>The CollectingEvent Search Form</desc>
+      <enableRules />
+      <columnDef>p,3dlu,f:p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2dlu" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="JournalName" uitype="text" />
+        </row>
+        <row>
+          <cell type="label" labelfor="2" />
+          <cell type="field" id="2" name="JournalAbbreviation" uitype="text" />
+        </row>
+        <row>
+          <cell type="label" labelfor="3" />
+          <cell type="field" id="3" name="ISSN" uitype="text" />
+        </row>
+        <row>
+          <cell type="label" labelfor="4" />
+          <cell type="field" id="4" name="GUID" uitype="text" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

@@ -1,0 +1,39 @@
+<viewset name="common" source="disk" level="Common" file="common/common.views.xml">
+  <views>
+    <view name="GeoCoordDetail" class="edu.ku.brc.specify.datamodel.GeoCoordDetail" isinternal="true">
+      <desc>Locality form.</desc>
+      <altviews>
+        <altview name="GeoCoordDetail View" viewdef="GeoCoordDetail" mode="view" />
+        <altview name="GeoCoordDetail Edit" viewdef="GeoCoordDetail" mode="edit" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="GeoCoordDetail" class="edu.ku.brc.specify.datamodel.GeoCoordDetail" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>Sub Collecting Event</desc>
+      <columnDef>100px,2px,195px,5px,115px,2px,131px,5px,140px,2px,130px,p:g</columnDef>
+      <columnDef os="lnx">115px,2px,200px,5px,138px,2px,140px,5px,168px,2px,140px,p:g</columnDef>
+      <columnDef os="mac">130px,2px,220px,5px,158px,2px,160px,5px,188px,2px,160px,p:g</columnDef>
+      <columnDef os="exp">p,2px,p:g,5px:g,p,2px,p:g(2),5px:g,p,2px,p:g(2)</columnDef>
+      <rowDef auto="true" cell="p" sep="2px" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="3" />
+          <cell type="field" id="3" name="namedPlaceExtent" uitype="text" />
+          <cell type="label" labelfor="5" />
+          <cell type="field" id="5" name="maxUncertaintyEst" uitype="text" />
+          <cell type="label" labelfor="6" />
+          <cell type="field" id="6" name="maxUncertaintyEstUnit" uitype="text" />
+        </row>
+        <row>
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="geoRefDetBy" uitype="querycbx" initialize="name=Agent" />
+          <cell type="label" labelfor="2" />
+          <cell type="field" id="2" name="geoRefDetDate" uitype="formattedtext" uifieldformatter="Date" />
+          <cell type="label" labelfor="4" />
+          <cell type="field" id="4" name="geoRefDetRef" uitype="text" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

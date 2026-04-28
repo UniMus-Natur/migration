@@ -1,0 +1,25 @@
+<viewset name="Global" source="disk" level="Backstop" file="backstop/global.views.xml">
+  <views>
+    <view name="AgentSpecialty" class="edu.ku.brc.specify.datamodel.AgentSpecialty">
+      <desc>The  --&gt; Form.</desc>
+      <altviews>
+        <altview name="AgentSpecialty View" viewdef="AgentSpecialty" mode="view" validated="false" default="true" />
+        <altview name="AgentSpecialty Edit" viewdef="AgentSpecialty" mode="edit" validated="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="AgentSpecialty" class="edu.ku.brc.specify.datamodel.AgentSpecialty" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The AgentSpecialty form</desc>
+      <enableRules />
+      <columnDef>p,5dlu,p:g,5dlu,p</columnDef>
+      <rowDef auto="true" cell="p" sep="2px" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="3" />
+          <cell type="field" id="3" name="specialtyName" uitype="text" colspan="3" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

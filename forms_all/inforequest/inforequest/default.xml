@@ -1,0 +1,45 @@
+<viewset name="common" source="disk" level="Common" file="common/common.views.xml">
+  <views>
+    <view name="InfoRequest" class="edu.ku.brc.specify.datamodel.InfoRequest" busrules="edu.ku.brc.specify.datamodel.busrules.InfoRequestBusRules">
+      <desc>Subform within the InfoRequest form.</desc>
+      <altviews>
+        <altview name="InfoRequest View" viewdef="InfoRequest" mode="view" />
+        <altview name="InfoRequest Edit" viewdef="InfoRequest" mode="edit" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="InfoRequest" class="edu.ku.brc.specify.datamodel.InfoRequest" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The Info Request form.</desc>
+      <enableRules />
+      <columnDef>100px,2px,142px,5px,89px,2px,80px,5px,70px,2px,83px,5px,45px,2px,195px,0px,15px,p:g</columnDef>
+      <columnDef os="lnx">115px,2px,115px,5px,94px,2px,110px,5px,90px,2px,110px,5px,65px,2px,195px,0px,15px,p:g</columnDef>
+      <columnDef os="mac">130px,2px,p,5px,111px,2px,120px,5px,101px,2px,120px,5px,81px,2px,220px,0px,15px,p,p:g</columnDef>
+      <columnDef os="exp">p,2px,p:g(2),5px:g,p,2px,p:g(2),5px:g,p,2px,p:g(2),5px:g,p,2px,p:g(2),0px,p,p:g</columnDef>
+      <rowDef>p,2dlu,p,2dlu,p,2dlu,p,2dlu,200px,2dlu,p</rowDef>
+			&gt;
+			<rows>
+        <row>
+          <cell type="label" labelfor="7" />
+          <cell type="field" id="7" name="infoReqNumber" uitype="formattedtext" uifieldformatter="InfoRequestNumber" isrequired="false" />
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="requestDate" uitype="formattedtext" uifieldformatter="Date" default="today" />
+          <cell type="label" labelfor="2" />
+          <cell type="field" id="2" name="replyDate" uitype="formattedtext" uifieldformatter="Date" />
+          <cell type="label" labelfor="6" />
+          <cell type="field" id="6" name="agent" uitype="querycbx" initialize="name=Agent" isrequired="false" />
+        </row>
+        <row>
+          <cell type="label" labelfor="3" />
+          <cell type="field" id="3" name="remarks" uitype="textareabrief" rows="2" colspan="14" />
+        </row>
+        <row>
+          <cell type="subview" id="4" viewname="InfoRequestColObj" name="recordSets" colspan="16" rows="6" />
+        </row>
+        <row>
+          <cell type="field" uitype="checkbox" id="5" name="sendEMail" label="Send Email on Save" ignore="true" default="true" colspan="6" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

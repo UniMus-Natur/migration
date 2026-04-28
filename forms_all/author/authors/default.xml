@@ -1,0 +1,36 @@
+<viewset name="Global" source="disk" level="Backstop" file="backstop/global.views.xml">
+  <views>
+    <view name="Authors" class="edu.ku.brc.specify.datamodel.Author" busrules="edu.ku.brc.specify.datamodel.busrules.AuthorBusRules" usedefbusrule="false" resourcelabels="false">
+      <desc>The Author subform for Reference Work form.</desc>
+      <altviews>
+        <altview name="Authors Table View" viewdef="Authors Table" mode="view" />
+        <altview name="Authors Table Edit" viewdef="Authors Table" mode="edit" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="Authors" class="edu.ku.brc.specify.datamodel.Author" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>Author subform for Reference Work</desc>
+      <columnDef>100px,2px,102px,10px,86px,2px,102px,10px,86px,2px,150px,3px,p,p:g</columnDef>
+      <columnDef os="lnx">100px,2px,102px,10px,86px,2px,102px,10px,86px,2px,150px,3px,p,p:g</columnDef>
+      <columnDef os="mac">130px,2px,102px,10px,p,2px,102px,10px,p,2px,150px,3px,p,p:g</columnDef>
+      <columnDef os="exp">p,2px,p:g,10px,p,2px,p:g,10px,p,2px,p:g,3px,p,p:g</columnDef>
+      <rowDef auto="true" sep="2px" cell="p" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="3" />
+          <cell type="field" id="3" name="agent.lastName" uitype="text" />
+          <cell type="label" labelfor="5" />
+          <cell type="field" id="5" name="agent.firstName" uitype="text" />
+          <cell type="label" labelfor="7" />
+          <cell type="field" id="7" name="agent.email" uitype="text" />
+          <cell type="field" id="mailto" name="agent" uitype="plugin" initialize="name=WebLinkButton;weblink=MailTo;icon=EMail;watch=7" />
+        </row>
+      </rows>
+    </viewdef>
+    <viewdef type="formtable" name="Authors Table" class="edu.ku.brc.specify.datamodel.Author" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>Author subform for Reference Work.</desc>
+      <definition>Authors</definition>
+    </viewdef>
+  </viewdefs>
+</viewset>

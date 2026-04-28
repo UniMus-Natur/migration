@@ -1,0 +1,78 @@
+<viewset name="Global" source="disk" level="Backstop" file="backstop/global.views.xml">
+  <views>
+    <view name="Agent" class="edu.ku.brc.specify.datamodel.Agent" busrules="edu.ku.brc.specify.datamodel.busrules.AgentBusRules" isinternal="false" resourcelabels="false">
+      <desc>Agent subform within the AccessionAgent form.</desc>
+      <altviews defaultmode="view">
+        <altview name="Agent View" title="Agent" viewdef="Agent" mode="view" validated="false" />
+        <altview name="Agent Edit" title="Agent" viewdef="Agent" mode="edit" validated="true" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef name="Agent" class="edu.ku.brc.specify.datamodel.Agent" type="form" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>Agent subform for Acessions.</desc>
+      <columnDef>100px,2px,125px,5px,75px,2px,128px,5px,80px,2px,140px,5px,90px,2px,29px,2px,35px,0px,15px,p:g</columnDef>
+      <columnDef os="lnx">115px,2px,146px,5px,85px,2px,140px,5px,90px,2px,149px,5px,100px,2px,35px,2px,35px,0px,15px,p:g</columnDef>
+      <columnDef os="mac">130px,2px,150px,5px,85px,2px,160px,5px,105px,2px,164px,5px,120px,2px,45px,2px,48px,0px,15px,p:g</columnDef>
+      <columnDef os="exp">p,2px,p:g,5px:g,p,2px,p:g,5px:g,p,2px,p:g,5px:g,p,2px,p:g,2px,p,0px,p,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2px" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="0" />
+          <cell type="field" id="0" name="agentType" uitype="combobox" default="Person" />
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="title" uitype="combobox" />
+        </row>
+        <row>
+          <cell type="label" labelfor="3" />
+          <cell type="field" id="3" name="lastName" uitype="text" colspan="5" isrequired="true" />
+          <cell type="label" labelfor="5" />
+          <cell type="field" id="5" name="firstName" uitype="text" />
+          <cell type="label" labelfor="4" />
+          <cell type="field" id="4" name="middleInitial" uitype="text" colspan="3" />
+        </row>
+        <row>
+          <cell type="label" labelfor="8" />
+          <cell type="field" id="8" name="abbreviation" uitype="text" />
+          <cell type="label" labelfor="7" />
+          <cell type="field" id="7" name="email" uitype="text" colspan="9" />
+          <cell type="field" id="mailto" name="this" uitype="plugin" initialize="name=WebLinkButton;weblink=MailTo;icon=EMail;watch=7" />
+        </row>
+        <row>
+          <cell type="panel" colspan="19">
+            <rows>
+              <row />
+            </rows>
+            <rows condition="agentType=Group">
+              <row>
+                <cell type="subview" viewname="GroupPersons" id="groups" name="groups" defaulttype="table" colspan="19" />
+              </row>
+            </rows>
+          </cell>
+        </row>
+        <row>
+          <cell type="subview" viewname="Address" id="9" name="addresses" colspan="19" />
+        </row>
+        <row>
+          <cell type="subview" viewname="AgentVariant" id="variants" name="variants" colspan="19" />
+        </row>
+        <row>
+          <cell type="subview" viewname="AgentSpecialty" id="50" name="agentSpecialties" colspan="19" rows="3" />
+        </row>
+        <row>
+          <cell type="subview" viewname="AgentIdentifier" id="ai" name="identifiers" colspan="19" rows="3" />
+        </row>
+        <row>
+          <cell type="separator" label="Attachments" colspan="19" />
+        </row>
+        <row>
+          <cell type="subview" id="agentAttachments" viewname="ObjectAttachment" name="agentAttachments" initialize="btn=true;icon=AgentAttachment" />
+        </row>
+        <row>
+          <cell type="label" labelfor="11" />
+          <cell type="field" id="11" name="guid" uitype="text" colspan="5" readonly="true" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

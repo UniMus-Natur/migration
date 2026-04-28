@@ -1,0 +1,60 @@
+<viewset name="Global" source="disk" level="Backstop" file="backstop/global.views.xml">
+  <views>
+    <view name="MorphBankView" class="edu.ku.brc.specify.datamodel.MorphBankView" isinternal="true" resourcelabels="false">
+      <desc>MorphBankView form.</desc>
+      <altviews>
+        <altview name="MorphBankView View" viewdef="MorphBankView" mode="view" />
+        <altview name="MorphBankView Edit" viewdef="MorphBankView" mode="edit" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="MorphBankView" class="edu.ku.brc.specify.datamodel.MorphBankView" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>Locality</desc>
+      <columnDef>p,5dlu,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2dlu" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="viewName" />
+          <cell type="field" id="viewName" name="viewName" uitype="text" />
+        </row>
+        <row>
+          <cell type="label" labelfor="developmentState" />
+          <cell type="field" id="developmentState" name="developmentState" uitype="text" />
+        </row>
+        <row>
+          <cell type="label" labelfor="form" />
+          <cell type="field" id="form" name="form" uitype="text" />
+        </row>
+        <row>
+          <cell type="label" labelfor="imagingPreparationTechnique" />
+          <cell type="field" id="imagingPreparationTechnique" name="imagingPreparationTechnique" uitype="text" />
+        </row>
+        <row>
+          <cell type="label" labelfor="imagingTechnique" />
+          <cell type="field" id="imagingTechnique" name="imagingTechnique" uitype="text" />
+        </row>
+        <row>
+          <cell type="label" labelfor="imagingPreparationTechnique" />
+          <cell type="field" id="imagingPreparationTechnique" name="imagingPreparationTechnique" uitype="text" />
+        </row>
+        <row>
+          <cell type="label" labelfor="sex" />
+          <cell type="field" id="sex" name="sex" uitype="text" />
+        </row>
+        <row>
+          <cell type="label" labelfor="specimenPart" />
+          <cell type="field" id="specimenPart" name="specimenPart" uitype="text" />
+        </row>
+        <row>
+          <cell type="label" labelfor="viewAngle" />
+          <cell type="field" id="viewAngle" name="viewAngle" uitype="text" />
+        </row>
+        <row>
+          <cell type="label" labelfor="morphBankExternalViewID" />
+          <cell type="field" id="morphBankExternalViewID" name="morphBankExternalViewID" uitype="text" readonly="true" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

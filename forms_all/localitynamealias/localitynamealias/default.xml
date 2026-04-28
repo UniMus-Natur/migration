@@ -1,0 +1,28 @@
+<viewset name="common" source="disk" level="Common" file="common/common.views.xml">
+  <views>
+    <view name="LocalityNameAlias" class="edu.ku.brc.specify.datamodel.LocalityNameAlias" resourcelabels="false">
+      <desc>Locality Name Alias subform for the Locality form.</desc>
+      <altviews>
+        <altview name="LocalityNameAlias View" viewdef="LocalityNameAlias" mode="view" />
+        <altview name="LocalityNameAlias Edit" viewdef="LocalityNameAlias" mode="edit" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="LocalityNameAlias" class="edu.ku.brc.specify.datamodel.LocalityNameAlias" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>Locality</desc>
+      <columnDef>89px,2px,100px,5px,p,2px,p,5px,p,2px,p,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2dlu" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="name" uitype="text" isrequired="true" colspan="6" />
+        </row>
+        <row>
+          <cell type="label" labelfor="2" />
+          <cell type="field" id="2" name="source" uitype="text" isrequired="true" colspan="6" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

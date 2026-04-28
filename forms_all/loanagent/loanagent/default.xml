@@ -1,0 +1,37 @@
+<viewset name="common" source="disk" level="Common" file="common/common.views.xml">
+  <views>
+    <view name="LoanAgent" objtitle="Loan Agent" class="edu.ku.brc.specify.datamodel.LoanAgent">
+      <desc>Subform within the Accession form.</desc>
+      <altviews>
+        <altview name="LoanAgent Table View" viewdef="LoanAgent Table" mode="view" />
+        <altview name="LoanAgent Table Edit" viewdef="LoanAgent Table" mode="edit" />
+        <altview name="LoanAgent View" viewdef="LoanAgent" mode="view" />
+        <altview name="LoanAgent Edit" viewdef="LoanAgent" mode="edit" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef name="LoanAgent" class="edu.ku.brc.specify.datamodel.LoanAgent" type="form" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The loan form.</desc>
+      <enableRules />
+      <columnDef>30px,2px,300px,5px,20px,2px,130px,345px,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2px" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="agent" uitype="querycbx" initialize="name=Agent;title=Agent" />
+          <cell type="label" labelfor="2" />
+          <cell type="field" id="2" name="role" uitype="combobox" />
+        </row>
+        <row>
+          <cell type="label" labelfor="3" />
+          <cell type="field" id="3" name="remarks" uitype="textareabrief" colspan="6" />
+        </row>
+      </rows>
+    </viewdef>
+    <viewdef type="formtable" name="LoanAgent Table" class="edu.ku.brc.specify.datamodel.LoanAgent" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>Preparation subform table for Collection Object form.</desc>
+      <definition>LoanAgent</definition>
+    </viewdef>
+  </viewdefs>
+</viewset>

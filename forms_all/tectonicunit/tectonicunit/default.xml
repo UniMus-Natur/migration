@@ -1,0 +1,52 @@
+<viewset name="Global" source="disk" level="Backstop" file="backstop/global.views.xml">
+  <views>
+    <view name="TectonicUnit" objtitle="TectonicUnit" class="edu.ku.brc.specify.datamodel.TectonicUnit">
+      <altviews>
+        <altview name="TectonicUnit View" viewdef="TectonicUnit" mode="view" validated="false" />
+        <altview name="TectonicUnit Edit" viewdef="TectonicUnit" mode="edit" default="true" validated="false" />
+        <altview name="TectonicUnit Table View" viewdef="TectonicUnit Table" mode="view" validated="false" />
+        <altview name="TectonicUnit Table Edit" viewdef="TectonicUnit Table" mode="edit" validated="false" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef name="TectonicUnit" class="edu.ku.brc.specify.datamodel.TectonicUnit" type="form" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The TectonicUnit Table</desc>
+      <enableRules />
+      <columnDef>100px,2px,325px,5px,133px,2px,155px,10px,95px,15px,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2px" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="parent" />
+          <cell type="field" id="parent" uitype="querycbx" isrequired="true" colspan="3" initialize="editbtn=false;newbtn=false" name="parent" />
+        </row>
+        <row>
+          <cell type="label" labelfor="name" />
+          <cell type="field" id="name" uitype="text" name="name" />
+          <cell type="label" labelfor="definitionItem" />
+          <cell type="field" id="definitionItem" uitype="combobox" name="definitionItem" colspan="3" />
+        </row>
+        <row>
+          <cell type="label" labelfor="fullName" />
+          <cell type="field" id="fullName" uitype="text" name="fullName" colspan="3" readonly="true" />
+        </row>
+        <row>
+          <cell type="label" labelfor="acceptedParent" />
+          <cell type="field" id="acceptedParent" uitype="querycbx" initialize="name=TectonicUnit;editbtn=false;newbtn=false" name="acceptedParent" colspan="5" />
+          <cell type="field" id="isAccepted" uitype="checkbox" name="isAccepted" default="true" />
+        </row>
+        <row>
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" uitype="text" name="guid" colspan="7" readonly="true" />
+        </row>
+        <row>
+          <cell type="subview" id="acceptedChildren" name="acceptedChildren" colspan="10" />
+        </row>
+      </rows>
+    </viewdef>
+    <viewdef name="TectonicUnit Table" class="edu.ku.brc.specify.datamodel.TectonicUnit" type="formtable" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The TectonicUnit Table</desc>
+      <definition>TectonicUnit</definition>
+    </viewdef>
+  </viewdefs>
+</viewset>

@@ -1,0 +1,54 @@
+<viewset name="common" source="disk" level="Common" file="common/common.views.xml">
+  <views>
+    <view name="AgentIdentifier" class="edu.ku.brc.specify.datamodel.AgentIdentifier">
+      <desc>Subform within the agent form.</desc>
+      <altviews>
+        <altview name="AgentIdentifier Table View" viewdef="AgentIdentifier Table" mode="view" />
+        <altview name="AgentIdentifier Table Edit" viewdef="AgentIdentifier Table" mode="edit" />
+        <altview name="AgentIdentifier View" viewdef="AgentIdentifier" mode="view" />
+        <altview name="AgentIdentifier Edit" viewdef="AgentIdentifier" mode="edit" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef name="AgentIdentifier" class="edu.ku.brc.specify.datamodel.AgentIdentifier" type="form" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj" useresourcelabels="true">
+      <desc>subform on the Agent form.</desc>
+      <enableRules />
+      <columnDef>100px,2px,473px,5px,120px,2px,125px,0px,15px,p:g</columnDef>
+      <columnDef os="lnx">115px,2px,510px,5px,120px,2px,198px,2px,50px,2px,50px,2px,50px,0px,15px,p:g</columnDef>
+      <columnDef os="mac">130px,2px,530px,5px,105px,2px,218px,0px,15px,p:g</columnDef>
+      <columnDef os="exp">p,2px,473px,5px:g,p,2px,125px,0px,15px,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2dlu" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="identifier" uitype="text" />
+          <cell type="label" labelfor="2" />
+          <cell type="field" id="2" name="identifierType" uitype="combobox" />
+          <cell type="panel">
+            <rows />
+            <rows condition="identifierType=ORCID">
+              <row>
+                <cell type="field" id="ORCID" name="this" uitype="plugin" initialize="name=WebLinkButton;weblink=ORCID;icon=https://orcid.org/assets/vectors/orcid.logo.icon.svg" />
+                <cell type="field" id="Bionomia" name="this" uitype="plugin" initialize="name=WebLinkButton;weblink=Bionomia;icon=https://upload.wikimedia.org/wikipedia/commons/e/e4/Logo_for_Bionomia.png" />
+              </row>
+            </rows>
+            <rows condition="identifierType=Wikidata">
+              <row>
+                <cell type="field" id="Wikidata" name="this" uitype="plugin" initialize="name=WebLinkButton;weblink=Wikidata;icon=https://upload.wikimedia.org/wikipedia/commons/thumb/f/ff/Wikidata-logo.svg/2560px-Wikidata-logo.svg.png" />
+              </row>
+            </rows>
+          </cell>
+        </row>
+        <row>
+          <cell type="label" labelfor="7" />
+          <cell type="field" id="7" name="remarks" uitype="textareabrief" rows="2" colspan="14" />
+        </row>
+      </rows>
+    </viewdef>
+    <viewdef type="formtable" name="AgentIdentifier Table" class="edu.ku.brc.specify.datamodel.AgentIdentifier" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>AgentIdentifier subform table for Agent form.</desc>
+      <definition>AgentIdentifier</definition>
+    </viewdef>
+  </viewdefs>
+</viewset>

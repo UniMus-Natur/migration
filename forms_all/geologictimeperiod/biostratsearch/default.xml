@@ -1,0 +1,24 @@
+<viewset name="Search" source="disk" level="Backstop" file="backstop/search.views.xml">
+  <views>
+    <view name="BioStratSearch" class="edu.ku.brc.specify.datamodel.GeologicTimePeriod" usedefbusrule="false" resourcelabels="false">
+      <desc>The GeologicTimePeriod Search Form</desc>
+      <altviews>
+        <altview name="BioStratSearch" viewdef="BioStratSearch" mode="edit" validated="true" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="BioStratSearch" class="edu.ku.brc.specify.datamodel.GeologicTimePeriod" gettable="edu.ku.brc.af.ui.forms.DataGetterForHashMap" settable="edu.ku.brc.af.ui.forms.DataSetterForHashMap">
+      <desc>The BioStrat Search Form</desc>
+      <enableRules />
+      <columnDef>p,3dlu,p</columnDef>
+      <rowDef>p</rowDef>
+      <rows>
+        <row>
+          <cell type="label" labelfor="FullName" />
+          <cell type="field" id="FullName" name="FullName" isrequired="true" uitype="text" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

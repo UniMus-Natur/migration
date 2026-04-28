@@ -1,0 +1,29 @@
+<viewset name="Global" source="disk" level="Backstop" file="backstop/global.views.xml">
+  <views>
+    <view name="GroupPerson" class="edu.ku.brc.specify.datamodel.GroupPerson" busrules="edu.ku.brc.specify.datamodel.busrules.GroupPersonBusRules" resourcelabels="false">
+      <desc>GroupPerson subform for Agent.</desc>
+      <altviews>
+        <altview name="GroupPerson View" viewdef="GroupPerson" mode="view" />
+        <altview name="GroupPerson Edit" viewdef="GroupPerson" mode="edit" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="GroupPerson" class="edu.ku.brc.specify.datamodel.GroupPerson" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The Group Person form.</desc>
+      <enableRules />
+      <columnDef>60px,2px,p:g,2px</columnDef>
+      <rowDef auto="true" cell="p" sep="2px" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="member" uitype="querycbx" initialize="name=Agent;title=Agent" />
+        </row>
+        <row>
+          <cell type="label" labelfor="3" />
+          <cell type="field" id="3" name="remarks" uitype="textareabrief" rows="2" colspan="2" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

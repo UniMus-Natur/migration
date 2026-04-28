@@ -1,0 +1,35 @@
+<viewset name="common" source="disk" level="Common" file="common/common.views.xml">
+  <views>
+    <view name="DisposalSub" class="edu.ku.brc.specify.datamodel.Disposal">
+      <desc>The Disposal form.</desc>
+      <altviews>
+        <altview name="DisposalSub View" viewdef="DisposalSub" mode="view" default="true" />
+        <altview name="DisposalSub Edit" viewdef="DisposalSub" mode="edit" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="DisposalSub" class="edu.ku.brc.specify.datamodel.Disposal" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The Disposal sub form.</desc>
+      <enableRules />
+      <columnDef>105px,2px,130px,5px,151px,2px,130px,5px,90px,2px,130px,70px,15px,p:g</columnDef>
+      <columnDef os="lnx">130px,2px,150px,5px,155px,2px,170px,5px,95px,2px,216px,0px,15px,p:g</columnDef>
+      <columnDef os="mac">130px,2px,165px,5px,175px,2px,190px,5px,111px,2px,245px,0px,15px,p:g</columnDef>
+      <columnDef os="exp">p,2px,p:g(2),5px:g,p,2px,p:g,5px:g,p,2px,p:g(2),0px,p,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2px" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="disposalNumber" uitype="formattedtext" />
+          <cell type="label" labelfor="5" />
+          <cell type="field" id="5" name="disposalDate" uitype="formattedtext" uifieldformatter="Date" default="today" />
+          <cell type="label" labelfor="2" />
+          <cell type="field" id="2" name="type" uitype="combobox" />
+        </row>
+        <row>
+          <cell type="subview" viewname="DisposalPreparation" id="4" name="disposalPreparations" defaulttype="table" colspan="10" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

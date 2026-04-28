@@ -1,0 +1,31 @@
+<viewset name="common" source="disk" level="Common" file="common/common.views.xml">
+  <views>
+    <view name="Component" class="edu.ku.brc.specify.datamodel.Component" usedefbusrule="false" resourcelabels="false" busrules="edu.ku.brc.specify.datamodel.busrules.ComponentBusRules">
+      <desc>The Collection Object Subfrom for Components.</desc>
+      <altviews>
+        <altview name="COS View" viewdef="Component" mode="view" />
+        <altview name="COS Edit" viewdef="Component" mode="edit" default="true" />
+        <altview name="COS Table View" viewdef="Component Grid" mode="view" />
+        <altview name="COS Table Edit" viewdef="Component Grid" mode="edit" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef name="Component" class="edu.ku.brc.specify.datamodel.Component" type="form" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The Component subform.</desc>
+      <enableRules />
+      <columnDef>15px,2px,20,5px,20px,2px,60px,5px,10px,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2px" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="1" />
+          <cell type="field" id="1" name="catalogNumber" uitype="formattedtext" />
+          <cell type="label" labelfor="3" />
+          <cell type="field" id="3" name="name" uitype="querycbx" />
+          <cell type="label" labelfor="2" />
+          <cell type="field" id="2" name="type" uitype="combobox" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

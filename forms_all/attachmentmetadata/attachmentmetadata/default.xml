@@ -1,0 +1,26 @@
+<viewset name="Global" source="disk" level="Backstop" file="backstop/global.views.xml">
+  <views>
+    <view name="AttachmentMetadata" class="edu.ku.brc.specify.datamodel.AttachmentMetadata" resourcelabels="false">
+      <desc>The AttachmentMetadata subform.</desc>
+      <altviews>
+        <altview name="AttachmentMetadata View" viewdef="AttachmentMetadata" label="Form" mode="view" default="true" />
+        <altview name="AttachmentMetadata Edit" viewdef="AttachmentMetadata" label="Form" mode="edit" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef type="form" name="AttachmentMetadata" class="edu.ku.brc.specify.datamodel.AttachmentMetadata" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj">
+      <desc>The AttachmentMetadata Form.</desc>
+      <columnDef>80px,2dlu,p:g,5dlu,80px,2dlu,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2dlu" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="name" />
+          <cell type="field" isrequired="true" id="name" name="name" uitype="text" />
+          <cell type="label" labelfor="value" />
+          <cell type="field" isrequired="true" id="value" name="value" uitype="text" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>

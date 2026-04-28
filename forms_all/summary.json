@@ -1,0 +1,1188 @@
+{
+  "collections_scanned": 1,
+  "context_views_scanned": 254,
+  "forms": {
+    "absoluteage/absoluteage": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "accession/accession": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "accession/accessionco": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "accession/accessiondeaccession": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "accession/accessionsearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "accessionagent/accessionagent": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "accessionagent/agreementagent": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "accessionauthorization/accessionauthorization": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "accessionauthorization/agreementauthorization": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "address/address": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "address/addressdiv": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "address/addresssingle": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "addressofrecord/addressofrecord": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "agent/agent": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "agent/agentnamesearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "agent/agentsearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "agent/contentcontact": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "agent/useragentsearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "agentidentifier/agentidentifier": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "agentspecialty/agentspecialty": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "agentvariant/agentvariant": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "appraisal/appraisal": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "appraisal/appraisalsearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "attachment/attachmentsearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "attachment/imagedatesearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "attachment/objectattachment": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "attachmentimageattribute/attachmentimageattribute": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "attachmentmetadata/attachmentmetadata": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "author/author": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "author/authors": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "autonumberingscheme/autonumberingscheme": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "autonumberingscheme/catautonumberingscheme": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "borrow/borrow": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "borrowagent/borrowagent": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "borrowmaterial/borrowmaterial": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "borrowreturnmaterial/borrowreturnmaterial": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectingevent/collectingevent": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectingevent/collectingeventsearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectingevent/collectingeventsub": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectingevent/collectingeventsubform": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectingevent/localitymapper": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectingtrip/collectingtrip": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectingtrip/collectingtripform": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectingtrip/collectingtripsearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collection/collection": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collection/collectionforgrid": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collection/collectiongrid": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collection/collectiongridviewonly": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collection/collectionsub": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectionobject/accessionitems": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectionobject/coimagesearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectionobject/collection-object-search": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectionobject/collectionobject": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectionobject/collectionobjectmini": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectionobject/collectionobjectsearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectionobject/collectionobjectsub": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectionobject/collectionobjectsubtable": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectionobject/inforequestcolobj": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectionobjectattachment/collectionobjectattachment": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectionobjectcitation/collectionobjectcitation": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectionobjectgroup/collectionobjectgroup": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectionobjectgroup/collectionobjectgroupsub": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectionobjectgroupjoin/collectionobjectgroupjoin": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectionobjectgroupjoin/collectionobjectgroupjoin-gridview": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectionobjectgroupjoin/collectionobjectgroupjoin-sub": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectionobjectgrouptype/collectionobjectgrouptype": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectionobjectproperty/collectionobjectproperty": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectionobjecttype/collectionobjecttype": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectionreltype/collectionreltype": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collectionreltype/collectionreltypesearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collector/collector": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "collector/collectors": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "commonnametx/commonnametx": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "component/component": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "conservdescription/conservdescription": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "conservdescription/conservdescriptionsub": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "conservevent/conservevent": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "container/container": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "container/containerbrief": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "container/containerbrieftable": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "container/containersearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "datatype/datatype": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "deaccession/deaccession": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "deaccession/deaccessionaccession": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "deaccession/deaccessiondialog": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "deaccession/deaccessionsearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "deaccessionagent/deaccessionagent": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "determination/determination": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "determination/determinationviewonly": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "determinationcitation/determinationcitation": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "determiner/determiner": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "determiner/determiners": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "discipline/discipline": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "discipline/disciplinesearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "discipline/disciplineviewonly": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "discipline/disciplineviewonlycollections": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "discipline/disciplinewithoutcollections": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "disposal/disposal": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "disposal/disposaldeaccsub": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "disposal/disposalsub": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "disposalagent/disposalagent": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "disposalpreparation/disposaldeaccpreparation": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "disposalpreparation/disposalpreparation": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "disposalpreparation/disposalpreparation2": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "division/division": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "division/divisiononly": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "division/divisionsearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "dnaprimer/dnaprimer": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "dnaprimer/dnaprimersearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "dnasequence/dnasequence": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "dnasequence/dnasequencesubview": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "dnasequencingrun/dnasequencerun": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "dnasequencingrun/dnasequencingrun": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "dnasequencingruncitation/dnasequencingruncitation": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "exchangein/exchangein": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "exchangeinprep/exchangeinprep": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "exchangeout/exchangeout": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "exchangeout/exchangeoutdeaccsub": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "exchangeout/exchangeoutsub": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "exchangeoutprep/exchangeoutdeaccprep": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "exchangeoutprep/exchangeoutprep": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "exsiccata/exsiccata": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "exsiccata/exsiccatasearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "exsiccataitem/exsiccataitem": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "extractor/extractor": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "extractor/extractors": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "fieldnotebook/fieldnotebook": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "fieldnotebookpage/fieldnotebookpage": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "fieldnotebookpage/fieldnotebookpagesearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "fieldnotebookpageset/fieldnotebookpageset": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "fundingagent/fundingagent": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "fundingagent/fundingagents": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "geocoorddetail/geocoorddetail": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "geography/geography": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "geography/geographysearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "geography/geographysubform": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "geographytreedef/geographytreedef": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "geographytreedefitem/geographytreedefitem": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "geographytreedefitem/rootgeographytreedefitem": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "geologictimeperiod/biostrat": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "geologictimeperiod/biostratsearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "geologictimeperiod/chronosstrat": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "geologictimeperiod/chronosstratsearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "geologictimeperiod/geologictimeperiod": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "geologictimeperiod/geologictimeperiodsubform": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "geologictimeperiodtreedef/geologictimeperiodtreedef": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "geologictimeperiodtreedefitem/geologictimeperiodtreedefitem": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "geologictimeperiodtreedefitem/rootgeologictimeperiodtreedefitem": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "gift/gift": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "gift/giftdeaccsub": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "gift/giftsub": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "giftagent/giftagent": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "giftpreparation/giftdeaccitems": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "giftpreparation/giftitems": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "groupperson/groupperson": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "groupperson/grouppersons": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "inforequest/inforequest": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "institution/institution": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "journal/journal": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "journal/journalform": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "journal/journalsearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "lithostrat/lithostrat": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "lithostrat/lithostratsearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "lithostrat/lithostratsubform": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "lithostrattreedef/lithostrattreedef": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "lithostrattreedefitem/lithostrattreedefitem": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "lithostrattreedefitem/rootlithostrattreedefitem": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "loan/loan": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "loanagent/loanagent": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "loanpreparation/loanitems": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "loanreturnpreparation/loanreturnpreparation": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "locality/locality": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "locality/localitysearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "locality/localitysubform": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "localitycitation/localitycitation": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "localitydetail/localitydetail": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "localitynamealias/localitynamealias": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "materialsample/materialsample": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "morphbankview/morphbankview": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "morphbankview/morphbankviewsearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "otheridentifier/otheridentifiers": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "paleocontext/paleocontext": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "paleocontext/paleocontextsearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "paleocontext/subpaleocontext": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "pcrperson/pcrperson": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "pcrperson/pcrpersons": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "permit/permit": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "permit/permitforaccessions": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "permit/permitsearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "picklist/picklist": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "picklistitem/picklistitem": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "preparation/preparation": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "preparationattribute/preparationattributes": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "preparationproperty/preparationproperty": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "preptype/preptype": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "preptype/preptypesearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "project/project": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "project/projectsearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "project/projectsub": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "recordset/recordset": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "referencework/referencework": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "referencework/referenceworksearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "referencework/referenceworksub": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "relativeage/relativeage": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "repositoryagreement/repositoryagreement": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "repositoryagreement/repositoryagreementsearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "shipment/shipment": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "spappresource/spappresource": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "specifyuser/user": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "spprincipal/usergroup": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "spquery/query": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "spreport/spreport": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "spsymbiotainstance/spsymbiotainstance": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "spviewsetobj/spviewsetobj": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "storage/storage": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "storage/storagesearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "storage/storagesubform": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "storagetreedef/storagetreedef": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "storagetreedefitem/rootstoragetreedefitem": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "storagetreedefitem/storagetreedefitem": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "taxon/taxon": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "taxon/taxonsearch": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "taxon/taxonsubform": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "taxonattribute/taxonattribute": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "taxoncitation/taxoncitation": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "taxontreedef/taxontreedef": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "taxontreedefitem/roottaxontreedefitem": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "taxontreedefitem/taxontreedefitem": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "tectonicunit/tectonicunit": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "tectonicunittreedef/tectonicunittreedef": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "tectonicunittreedefitem/tectonicunittreedefitem": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "treatmentevent/treatmentevent": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "treatmentevent/treatmenteventsub": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "voucherrelationship/voucherrelationship": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "workbench/workbench": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    },
+    "workbenchtemplate/workbenchtemplate": {
+      "disciplines_seen": 1,
+      "overrides_written": 0,
+      "unique_variants": 1
+    }
+  },
+  "source": "https://specify.unimus.sigma2.no",
+  "tables_scanned": 215
+}

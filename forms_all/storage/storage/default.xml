@@ -1,0 +1,49 @@
+<viewset name="Global" source="disk" level="Backstop" file="backstop/global.views.xml">
+  <views>
+    <view name="Storage" class="edu.ku.brc.specify.datamodel.Storage" busrules="edu.ku.brc.specify.datamodel.busrules.StorageBusRules" isinternal="false" resourcelabels="false">
+      <desc>Storage data entry form.</desc>
+      <altviews>
+        <altview name="Storage View" viewdef="Storage" mode="view" />
+        <altview name="Storage Edit" viewdef="Storage" mode="edit" default="true" />
+      </altviews>
+    </view>
+  </views>
+  <viewdefs>
+    <viewdef name="Storage" class="edu.ku.brc.specify.datamodel.Storage" type="form" gettable="edu.ku.brc.af.ui.forms.DataGetterForObj" settable="edu.ku.brc.af.ui.forms.DataSetterForObj" useresourcelabels="true">
+      <desc>New Storage Node Form</desc>
+      <enableRules>
+        <rule id="definitionItem">parent.getValue() != null</rule>
+      </enableRules>
+      <columnDef>100px,2px,355px,5px,120px,2px,253px,0px,15px,p:g</columnDef>
+      <columnDef os="lnx">115px,2px,375px,5px,130px,2px,288px,0px,15px,p:g</columnDef>
+      <columnDef os="mac">130px,2px,458px,5px,145px,2px,290px,0px,15px,p:g</columnDef>
+      <columnDef os="exp">p,2px,p:g(2),5px:g,p,2px,p:g(2),0px,p,p:g</columnDef>
+      <rowDef auto="true" cell="p" sep="2dlu" />
+      <rows>
+        <row>
+          <cell type="label" labelfor="parent" />
+          <cell type="field" id="parent" uitype="querycbx" isrequired="true" initialize="name=Storage;title=Storage;viewbtn=true;newbtn=false;editoncreate=true" name="parent" />
+        </row>
+        <row>
+          <cell type="label" labelfor="name" />
+          <cell type="field" id="name" uitype="text" name="name" isrequired="true" />
+          <cell type="label" labelfor="definitionItem" />
+          <cell type="field" id="definitionItem" uitype="combobox" name="definitionItem" />
+        </row>
+        <row>
+          <cell type="label" labelfor="remarks" />
+          <cell type="field" id="remarks" uitype="textareabrief" rows="2" name="remarks" colspan="6" />
+        </row>
+        <row>
+          <cell type="subview" viewname="StorageSubform" id="children" name="children" colspan="9" />
+        </row>
+        <row>
+          <cell type="separator" label="ATTACHMENTS" colspan="10" />
+        </row>
+        <row>
+          <cell type="subview" id="attachments" viewname="ObjectAttachment" name="storageAttachments" colspan="10" initialize="btn=true;icon=StorageAttachment" />
+        </row>
+      </rows>
+    </viewdef>
+  </viewdefs>
+</viewset>
