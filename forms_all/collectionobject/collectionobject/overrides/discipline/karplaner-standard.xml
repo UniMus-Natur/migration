@@ -1,4 +1,4 @@
-<viewset name="Botany Views" source="disk" level="Discipline" file="botany/botany.views.xml">
+<viewset name="Karplaner - standard" source="db" level="Discipline">
   <views>
     <view name="CollectionObject" class="edu.ku.brc.specify.datamodel.CollectionObject" busrules="edu.ku.brc.specify.datamodel.busrules.CollectionObjectBusRules" isinternal="false" resourcelabels="false">
       <desc>The Collection Object form.</desc>

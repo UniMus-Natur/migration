@@ -1,4 +1,4 @@
-<viewset name="Botany Views" source="disk" level="Discipline" file="botany/botany.views.xml">
+<viewset name="Karplaner - standard" source="db" level="Discipline">
   <views>
     <view name="Exsiccata" class="edu.ku.brc.specify.datamodel.Exsiccata" resourcelabels="false" isexternal="true">
       <desc>Exsiccata form.</desc>

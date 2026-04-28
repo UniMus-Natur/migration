@@ -258,9 +258,10 @@ def main() -> None:
     if not models:
         sys.exit("No model class names found from /context/datamodel.json")
 
-    # table -> view_name -> discipline(or None) -> list[xml]
-    forms_by_table: dict[str, dict[str, dict[str | None, list[str]]]] = defaultdict(
-        lambda: defaultdict(lambda: defaultdict(list))
+    # table -> view_name -> list[record]
+    # record keys: discipline, source, viewset_name, viewset_level, xml
+    forms_by_table: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(
+        lambda: defaultdict(list)
     )
 
     scanned_context_views = 0
@@ -303,7 +304,15 @@ def main() -> None:
                 )
                 canonical = _canonical_xml(form_xml)
                 view_name = _safe_name(str(row.get("name") or model_name))
-                forms_by_table[_safe_name(model_name)][view_name][discipline_name].append(canonical)
+                forms_by_table[_safe_name(model_name)][view_name].append(
+                    {
+                        "discipline": discipline_name,
+                        "source": str(row.get("viewsetSource") or ""),
+                        "viewset_name": str(row.get("viewsetName") or ""),
+                        "viewset_level": str(row.get("viewsetLevel") or ""),
+                        "xml": canonical,
+                    }
+                )
                 scanned_context_views += 1
 
     output_dir = Path(args.output_dir)
@@ -325,28 +334,20 @@ def main() -> None:
             overrides_dir = form_dir / "overrides"
             overrides_dir.mkdir(parents=True, exist_ok=True)
 
-            # Collapse duplicates per discipline for this specific view name.
-            disc_hash_to_xml: dict[str, tuple[str, str]] = {}
-            all_hashes: list[str] = []
-            for disc_name, xml_list in forms_by_table[table][view_name].items():
-                if not xml_list:
-                    continue
-                counter = Counter(_hash_text(x) for x in xml_list)
-                chosen_hash, _ = counter.most_common(1)[0]
-                chosen_xml = next(x for x in xml_list if _hash_text(x) == chosen_hash)
-                key = "__default__" if disc_name is None else disc_name
-                disc_hash_to_xml[key] = (chosen_hash, chosen_xml)
-                all_hashes.append(chosen_hash)
-
-            if not disc_hash_to_xml:
+            records = forms_by_table[table][view_name]
+            if not records:
                 continue
 
-            if "__default__" in disc_hash_to_xml:
-                default_hash = disc_hash_to_xml["__default__"][0]
-            else:
-                default_hash = Counter(all_hashes).most_common(1)[0][0]
-
-            default_xml = next(xml for h, xml in disc_hash_to_xml.values() if h == default_hash)
+            # Normalize defaults: prefer Common-level disk form as default baseline.
+            common_disk = [
+                r for r in records
+                if (r.get("source") or "").strip().lower() == "disk"
+                and (r.get("viewset_level") or "").strip().lower() == "common"
+            ]
+            any_disk = [r for r in records if (r.get("source") or "").strip().lower() == "disk"]
+            baseline = common_disk[0] if common_disk else (any_disk[0] if any_disk else records[0])
+            default_xml = str(baseline["xml"])
+            default_hash = _hash_text(default_xml)
             if not args.only_overrides:
                 (form_dir / "default.xml").write_text(default_xml, encoding="utf-8")
 
@@ -358,30 +359,31 @@ def main() -> None:
                 "disciplines": {},
             }
             override_count = 0
-            for disc_key in sorted(disc_hash_to_xml):
-                if disc_key == "__default__":
-                    continue
-                hsh, xml = disc_hash_to_xml[disc_key]
+            written_overrides: set[str] = set()
+            for rec in records:
+                xml = str(rec["xml"])
+                hsh = _hash_text(xml)
                 if hsh == default_hash:
-                    manifest["disciplines"][disc_key] = {
-                        "kind": "default",
-                        "hash": hsh,
-                        "file": None if args.only_overrides else "default.xml",
-                    }
                     continue
-                filename = f"{_safe_name(disc_key)}.xml"
-                rel = f"overrides/{filename}"
-                (overrides_dir / filename).write_text(xml, encoding="utf-8")
-                manifest["disciplines"][disc_key] = {"kind": "override", "hash": hsh, "file": rel}
+                level = _safe_name(str(rec.get("viewset_level") or "unknown-level"))
+                name = _safe_name(str(rec.get("viewset_name") or "unknown-viewset"))
+                rel = f"overrides/{level}/{name}.xml"
+                if rel in written_overrides:
+                    continue
+                out = form_dir / rel
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_text(xml, encoding="utf-8")
+                written_overrides.add(rel)
                 override_count += 1
 
-            if "__default__" in disc_hash_to_xml:
-                d_hash, _ = disc_hash_to_xml["__default__"]
-                manifest["default_context"] = {
-                    "kind": "common",
-                    "hash": d_hash,
-                    "file": None if args.only_overrides else "default.xml",
-                }
+            manifest["default_context"] = {
+                "kind": "common" if common_disk else "fallback",
+                "source": baseline.get("source"),
+                "viewset_level": baseline.get("viewset_level"),
+                "viewset_name": baseline.get("viewset_name"),
+                "hash": default_hash,
+                "file": None if args.only_overrides else "default.xml",
+            }
 
             if not args.no_manifests:
                 (form_dir / "manifest.json").write_text(
@@ -389,9 +391,9 @@ def main() -> None:
                     encoding="utf-8",
                 )
             summary["forms"][f"{table}/{view_name}"] = {
-                "disciplines_seen": len([k for k in disc_hash_to_xml if k != "__default__"]),
+                "disciplines_seen": len({r.get("discipline") for r in records if r.get("discipline")}),
                 "overrides_written": override_count,
-                "unique_variants": len({h for h, _ in disc_hash_to_xml.values()}),
+                "unique_variants": len({_hash_text(str(r.get("xml") or "")) for r in records}),
             }
 
     (output_dir / "summary.json").write_text(

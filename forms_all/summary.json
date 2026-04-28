@@ -184,8 +184,8 @@
     },
     "collectingevent/collectingevent": {
       "disciplines_seen": 1,
-      "overrides_written": 0,
-      "unique_variants": 1
+      "overrides_written": 1,
+      "unique_variants": 2
     },
     "collectingevent/collectingeventsearch": {
       "disciplines_seen": 1,
@@ -194,8 +194,8 @@
     },
     "collectingevent/collectingeventsub": {
       "disciplines_seen": 1,
-      "overrides_written": 0,
-      "unique_variants": 1
+      "overrides_written": 1,
+      "unique_variants": 2
     },
     "collectingevent/collectingeventsubform": {
       "disciplines_seen": 1,
@@ -249,8 +249,8 @@
     },
     "collectionobject/accessionitems": {
       "disciplines_seen": 1,
-      "overrides_written": 0,
-      "unique_variants": 1
+      "overrides_written": 2,
+      "unique_variants": 3
     },
     "collectionobject/coimagesearch": {
       "disciplines_seen": 1,
@@ -264,8 +264,8 @@
     },
     "collectionobject/collectionobject": {
       "disciplines_seen": 1,
-      "overrides_written": 0,
-      "unique_variants": 1
+      "overrides_written": 1,
+      "unique_variants": 2
     },
     "collectionobject/collectionobjectmini": {
       "disciplines_seen": 1,
@@ -279,8 +279,8 @@
     },
     "collectionobject/collectionobjectsub": {
       "disciplines_seen": 1,
-      "overrides_written": 0,
-      "unique_variants": 1
+      "overrides_written": 2,
+      "unique_variants": 3
     },
     "collectionobject/collectionobjectsubtable": {
       "disciplines_seen": 1,
@@ -344,8 +344,8 @@
     },
     "collectionreltype/collectionreltype": {
       "disciplines_seen": 1,
-      "overrides_written": 0,
-      "unique_variants": 1
+      "overrides_written": 1,
+      "unique_variants": 2
     },
     "collectionreltype/collectionreltypesearch": {
       "disciplines_seen": 1,
@@ -439,13 +439,13 @@
     },
     "determination/determination": {
       "disciplines_seen": 1,
-      "overrides_written": 0,
-      "unique_variants": 1
+      "overrides_written": 2,
+      "unique_variants": 3
     },
     "determination/determinationviewonly": {
       "disciplines_seen": 1,
-      "overrides_written": 0,
-      "unique_variants": 1
+      "overrides_written": 2,
+      "unique_variants": 3
     },
     "determinationcitation/determinationcitation": {
       "disciplines_seen": 1,
@@ -609,8 +609,8 @@
     },
     "exsiccata/exsiccata": {
       "disciplines_seen": 1,
-      "overrides_written": 0,
-      "unique_variants": 1
+      "overrides_written": 1,
+      "unique_variants": 2
     },
     "exsiccata/exsiccatasearch": {
       "disciplines_seen": 1,
@@ -619,8 +619,8 @@
     },
     "exsiccataitem/exsiccataitem": {
       "disciplines_seen": 1,
-      "overrides_written": 0,
-      "unique_variants": 1
+      "overrides_written": 1,
+      "unique_variants": 2
     },
     "extractor/extractor": {
       "disciplines_seen": 1,
@@ -919,8 +919,8 @@
     },
     "paleocontext/subpaleocontext": {
       "disciplines_seen": 1,
-      "overrides_written": 0,
-      "unique_variants": 1
+      "overrides_written": 1,
+      "unique_variants": 2
     },
     "pcrperson/pcrperson": {
       "disciplines_seen": 1,
@@ -959,8 +959,8 @@
     },
     "preparation/preparation": {
       "disciplines_seen": 1,
-      "overrides_written": 0,
-      "unique_variants": 1
+      "overrides_written": 2,
+      "unique_variants": 3
     },
     "preparationattribute/preparationattributes": {
       "disciplines_seen": 1,
@@ -974,8 +974,8 @@
     },
     "preptype/preptype": {
       "disciplines_seen": 1,
-      "overrides_written": 0,
-      "unique_variants": 1
+      "overrides_written": 1,
+      "unique_variants": 2
     },
     "preptype/preptypesearch": {
       "disciplines_seen": 1,

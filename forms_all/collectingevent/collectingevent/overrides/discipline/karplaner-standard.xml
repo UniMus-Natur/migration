@@ -1,4 +1,4 @@
-<viewset name="Botany Views" source="disk" level="Discipline" file="botany/botany.views.xml">
+<viewset name="Karplaner - standard" source="db" level="Discipline">
   <views>
     <view name="CollectingEvent" class="edu.ku.brc.specify.datamodel.CollectingEvent" busrules="edu.ku.brc.specify.datamodel.busrules.CollectingEventBusRules" isinternal="false" resourcelabels="false">
       <desc>CollectingEvent Form</desc>
