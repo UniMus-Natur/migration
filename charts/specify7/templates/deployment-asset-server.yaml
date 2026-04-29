@@ -38,13 +38,13 @@ spec:
           imagePullPolicy: {{ .Values.assetServer.image.pullPolicy }}
           ports:
             - name: http
-              containerPort: 80
+              containerPort: 8080
               protocol: TCP
           env:
             - name: SERVER_NAME
-              value: "0.0.0.0" # or use actual hostname if needed, but 0.0.0.0 usually safe for binding
+              value: '{{ include "specify7.fullname" . }}-asset-server'
             - name: SERVER_PORT
-              value: "80"
+              value: {{ .Values.assetServer.service.port | quote }}
             - name: ATTACHMENT_KEY
               value: {{ .Values.specify.attachmentKey | quote }}
             - name: DEBUG_MODE
