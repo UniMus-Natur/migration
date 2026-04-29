@@ -162,6 +162,18 @@ oracle_catalog_dump() {
     python3 "$_PF_SCRIPT_DIR/oracle_catalog_dump.py" "$@"
 }
 
+#
+# Dump ALL Specify7 rows linked to a catalog number in a migrated collection
+# (default: NHM-karplanter).
+#
+#   specify_catalog_dump --catalog "O-V-123456"
+#   specify_catalog_dump --catalog "O-V-123456" --collection-code NHM-karplanter
+#   specify_catalog_dump --catalog "O-V-123456" --output specify.json
+#
+specify_catalog_dump() {
+    python3 "$_PF_SCRIPT_DIR/specify_catalog_dump.py" "$@"
+}
+
 specify_api() {
     python3 "$_PF_SCRIPT_DIR/specify_api.py" "$@"
 }
@@ -207,5 +219,7 @@ echo "Oracle SQL helper:      oracle_sql [--env prod|test] [--csv] \"<SQL>\""
 echo "  PROD needs Oracle Instant Client (thick mode) on this machine — see scripts/oracle_sql.py"
 echo "Oracle catalog dump:    oracle_catalog_dump --catalog \"O-V-123456\" [--env prod|test] [--output file.json]"
 echo "  Dumps ALL connected Oracle data for a catalog number as JSON — see scripts/oracle_catalog_dump.py"
+echo "Specify catalog dump:   specify_catalog_dump --catalog \"O-V-123456\" [--collection-code NHM-karplanter] [--output file.json]"
+echo "  Dumps ALL connected Specify rows for a catalog number as JSON — see scripts/specify_catalog_dump.py"
 echo "Specify API helper:     specify_api [--collection NHM] [--text-fields|--geography-tree] [<path>]"
 echo "  Requires 'backend' forward (localhost:8000) — see scripts/specify_api.py"
