@@ -195,16 +195,7 @@ def _lower_keys(row: dict[str, Any]) -> dict[str, Any]:
 _ALLOW_REVERSE_FROM = {
     "collectionobject",
     "collectingevent",
-    "locality",
-    "geography",
     "determination",
-    "attachment",
-    "agent",
-    "taxon",
-    "collectionobjectattr",
-    "collectionobjectattachment",
-    "collector",
-    "migration_oracle_objectmap",
 }
 
 # Never reverse-follow these high-fanout/shared roots.
@@ -245,10 +236,21 @@ class GraphCollector:
             vals.append(row[col])
         return tuple(vals)
 
-    def _fetch_rows_where(self, table: str, where_col: str, where_val: Any) -> list[dict[str, Any]]:
+    def _fetch_rows_where(
+        self,
+        table: str,
+        where_col: str,
+        where_val: Any,
+        *,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
         sql = f"SELECT * FROM `{table}` WHERE `{where_col}` = %s"
+        params: list[Any] = [where_val]
+        if limit is not None:
+            sql += " LIMIT %s"
+            params.append(int(limit))
         with self.con.cursor() as cur:
-            cur.execute(sql, [where_val])
+            cur.execute(sql, params)
             return [_lower_keys(r) for r in cur.fetchall()]
 
     def _fetch_row_by_pk(self, table: str, pk_vals: tuple) -> dict[str, Any] | None:
@@ -314,7 +316,13 @@ class GraphCollector:
                     continue
 
                 try:
-                    child_rows = self._fetch_rows_where(fk.from_table, fk.from_col, target_val)
+                    # SQL-level cap prevents expensive full scans/materialization.
+                    child_rows = self._fetch_rows_where(
+                        fk.from_table,
+                        fk.from_col,
+                        target_val,
+                        limit=5001,
+                    )
                 except Exception as exc:  # noqa: BLE001
                     self.warnings.append(
                         f"reverse edge {fk.from_table}.{fk.from_col} -> {table}.{fk.to_col} failed: {exc}"
@@ -325,7 +333,7 @@ class GraphCollector:
                 if len(child_rows) > 5000:
                     self.warnings.append(
                         f"skipping reverse edge {fk.from_table}.{fk.from_col} -> {table}.{fk.to_col}: "
-                        f"{len(child_rows)} rows (safety cap)"
+                        "more than 5000 rows (safety cap)"
                     )
                     continue
 
@@ -348,7 +356,7 @@ def main() -> None:
     parser.add_argument(
         "--collection-code",
         default="NHM-karplanter",
-        help="Specify collection code (default: NHM-karplanter)",
+        help="Specify collection selector (matches collection.code or collection.collectionname; default: NHM-karplanter)",
     )
     parser.add_argument("--output", "-o", help="Write JSON to file instead of stdout")
     parser.add_argument("--compact", action="store_true", help="Compact JSON output")
@@ -368,32 +376,100 @@ def main() -> None:
         with con.cursor() as cur:
             cur.execute(
                 """
-                SELECT c.collectionid, c.code, c.collectionname
+                SELECT c.usergroupscopeid, c.collectionid, c.code, c.collectionname
                 FROM collection c
-                WHERE c.code = %s
-                LIMIT 1
-                """,
-                [args.collection_code],
+                ORDER BY c.usergroupscopeid
+                """
             )
-            collection = cur.fetchone()
+            all_collections = [_lower_keys(r) for r in cur.fetchall()]
 
-        if not collection:
-            sys.exit(f"Collection code not found: {args.collection_code!r}")
+        if not all_collections:
+            sys.exit("No rows found in collection table.")
 
-        collection = _lower_keys(collection)
-        collection_id = collection["collectionid"]
+        needle = args.collection_code.strip().lower()
+        exact = [
+            c for c in all_collections
+            if str(c.get("code") or "").strip().lower() == needle
+            or str(c.get("collectionname") or "").strip().lower() == needle
+        ]
+        prefix = [
+            c for c in all_collections
+            if str(c.get("code") or "").strip().lower().startswith(needle)
+            or str(c.get("collectionname") or "").strip().lower().startswith(needle)
+        ]
+
+        if len(exact) == 1:
+            collection = exact[0]
+        elif len(exact) > 1:
+            choices = ", ".join(
+                f"{c.get('code') or '<null-code>'}/{c.get('collectionname') or '<null-name>'}"
+                for c in exact
+            )
+            sys.exit(
+                f"Collection selector {args.collection_code!r} is ambiguous (exact matches): {choices}"
+            )
+        elif len(prefix) == 1:
+            collection = prefix[0]
+        elif len(prefix) > 1:
+            choices = ", ".join(
+                f"{c.get('code') or '<null-code>'}/{c.get('collectionname') or '<null-name>'}"
+                for c in prefix
+            )
+            sys.exit(
+                f"Collection selector {args.collection_code!r} is ambiguous (prefix matches): {choices}"
+            )
+        else:
+            available = ", ".join(
+                f"{c.get('code') or '<null-code>'}/{c.get('collectionname') or '<null-name>'}"
+                for c in all_collections
+            )
+            sys.exit(
+                f"Collection selector not found: {args.collection_code!r}\n"
+                f"Available collections: {available}"
+            )
+
+        collection_member_id = collection.get("usergroupscopeid")
+        collection_id = collection.get("collectionid")
+        if collection_member_id is None and collection_id is None:
+            sys.exit(
+                "Selected collection has neither usergroupscopeid nor collectionid; "
+                "cannot scope collectionobject lookup."
+            )
 
         with con.cursor() as cur:
-            cur.execute(
-                """
-                SELECT co.*
-                FROM collectionobject co
-                WHERE co.collectionid = %s
-                  AND co.catalognumber = %s
-                ORDER BY co.collectionobjectid
-                """,
-                [collection_id, args.catalog],
-            )
+            if collection_member_id is not None and collection_id is not None:
+                cur.execute(
+                    """
+                    SELECT co.*
+                    FROM collectionobject co
+                    WHERE co.catalognumber = %s
+                      AND (co.collectionmemberid = %s OR co.collectionid = %s)
+                    ORDER BY co.collectionobjectid
+                    """,
+                    [args.catalog, collection_member_id, collection_id],
+                )
+            elif collection_member_id is not None:
+                cur.execute(
+                    """
+                    SELECT co.*
+                    FROM collectionobject co
+                    WHERE co.catalognumber = %s
+                      AND co.collectionmemberid = %s
+                    ORDER BY co.collectionobjectid
+                    """,
+                    [args.catalog, collection_member_id],
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT co.*
+                    FROM collectionobject co
+                    WHERE co.catalognumber = %s
+                      AND co.collectionid = %s
+                    ORDER BY co.collectionobjectid
+                    """,
+                    [args.catalog, collection_id],
+                )
             co_rows = [_lower_keys(r) for r in cur.fetchall()]
 
         if not co_rows:
@@ -421,6 +497,7 @@ def main() -> None:
                 "catalog_number_input": args.catalog,
                 "collection_code": args.collection_code,
                 "collection_id": collection_id,
+                "collection_member_id": collection_member_id,
                 "db_name": cfg["db"],
                 "extracted_at_utc": datetime.datetime.now(datetime.UTC).isoformat(),
                 "matched_collectionobject_count": len(co_rows),
