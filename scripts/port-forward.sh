@@ -149,6 +149,19 @@ oracle_sql() {
     python3 "$_PF_SCRIPT_DIR/oracle_sql.py" "$@"
 }
 
+# Dump ALL Oracle source data for a catalog number as JSON.
+#
+#   oracle_catalog_dump --catalog "O-V-123456"
+#   oracle_catalog_dump --catalog "TRH-V-241112" --env prod
+#   oracle_catalog_dump --catalog 241112
+#   oracle_catalog_dump --object-id 12345
+#   oracle_catalog_dump --catalog "O-V-123456" --output dump.json
+#   oracle_catalog_dump --catalog "O-V-123456" --compact | jq .
+#
+oracle_catalog_dump() {
+    python3 "$_PF_SCRIPT_DIR/oracle_catalog_dump.py" "$@"
+}
+
 specify_api() {
     python3 "$_PF_SCRIPT_DIR/specify_api.py" "$@"
 }
@@ -190,7 +203,9 @@ fi
 
 echo ""
 echo "Forwards running in background. Run 'pf_stop' to tear down."
-echo "Oracle SQL helper:  oracle_sql [--env prod|test] [--csv] \"<SQL>\""
+echo "Oracle SQL helper:      oracle_sql [--env prod|test] [--csv] \"<SQL>\""
 echo "  PROD needs Oracle Instant Client (thick mode) on this machine — see scripts/oracle_sql.py"
-echo "Specify API helper: specify_api [--collection NHM] [--text-fields|--geography-tree] [<path>]"
+echo "Oracle catalog dump:    oracle_catalog_dump --catalog \"O-V-123456\" [--env prod|test] [--output file.json]"
+echo "  Dumps ALL connected Oracle data for a catalog number as JSON — see scripts/oracle_catalog_dump.py"
+echo "Specify API helper:     specify_api [--collection NHM] [--text-fields|--geography-tree] [<path>]"
 echo "  Requires 'backend' forward (localhost:8000) — see scripts/specify_api.py"
