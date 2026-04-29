@@ -24,6 +24,10 @@
           <cell type="field" id="origFilename" name="attachment.origFilename" initialize="editoncreate=true" uitype="browse" isrequired="true" />
         </row>
         <row>
+          <cell type="label" labelfor="attachmentLocation" label="URL" />
+          <cell type="field" id="attachmentLocation" name="attachment.attachmentLocation" uitype="text" readonly="true" />
+        </row>
+        <row>
           <cell type="label" labelfor="title" label="Title" />
           <cell type="field" id="title" name="attachment.title" uitype="text" isrequired="true" />
         </row>

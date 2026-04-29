@@ -152,7 +152,15 @@ def _strip_meta_for_put(obj: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in obj.items() if k not in skip}
 
 
-def _parse_local_form(path: Path) -> tuple[ET.Element, dict[str, ET.Element]]:
+def _viewdef_key(elem: ET.Element) -> tuple[str, str, str]:
+    return (
+        elem.attrib.get("name", ""),
+        elem.attrib.get("class", ""),
+        elem.attrib.get("type", ""),
+    )
+
+
+def _parse_local_form(path: Path) -> tuple[ET.Element, dict[tuple[str, str, str], ET.Element]]:
     root = ET.fromstring(path.read_text(encoding="utf-8"))
     views = root.find("views")
     if views is None:
@@ -161,12 +169,12 @@ def _parse_local_form(path: Path) -> tuple[ET.Element, dict[str, ET.Element]]:
     if local_view is None:
         raise ValueError(f"{path}: missing <views>/<view>")
     viewdefs_root = root.find("viewdefs")
-    local_defs: dict[str, ET.Element] = {}
+    local_defs: dict[tuple[str, str, str], ET.Element] = {}
     if viewdefs_root is not None:
         for d in viewdefs_root:
-            d_name = d.attrib.get("name")
-            if d_name:
-                local_defs[d_name] = ET.fromstring(ET.tostring(d, encoding="unicode"))
+            key = _viewdef_key(d)
+            if key[0]:
+                local_defs[key] = ET.fromstring(ET.tostring(d, encoding="unicode"))
     local_view_copy = ET.fromstring(ET.tostring(local_view, encoding="unicode"))
     return local_view_copy, local_defs
 
@@ -281,11 +289,11 @@ def _sync_forms_into_viewset(
         key = (v.attrib.get("name", ""), v.attrib.get("class", ""))
         remote_by_key[key] = v
 
-    defs_by_name: dict[str, ET.Element] = {}
+    defs_by_name: dict[tuple[str, str, str], ET.Element] = {}
     for d in defs_root:
-        d_name = d.attrib.get("name")
-        if d_name:
-            defs_by_name[d_name] = d
+        key = _viewdef_key(d)
+        if key[0]:
+            defs_by_name[key] = d
 
     matched = 0
     changed_views = 0
@@ -318,18 +326,18 @@ def _sync_forms_into_viewset(
                 remote_by_key[key] = local_view
                 changed_views += 1
 
-        for d_name, local_def in local_defs.items():
-            existing = defs_by_name.get(d_name)
+        for d_key, local_def in local_defs.items():
+            existing = defs_by_name.get(d_key)
             if existing is None:
                 defs_root.append(local_def)
-                defs_by_name[d_name] = local_def
+                defs_by_name[d_key] = local_def
                 changed_defs += 1
                 continue
             if not _elements_equal(existing, local_def):
                 idx = list(defs_root).index(existing)
                 defs_root.remove(existing)
                 defs_root.insert(idx, local_def)
-                defs_by_name[d_name] = local_def
+                defs_by_name[d_key] = local_def
                 changed_defs += 1
 
     return {

@@ -58,7 +58,7 @@
           <cell type="separator" label="Attachments" colspan="14" />
         </row>
         <row>
-          <cell type="subview" id="attachments" viewname="ObjectAttachment" name="collectionObjectAttachments" colspan="7" initialize="icon=CollectionObjectAttachment" defaulttype="icon" />
+          <cell type="subview" id="attachments" viewname="ObjectAttachment" name="collectionObjectAttachments" colspan="7" initialize="btn=true;icon=CollectionObjectAttachment" defaulttype="table" />
           <cell type="panel" id="116" name="outerPanel" coldef="p,2px,p:g,5px,p:g" rowdef="p,4px,p,4px,p,4px,p,4px,p,4px,p" colspan="5">
             <rows>
               <row>
