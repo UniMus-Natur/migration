@@ -8,9 +8,10 @@ interface Props {
   mappings: MappingEdge[];
   onAddNode: (data: OracleNodeData) => void;
   onShowMapping: (mapping: MappingEdge) => void;
+  onRemoveMapping: (id: string) => void;
 }
 
-export default function OracleExplorer({ outline, mappings, onAddNode, onShowMapping }: Props) {
+export default function OracleExplorer({ outline, mappings, onAddNode, onShowMapping, onRemoveMapping }: Props) {
   const [search, setSearch] = useState("");
   const [showMapped, setShowMapped] = useState(true);
 
@@ -88,6 +89,7 @@ export default function OracleExplorer({ outline, mappings, onAddNode, onShowMap
             mapped={mapped}
             onAddNode={onAddNode}
             onShowMapping={onShowMapping}
+            onRemoveMapping={onRemoveMapping}
           />
         ))}
         {visible.length === 0 && (
@@ -112,6 +114,7 @@ function BucketGroup({
   mapped: Map<string, MappingEdge[]>;
   onAddNode: (d: OracleNodeData) => void;
   onShowMapping: (m: MappingEdge) => void;
+  onRemoveMapping: (id: string) => void;
 }) {
   const [open, setOpen] = useState(true);
   return (
@@ -136,6 +139,7 @@ function BucketGroup({
               })
             }
             onShowMapping={onShowMapping}
+            onRemoveMapping={onRemoveMapping}
           />
         ))}
     </div>
@@ -152,6 +156,7 @@ function PathRow({
   mappedEdges: MappingEdge[];
   onAdd: () => void;
   onShowMapping: (m: MappingEdge) => void;
+  onRemoveMapping: (id: string) => void;
 }) {
   const isMapped = mappedEdges.length > 0;
   const shortLabel = fp.path.replace(/^[^.]+\./, ""); // strip top bucket
@@ -163,14 +168,22 @@ function PathRow({
         {isMapped && (
           <div style={s.targetInfo}>
             {mappedEdges.map((e) => (
-              <span
-                key={e.id}
-                style={s.targetTag}
-                onClick={() => onShowMapping(e)}
-                title="Show connection on canvas"
-              >
-                → {e.specify_table}.{e.specify_column} 👁
-              </span>
+              <div key={e.id} style={s.targetTagGroup}>
+                <span
+                  style={s.targetTag}
+                  onClick={() => onShowMapping(e)}
+                  title="Show connection on canvas"
+                >
+                  → {e.specify_table}.{e.specify_column} 👁
+                </span>
+                <button
+                  style={s.removeBtn}
+                  onClick={() => onRemoveMapping(e.id)}
+                  title="Remove mapping"
+                >
+                  ×
+                </button>
+              </div>
             ))}
           </div>
         )}
@@ -221,7 +234,9 @@ const s = {
   pathInfo: { flex: 1, overflow: "hidden" },
   pathName: { display: "block", color: "#cbd5e1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
   targetInfo: { display: "flex", flexWrap: "wrap" as const, gap: 4, marginTop: 2 },
-  targetTag: { color: "#60a5fa", fontSize: 10, fontWeight: 500 },
+  targetTag: { color: "#60a5fa", fontSize: 10, fontWeight: 500, cursor: "pointer" },
+  targetTagGroup: { display: "flex", alignItems: "center", gap: 2, background: "#0f172a", padding: "1px 4px", borderRadius: 3, border: "1px solid #1e293b" },
+  removeBtn: { background: "transparent", border: "none", color: "#64748b", cursor: "pointer", fontSize: 12, padding: "0 2px", lineHeight: 1 },
   example: {
     display: "block", color: "#6b7280", fontSize: 10, fontFamily: "monospace",
     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const,

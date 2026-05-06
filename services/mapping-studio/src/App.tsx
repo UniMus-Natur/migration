@@ -198,7 +198,9 @@ export default function App() {
         if (!specifyPaths) continue;
 
         for (const oPath of oraclePaths) {
+          if (oPath.startsWith("_meta")) continue;
           for (const sPath of specifyPaths) {
+            if (sPath.startsWith("_meta")) continue;
             // sPath format is usually "tables.tableName[0].columnName"
             const parts = sPath.split(".");
             if (parts.length < 3) continue;
@@ -293,6 +295,7 @@ export default function App() {
               mappings={store.edges}
               onAddNode={addSpecifyNode}
               onShowMapping={addMappingToCanvas}
+              onRemoveMapping={onRemoveEdge}
             />
           )}
           {schemaState === "idle" && <Placeholder text="Specify Schema" />}
@@ -321,6 +324,7 @@ export default function App() {
               mappings={store.edges}
               onAddNode={addOracleNode}
               onShowMapping={addMappingToCanvas}
+              onRemoveMapping={onRemoveEdge}
             />
           )}
         </aside>

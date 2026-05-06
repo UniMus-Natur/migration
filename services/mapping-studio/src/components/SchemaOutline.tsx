@@ -7,6 +7,7 @@ interface Props {
   mappings: MappingEdge[];
   onAddNode: (data: SpecifyNodeData) => void;
   onShowMapping: (mapping: MappingEdge) => void;
+  onRemoveMapping: (id: string) => void;
 }
 
 const ROOT_TABLE = "collectionobject";
@@ -84,6 +85,7 @@ export default function SchemaOutline({ schema, mappings, onAddNode, onShowMappi
             onToggle={() => toggle(tname)}
             onAddNode={onAddNode}
             onShowMapping={onShowMapping}
+            onRemoveMapping={onRemoveMapping}
           />
         ))}
       </div>
@@ -109,6 +111,7 @@ function TableRow({
   onToggle: () => void;
   onAddNode: (d: SpecifyNodeData) => void;
   onShowMapping: (m: MappingEdge) => void;
+  onRemoveMapping: (id: string) => void;
 }) {
   const mapped = table.columns.filter((c) =>
     coverage.has(`${tname}.${c.name}`),
@@ -148,6 +151,7 @@ function TableRow({
               })
             }
             onShowMapping={onShowMapping}
+            onRemoveMapping={onRemoveMapping}
           />
         ))}
     </div>
@@ -166,6 +170,7 @@ function ColRow({
   mappedEdge?: MappingEdge;
   onAdd: () => void;
   onShowMapping: (m: MappingEdge) => void;
+  onRemoveMapping: (id: string) => void;
 }) {
   return (
     <div style={s.colRow} title={`${tname}.${col.name} — ${col.type}`}>
@@ -176,12 +181,21 @@ function ColRow({
           <span style={s.colType}>{col.type.replace(/\(.*\)/, "")}</span>
         </div>
         {mappedEdge && (
-          <div
-            style={s.sourceInfo}
-            title={`Source: ${mappedEdge.oracle_path}\nClick to show on canvas`}
-            onClick={() => onShowMapping(mappedEdge)}
-          >
-            ← {mappedEdge.oracle_path.split(".").slice(-1)[0]} 👁
+          <div style={s.sourceGroup}>
+            <div
+              style={s.sourceInfo}
+              title={`Source: ${mappedEdge.oracle_path}\nClick to show on canvas`}
+              onClick={() => onShowMapping(mappedEdge)}
+            >
+              ← {mappedEdge.oracle_path.split(".").slice(-1)[0]} 👁
+            </div>
+            <button
+              style={s.removeBtn}
+              onClick={(e) => { e.stopPropagation(); onRemoveMapping(mappedEdge.id); }}
+              title="Remove mapping"
+            >
+              ×
+            </button>
           </div>
         )}
       </div>
@@ -239,7 +253,9 @@ const s = {
   colInfo: { flex: 1, overflow: "hidden" },
   colName: { color: "#cbd5e1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
   colType: { color: "#4b5563", fontSize: 10, fontFamily: "monospace" },
-  sourceInfo: { color: "#fbbf24", fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, marginTop: 1 },
+  sourceGroup: { display: "flex", alignItems: "center", gap: 4, marginTop: 1 },
+  sourceInfo: { color: "#fbbf24", fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, cursor: "pointer" },
+  removeBtn: { background: "transparent", border: "none", color: "#64748b", cursor: "pointer", fontSize: 12, padding: "0 2px", lineHeight: 1 },
   addBtn: {
     background: "transparent", border: "1px solid #374151", color: "#94a3b8",
     borderRadius: 3, cursor: "pointer", padding: "0 5px", lineHeight: "16px",
