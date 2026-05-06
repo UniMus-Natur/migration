@@ -99,6 +99,7 @@ function TableRow({
   coverage,
   onToggle,
   onAddNode,
+  onShowMapping,
 }: {
   tname: string;
   table: SpecifySchema["tables"][string];
@@ -158,6 +159,7 @@ function ColRow({
   col,
   mappedEdge,
   onAdd,
+  onShowMapping,
 }: {
   tname: string;
   col: SpecifyColumn;

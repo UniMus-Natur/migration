@@ -105,6 +105,7 @@ function BucketGroup({
   paths,
   mapped,
   onAddNode,
+  onShowMapping,
 }: {
   bucket: string;
   paths: FlatPath[];
