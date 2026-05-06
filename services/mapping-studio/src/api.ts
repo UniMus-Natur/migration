@@ -1,4 +1,4 @@
-import type { SpecifySchema, PathOutline } from "./types";
+import type { SpecifySchema, PathOutline, ValueIndexBundle } from "./types";
 
 // BASE_PATH as configured in vite.config.ts base.  Strip trailing slash.
 const BASE = "/migration-harness";
@@ -19,6 +19,13 @@ export async function fetchOraclePathOutline(resultId: string): Promise<PathOutl
 
 export async function fetchSpecifyPathOutline(resultId: string): Promise<PathOutline> {
   return _fetchOutline(resultId, "specify-path-outline");
+}
+
+export async function fetchValueIndexBundle(resultId: string): Promise<ValueIndexBundle> {
+  const url = `${BASE}/result/${resultId}/value-index.json`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`value-index fetch failed ${res.status}`);
+  return res.json();
 }
 
 async function _fetchOutline(resultId: string, kind: string): Promise<PathOutline> {

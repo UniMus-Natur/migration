@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { SpecifySchema, PathOutline, MappingStore, MappingEdge, OracleNodeData, SpecifyNodeData } from "./types";
-import { fetchSpecifySchema, fetchOraclePathOutline } from "./api";
+import type { SpecifySchema, PathOutline, MappingStore, MappingEdge, OracleNodeData, SpecifyNodeData, ValueIndexBundle } from "./types";
+import { fetchSpecifySchema, fetchOraclePathOutline, fetchValueIndexBundle } from "./api";
 import { loadStore, saveStore, emptyStore, addEdge, removeEdge, exportJSON, importJSON } from "./store";
 import SchemaOutline from "./components/SchemaOutline";
 import OracleExplorer from "./components/OracleExplorer";
@@ -138,6 +138,61 @@ export default function App() {
     e.target.value = "";
   };
 
+  const handleAutoMap = async () => {
+    if (!resultId) return;
+    try {
+      const bundle = await fetchValueIndexBundle(resultId);
+      const IGNORE_VALUES = new Set(["<null>", "", "0", "1", "true", "false", "[]", "{}"]);
+      let added = 0;
+
+      const newEdges: Omit<MappingEdge, "id" | "created_at">[] = [];
+
+      for (const [val, oraclePaths] of Object.entries(bundle.oracle.by_value)) {
+        if (IGNORE_VALUES.has(val.toLowerCase())) continue;
+        const specifyPaths = bundle.specify.by_value[val];
+        if (!specifyPaths) continue;
+
+        for (const oPath of oraclePaths) {
+          for (const sPath of specifyPaths) {
+            // sPath is "table.column" or just "column" if root?
+            // Actually _index_leaf_values uses "." as separator.
+            const parts = sPath.split(".");
+            if (parts.length < 2) continue; // Skip root-level fields or ambiguous ones
+            const [table, col] = parts;
+
+            const exists = store.edges.some(
+              (e) => e.oracle_path === oPath && e.specify_table === table && e.specify_column === col,
+            );
+            if (!exists) {
+              newEdges.push({
+                oracle_path: oPath,
+                specify_table: table,
+                specify_column: col,
+                transform: "direct",
+                note: `Auto-mapped (matched value: ${val.slice(0, 20)}${val.length > 20 ? "…" : ""})`,
+                confirmed: false,
+              });
+              added++;
+            }
+          }
+        }
+      }
+
+      if (added > 0) {
+        let currentStore = store;
+        for (const edge of newEdges) {
+          currentStore = addEdge(currentStore, edge);
+        }
+        setStore(currentStore);
+        alert(`Auto-mapped ${added} field(s) based on identical values.`);
+      } else {
+        alert("No obvious new mappings found.");
+      }
+    } catch (e) {
+      alert(`Auto-map failed: ${e}`);
+    }
+  };
+
   return (
     <div style={styles.root}>
       {/* Top bar */}
@@ -155,6 +210,9 @@ export default function App() {
           <button style={styles.btn} onClick={handleLoadResult}>Load</button>
         </div>
         <div style={styles.topActions}>
+          <button style={{ ...styles.btn, background: "#059669" }} onClick={handleAutoMap} title="Auto-map fields with identical values">
+            Auto-map
+          </button>
           <button style={styles.btn} onClick={() => exportJSON(store)} title="Export mappings JSON">
             Export JSON
           </button>

@@ -67,6 +67,28 @@ export interface PathOutline {
 }
 
 // ---------------------------------------------------------------------------
+// Value Index (from /result/:id/value-index.json)
+// ---------------------------------------------------------------------------
+
+export interface ValueIndex {
+  schema: string;
+  by_value: Record<string, string[]>;
+  meta: {
+    unique_leaf_values: number;
+    total_leaf_occurrences: number;
+    max_paths_for_one_value: number;
+    max_key_chars_before_mask: number;
+  };
+}
+
+export interface ValueIndexBundle {
+  schema: string;
+  catalog: string;
+  oracle: ValueIndex;
+  specify: ValueIndex;
+}
+
+// ---------------------------------------------------------------------------
 // Mappings (persisted in localStorage)
 // ---------------------------------------------------------------------------
 
