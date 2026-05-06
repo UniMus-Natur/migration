@@ -1,0 +1,20 @@
+# Migration test fixtures
+#
+# Each entry drives one run of migration_compare.py.
+# Required fields:
+#   catalog         - Oracle IDENTIFIER_STRING (or numeric IDENTIFIER_NUM)
+#   collection_code - Specify7 collection code or collectionname prefix
+# Optional fields:
+#   description     - free-text label shown in reports
+#   oracle_env      - "prod" (default) or "test"
+#   skip            - true to exclude from a run without deleting the entry
+
+fixtures:
+  - catalog: "O-V-14399"
+    collection_code: "NHM-karplanter"
+    description: "Well-known karplanter specimen (used during dev)"
+
+  # Add more specimens below, e.g.:
+  # - catalog: "O-V-12345"
+  #   collection_code: "NHM-karplanter"
+  #   description: "..."

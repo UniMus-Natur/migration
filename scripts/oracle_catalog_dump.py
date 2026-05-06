@@ -224,7 +224,7 @@ S = "MUSIT_BOTANIKK_FELLES"
 # ---------------------------------------------------------------------------
 
 def _fetch_object_core(con, object_id: int) -> dict:
-    """MUSEUM_OBJECT, OBJECT_ATTRIBUTES, V_OBJECT_ATTRIBUTES, and object-level links."""
+    """MUSEUM_OBJECT plus all tables with a direct OBJECT_ID FK."""
     oid = object_id
     result: dict[str, Any] = {}
 
@@ -253,6 +253,44 @@ def _fetch_object_core(con, object_id: int) -> dict:
         "MUSEUM_OBJECT_LEGNR_PERSON",
     )
     result["MUSEUM_OBJECT_LEGNR_PERSON"] = rows
+
+    # Classification history chain for this object
+    rows = _try_query(
+        con, f"SELECT * FROM {S}.CLASS_HIST_FOR_OBJECT WHERE OBJECT_ID = :oid ORDER BY SEQ_NO", {"oid": oid},
+        "CLASS_HIST_FOR_OBJECT",
+    )
+    result["CLASS_HIST_FOR_OBJECT"] = rows
+
+    # DNA sampling events directly tied to the object (bridge table)
+    rows = _try_query(
+        con, f"SELECT * FROM {S}.MUSEUM_OBJECT_DNA_EVENT WHERE OBJECT_ID = :oid", {"oid": oid},
+        "MUSEUM_OBJECT_DNA_EVENT",
+    )
+    result["MUSEUM_OBJECT_DNA_EVENT"] = rows
+
+    # Lending records associated with the object
+    rows = _try_query(
+        con, f"SELECT * FROM {S}.LENDING_OBJECTS WHERE OBJECT_ID = :oid", {"oid": oid},
+        "LENDING_OBJECTS",
+    )
+    result["LENDING_OBJECTS"] = rows
+
+    # Object–place associations outside the event graph
+    por_rows = _try_query(
+        con, f"SELECT * FROM {S}.PLACE_OBJECT_ROLE WHERE OBJECT_ID = :oid", {"oid": oid},
+        "PLACE_OBJECT_ROLE",
+    )
+    if por_rows:
+        place_ids = list({r["place_id"] for r in por_rows if r.get("place_id")})
+        por_places: dict[int, dict] = {}
+        if place_ids:
+            por_places = _fetch_places(con, place_ids)
+        result["PLACE_OBJECT_ROLE"] = [
+            {**r, "_PLACE_DATA": por_places.get(r.get("place_id"))}
+            for r in por_rows
+        ]
+    else:
+        result["PLACE_OBJECT_ROLE"] = []
 
     return result
 
@@ -295,23 +333,29 @@ def _fetch_places(con, place_ids: list[int]) -> dict[int, dict]:
                 {**r, "_HIERARCHICAL_PLACE_OLD": hier_by_id.get(r.get("hierachical_place_id"))}
             )
 
-    # KOORDINATE_PLACE_PLACE → KOORDINATE_PLACE → DERIVED_COORDINATES
+    # KOORDINATE_PLACE_PLACE → KOORDINATE_PLACE → DERIVED_COORDINATES + POINTS
     kpp_rows = _try_query(con, f"SELECT * FROM {S}.KOORDINATE_PLACE_PLACE WHERE PLACE_ID IN {in_c}", label="KOORDINATE_PLACE_PLACE")
     kp_ids = [r["koordinate_place_id"] for r in kpp_rows if r.get("koordinate_place_id")]
     kp_by_id: dict = {}
     derived_by_kp: dict[int, list] = {}
+    points_by_kp: dict[int, list] = {}
     if kp_ids:
         kp_in = _in_list(kp_ids)
         kp_rows = _try_query(con, f"SELECT * FROM {S}.KOORDINATE_PLACE WHERE KOORDINATE_PLACE_ID IN {kp_in}", label="KOORDINATE_PLACE")
         kp_by_id = {r["koordinate_place_id"]: r for r in kp_rows}
         for r in _try_query(con, f"SELECT * FROM {S}.DERIVED_COORDINATES WHERE KOORDINATE_PLACE_ID IN {kp_in}", label="DERIVED_COORDINATES"):
             derived_by_kp.setdefault(r["koordinate_place_id"], []).append(r)
+        # Extra geometry points attached to coordinate places
+        for r in _try_query(con, f"SELECT * FROM {S}.POINTS WHERE KOORDINATE_PLACE_ID IN {kp_in} ORDER BY SEQUENCE_NUMBER", label="POINTS"):
+            points_by_kp.setdefault(r["koordinate_place_id"], []).append(r)
     for r in kpp_rows:
         if r["place_id"] in places:
             kpid = r.get("koordinate_place_id")
             entry: dict = {**r, "_KOORDINATE_PLACE": kp_by_id.get(kpid)}
             if kpid and kpid in derived_by_kp:
                 entry["_DERIVED_COORDINATES"] = derived_by_kp[kpid]
+            if kpid and kpid in points_by_kp:
+                entry["_POINTS"] = points_by_kp[kpid]
             places[r["place_id"]].setdefault("KOORDINATE_PLACE", []).append(entry)
 
     # PLACE_ADMINISTRATIVE_PLACE → ADMINISTRATIVE_PLACE
@@ -383,11 +427,35 @@ def _fetch_places(con, place_ids: list[int]) -> dict[int, dict]:
                 {**r, "_STORING_PLACE": sp_by_id.get(r.get("storing_place_id"))}
             )
 
+    # PLACE_GENERIC_PLACE_DESC → GENERIC_PLACE_DESCRIPTION (long-text locality descriptions)
+    pgpd_rows = _try_query(con, f"SELECT * FROM {S}.PLACE_GENERIC_PLACE_DESC WHERE PLACE_ID IN {in_c}", label="PLACE_GENERIC_PLACE_DESC")
+    gpd_ids = [r.get("gen_placedesc_id") for r in pgpd_rows if r.get("gen_placedesc_id")]
+    gpd_by_id: dict = {}
+    if gpd_ids:
+        gpd_rows = _try_query(con, f"SELECT * FROM {S}.GENERIC_PLACE_DESCRIPTION WHERE GEN_PLACEDESC_ID IN {_in_list(gpd_ids)}", label="GENERIC_PLACE_DESCRIPTION")
+        gpd_by_id = {r["gen_placedesc_id"]: r for r in gpd_rows}
+    for r in pgpd_rows:
+        if r["place_id"] in places:
+            places[r["place_id"]].setdefault("GENERIC_PLACE_DESCRIPTION", []).append(
+                {**r, "_GENERIC_PLACE_DESCRIPTION": gpd_by_id.get(r.get("gen_placedesc_id"))}
+            )
+
+    # PLACE_HIEARCHY — parent/child place graph
+    ph_rows = _try_query(
+        con,
+        f"SELECT * FROM {S}.PLACE_HIEARCHY WHERE PARENT_PLACE_ID IN {in_c} OR CHILD_PLACE_ID IN {in_c}",
+        label="PLACE_HIEARCHY",
+    )
+    for pid in place_ids:
+        related = [r for r in ph_rows if r.get("parent_place_id") == pid or r.get("child_place_id") == pid]
+        if related and pid in places:
+            places[pid]["PLACE_HIEARCHY"] = related
+
     return places
 
 
 def _fetch_taxonomy(con, class_term_id: int) -> dict:
-    """CLASSIFICATION_TERM → CLASSTERM_LATIN_NAME → LATIN_NAMES, and TAXON branch."""
+    """CLASSIFICATION_TERM → CLASSTERM_LATIN_NAME → LATIN_NAMES + vocabulary, and TAXON branch."""
     result: dict[str, Any] = {}
 
     rows = _try_query(con, f"SELECT * FROM {S}.CLASSIFICATION_TERM WHERE CLASS_TERM_ID = :ctid", {"ctid": class_term_id}, "CLASSIFICATION_TERM")
@@ -400,7 +468,60 @@ def _fetch_taxonomy(con, class_term_id: int) -> dict:
     if ln_ids:
         ln_rows = _try_query(con, f"SELECT * FROM {S}.LATIN_NAMES WHERE LATIN_NAME_ID IN {_in_list(ln_ids)}", label="LATIN_NAMES")
         result["LATIN_NAMES"] = ln_rows
-        # Taxon category and authorstrings for each latin name
+
+        # Resolve AUTHORSTRINGS for each latin name's author_id
+        author_ids = list({r["author_id"] for r in ln_rows if r.get("author_id")})
+        if author_ids:
+            a_rows = _try_query(con, f"SELECT * FROM {S}.AUTHORSTRINGS WHERE AUTHOR_ID IN {_in_list(author_ids)}", label="AUTHORSTRINGS")
+            result["AUTHORSTRINGS"] = {r["author_id"]: r for r in a_rows}
+
+        # Resolve TAXON_CATHEGORY for rank/category codes
+        tc_ids = list({r["tax_cath_id"] for r in ln_rows if r.get("tax_cath_id")})
+        # Also pick up taxon_cathegory_id from CLASSTERM_LATIN_NAME rows
+        tc_ids += [r["taxon_cathegory_id"] for r in ctl_rows if r.get("taxon_cathegory_id") and r["taxon_cathegory_id"] not in tc_ids]
+        tc_ids_uniq = list(dict.fromkeys(tc_ids))
+        if tc_ids_uniq:
+            tc_rows = _try_query(con, f"SELECT * FROM {S}.TAXON_CATHEGORY WHERE TAX_CATH_ID IN {_in_list(tc_ids_uniq)}", label="TAXON_CATHEGORY")
+            result["TAXON_CATHEGORY"] = {r["tax_cath_id"]: r for r in tc_rows}
+
+        # INFRASPES_RANK from CLASSIFICATION_TERM also references TAXON_CATHEGORY
+        ct = result.get("CLASSIFICATION_TERM") or {}
+        ir_id = ct.get("infraspes_rank")
+        if ir_id and isinstance(ir_id, int):
+            existing = result.get("TAXON_CATHEGORY", {})
+            if ir_id not in existing:
+                ir_rows = _try_query(con, f"SELECT * FROM {S}.TAXON_CATHEGORY WHERE TAX_CATH_ID = :id", {"id": ir_id}, "TAXON_CATHEGORY (infraspes_rank)")
+                if ir_rows:
+                    existing[ir_id] = ir_rows[0]
+                    result["TAXON_CATHEGORY"] = existing
+
+        # Cross-links between latin names (synonyms, hybrids etc.)
+        rel_rows = _try_query(
+            con,
+            f"SELECT * FROM {S}.LATIN_NAME_RELATIONS WHERE LATIN_NAME_ID1 IN {_in_list(ln_ids)} OR LATIN_NAME_ID2 IN {_in_list(ln_ids)}",
+            label="LATIN_NAME_RELATIONS",
+        )
+        if rel_rows:
+            result["LATIN_NAME_RELATIONS"] = rel_rows
+
+        # Hybrid entries pointing at these names
+        hyb_rows = _try_query(
+            con,
+            f"SELECT * FROM {S}.HYBRID_LATIN_NAME WHERE LATIN_NAME_ID IN {_in_list(ln_ids)}",
+            label="HYBRID_LATIN_NAME",
+        )
+        if hyb_rows:
+            h_ids = list({r["hybrid_id"] for r in hyb_rows if r.get("hybrid_id")})
+            hc_rows = _try_query(con, f"SELECT * FROM {S}.HYBRID_COMBINATIONS WHERE HYBRID_ID IN {_in_list(h_ids)}", label="HYBRID_COMBINATIONS") if h_ids else []
+            result["HYBRID_LATIN_NAME"] = hyb_rows
+            if hc_rows:
+                result["HYBRID_COMBINATIONS"] = hc_rows
+
+        # Fungus group names
+        fg_rows = _try_query(con, f"SELECT * FROM {S}.LATIN_NAME_FUNGUS_GROUP WHERE LATIN_NAME_ID IN {_in_list(ln_ids)}", label="LATIN_NAME_FUNGUS_GROUP")
+        if fg_rows:
+            result["LATIN_NAME_FUNGUS_GROUP"] = fg_rows
+
         adb_taxon_ids = [r["adb_taxon_id"] for r in ln_rows if r.get("adb_taxon_id")]
         nhm_taxon_ids = [r["nhm_taxon_id"] for r in ln_rows if r.get("nhm_taxon_id")]
         result["_adb_taxon_ids"] = adb_taxon_ids
@@ -414,6 +535,14 @@ def _fetch_taxonomy(con, class_term_id: int) -> dict:
         if t_ids:
             t_rows = _try_query(con, f"SELECT * FROM {S}.TAXON WHERE TAXON_ID IN {_in_list(t_ids)}", label="TAXON")
             result["TAXON"] = t_rows
+            # Resolve VALID_LATIN_NAME_ID for each taxon (may differ from classterm path)
+            extra_ln_ids = [r["valid_latin_name_id"] for r in t_rows if r.get("valid_latin_name_id")]
+            if extra_ln_ids:
+                extra_ln_rows = _try_query(con, f"SELECT * FROM {S}.LATIN_NAMES WHERE LATIN_NAME_ID IN {_in_list(extra_ln_ids)}", label="LATIN_NAMES (taxon.valid)")
+                existing_lns = {r["latin_name_id"] for r in result.get("LATIN_NAMES", [])}
+                new_lns = [r for r in extra_ln_rows if r["latin_name_id"] not in existing_lns]
+                if new_lns:
+                    result.setdefault("LATIN_NAMES", []).extend(new_lns)
 
     return result
 
@@ -446,12 +575,26 @@ def _fetch_events(con, object_id: int) -> list[dict]:
         ts_rows = _try_query(con, f"SELECT * FROM {S}.TIMESPAN WHERE TIMESPAN_ID IN {_in_list(ts_ids)}", label="TIMESPAN")
         timespans_by_id = {r["timespan_id"]: r for r in ts_rows}
 
+    # ---- EVENT_HIERARCHY: links between events ----
+    eh_rows = _try_query(
+        con,
+        f"SELECT * FROM {S}.EVENT_HIERARCHY WHERE PARENT_EVENT_ID IN {in_c} OR CHILD_EVENT_ID IN {in_c}",
+        label="EVENT_HIERARCHY",
+    )
+    eh_by_event: dict[int, list] = {}
+    for r in eh_rows:
+        for key in ("parent_event_id", "child_event_id"):
+            eid = r.get(key)
+            if eid in events_by_id:
+                eh_by_event.setdefault(eid, []).append(r)
+
     # ---- Type-specific event subtables (each shares EVENT_ID as PK / FK) ----
     event_subtables = [
         "COLLECTING_EVENT",
         "CLASSIFICATION_EVENT",
         "TYPIFICATION_EVENT",
         "CONSERVATION_EVENT",
+        "CONDITION_ASSESSMENT_EVENT",
         "LENDING_EVENT",
         "MOVING_EVENT",
         "OBSERVATION_EVENT",
@@ -465,6 +608,24 @@ def _fetch_events(con, object_id: int) -> list[dict]:
     for tbl in event_subtables:
         rows = _try_query(con, f"SELECT * FROM {S}.{tbl} WHERE EVENT_ID IN {in_c}", label=tbl)
         typed_by_table[tbl] = {r["event_id"]: r for r in rows}
+
+    # MEASURMENT child rows (actual measurement values under MEASURMENT_EVENT headers)
+    measurment_event_ids = list(typed_by_table.get("MEASURMENT_EVENT", {}).keys())
+    measurments_by_event: dict[int, list] = {}
+    if measurment_event_ids:
+        m_rows = _try_query(
+            con,
+            f"SELECT * FROM {S}.MEASURMENT WHERE MEASURMENT_EVENT_ID IN {_in_list(measurment_event_ids)}",
+            label="MEASURMENT",
+        )
+        for r in m_rows:
+            measurments_by_event.setdefault(r["measurment_event_id"], []).append(r)
+
+    # PLACE_REVISION: coordinate-change audit trail per event
+    pr_rows = _try_query(con, f"SELECT * FROM {S}.PLACE_REVISION WHERE EVENT_ID IN {in_c}", label="PLACE_REVISION")
+    pr_by_event: dict[int, list] = {}
+    for r in pr_rows:
+        pr_by_event.setdefault(r["event_id"], []).append(r)
 
     # ---- People / agents per event ----
     # EVENT_ROLE_PERSON_NAME + PERSON_NAME
@@ -487,9 +648,11 @@ def _fetch_events(con, object_id: int) -> list[dict]:
 
     actor_ids = list({r["actor_id"] for r in era_rows if r.get("actor_id")})
     actors_by_id: dict = {}
+    groupmemberships_by_actor: dict[int, list] = {}
     if actor_ids:
         a_rows = _try_query(con, f"SELECT * FROM {S}.ACTOR WHERE ACTOR_ID IN {_in_list(actor_ids)}", label="ACTOR")
         actors_by_id = {r["actor_id"]: r for r in a_rows}
+
         # fetch PERSON_NAME for actors that reference one
         extra_pn_ids = [
             r["valid_person_name_id"] for r in a_rows
@@ -503,6 +666,18 @@ def _fetch_events(con, object_id: int) -> list[dict]:
             )
             for r in extra_pn_rows:
                 pn_by_id[r["person_name_id"]] = r
+
+        # GROUPMEMBERSHIP: resolve institutional/group actor memberships
+        gm_rows = _try_query(
+            con,
+            f"SELECT * FROM {S}.GROUPMEMBERSHIP WHERE GROUP_ID IN {_in_list(actor_ids)} OR MEMBER_ID IN {_in_list(actor_ids)}",
+            label="GROUPMEMBERSHIP",
+        )
+        for r in gm_rows:
+            for key in ("group_id", "member_id"):
+                aid = r.get(key)
+                if aid in actors_by_id:
+                    groupmemberships_by_actor.setdefault(aid, []).append(r)
 
     # ---- ROLES vocabulary (decode role_id values) ----
     role_ids = list(
@@ -566,20 +741,38 @@ def _fetch_events(con, object_id: int) -> list[dict]:
         for r in ts_rows:
             type_specimens_by_event.setdefault(r["event_id"], []).append(r)
 
-    # ---- GENDERS_AND_STAGES ----
+    # ---- GENDERS_AND_STAGES + GENDER_STAGE_TERMS vocabulary ----
     gs_rows = _try_query(con, f"SELECT * FROM {S}.GENDERS_AND_STAGES WHERE EVENT_ID IN {in_c}", label="GENDERS_AND_STAGES")
     gs_by_event: dict[int, list] = {}
     for r in gs_rows:
         gs_by_event.setdefault(r["event_id"], []).append(r)
 
-    # ---- TYPES vocabulary (decode museum_object_type, classification_type_id, etc.) ----
-    # Collect all type IDs that appear across events
+    gst_ids = list({r["gender_class_term_id"] for r in gs_rows if r.get("gender_class_term_id")})
+    gst_by_id: dict = {}
+    if gst_ids:
+        gst_rows = _try_query(con, f"SELECT * FROM {S}.GENDER_STAGE_TERMS WHERE GENDER_CLASS_TERM_ID IN {_in_list(gst_ids)}", label="GENDER_STAGE_TERMS")
+        gst_by_id = {r["gender_class_term_id"]: r for r in gst_rows}
+
+    # ---- TYPES vocabulary (decode *type_id fields across all rows) ----
+    # Collect type IDs from event subtable rows, plus EVENT.event_type and
+    # NOTE/DOCUMENT type_id fields, plus coordinate-facet type columns.
     type_val_ids: set[int] = set()
     for tbl_rows in typed_by_table.values():
         for row in tbl_rows.values():
             for k, v in row.items():
                 if k.endswith("type_id") and isinstance(v, int):
                     type_val_ids.add(v)
+    for evt in events_rows:
+        if isinstance(evt.get("event_type"), int):
+            type_val_ids.add(evt["event_type"])
+    for n in notes_by_id.values():
+        if isinstance(n.get("type_id"), int):
+            type_val_ids.add(n["type_id"])
+    for d in docs_by_id.values():
+        if isinstance(d.get("document_type_id"), int):
+            type_val_ids.add(d["document_type_id"])
+    # Also pick up MUSEUM_OBJECT.museum_object_type (passed in via context later via _TYPE_LOOKUPS)
+
     types_by_id: dict = {}
     if type_val_ids:
         tv_rows = _try_query(
@@ -602,11 +795,23 @@ def _fetch_events(con, object_id: int) -> list[dict]:
             "TIMESPAN": timespans_by_id.get(ts_id) if ts_id else None,
         }
 
+        # Event hierarchy links
+        if eid in eh_by_event:
+            entry["EVENT_HIERARCHY"] = eh_by_event[eid]
+
         # Type-specific subtable (whichever applies)
         for tbl in event_subtables:
             typed_row = typed_by_table.get(tbl, {}).get(eid)
             if typed_row:
                 entry[tbl] = typed_row
+
+        # Measurement child rows under MEASURMENT_EVENT
+        if eid in measurments_by_event:
+            entry["MEASURMENT"] = measurments_by_event[eid]
+
+        # Place revision audit trail
+        if eid in pr_by_event:
+            entry["PLACE_REVISION"] = pr_by_event[eid]
 
         # People
         pn_links = erpn_by_event.get(eid, [])
@@ -625,11 +830,13 @@ def _fetch_events(con, object_id: int) -> list[dict]:
             entry["EVENT_ROLE_ACTOR"] = []
             for link in actor_links:
                 actor = actors_by_id.get(link.get("actor_id"))
+                aid = link.get("actor_id")
                 entry["EVENT_ROLE_ACTOR"].append({
                     **link,
                     "_ACTOR": actor,
                     "_ACTOR_PERSON_NAME": pn_by_id.get(actor.get("valid_person_name_id")) if actor else None,
                     "_ROLE": roles_by_id.get(link.get("role_id")),
+                    "_GROUPMEMBERSHIP": groupmemberships_by_actor.get(aid) if aid else None,
                 })
 
         # Notes
@@ -664,11 +871,14 @@ def _fetch_events(con, object_id: int) -> list[dict]:
         if eid in type_specimens_by_event:
             entry["TYPE_SPECIMEN"] = type_specimens_by_event[eid]
 
-        # Genders and stages
+        # Genders and stages (with vocabulary decode)
         if eid in gs_by_event:
-            entry["GENDERS_AND_STAGES"] = gs_by_event[eid]
+            entry["GENDERS_AND_STAGES"] = [
+                {**gs, "_GENDER_STAGE_TERM": gst_by_id.get(gs.get("gender_class_term_id"))}
+                for gs in gs_by_event[eid]
+            ]
 
-        # Inline TYPES decode for any *type_id fields in this entry's subtables
+        # Inline TYPES decode for any *type_id fields in this entry's subtables + EVENT.event_type
         _type_decode: dict[str, Any] = {}
         for tbl in event_subtables:
             typed_row = typed_by_table.get(tbl, {}).get(eid)
@@ -676,6 +886,8 @@ def _fetch_events(con, object_id: int) -> list[dict]:
                 for k, v in typed_row.items():
                     if k.endswith("type_id") and isinstance(v, int) and v in types_by_id:
                         _type_decode[f"{tbl}.{k}"] = types_by_id[v]
+        if isinstance(evt.get("event_type"), int) and evt["event_type"] in types_by_id:
+            _type_decode["EVENT.event_type"] = types_by_id[evt["event_type"]]
         if _type_decode:
             entry["_TYPE_LOOKUPS"] = _type_decode
 
@@ -891,6 +1103,10 @@ def main() -> None:
         if len(object_ids) > 1:
             print(f"  Warning: {len(object_ids)} objects matched — dumping all", file=sys.stderr)
 
+    # Collect all MUSEUM_OBJECT.museum_object_type IDs upfront so we can decode
+    # them alongside the per-event TYPES vocabulary.
+    mo_type_ids: set[int] = set()
+
     results = []
     for oid in object_ids:
         print(f"  Fetching OBJECT_ID={oid} ...", file=sys.stderr)
@@ -900,6 +1116,10 @@ def main() -> None:
         object_attributes = obj_core.get("OBJECT_ATTRIBUTES")
 
         uuid = (object_attributes or {}).get("uuid") if object_attributes else None
+
+        # Track museum_object_type for TYPES decode
+        if museum_object and isinstance(museum_object.get("museum_object_type"), int):
+            mo_type_ids.add(museum_object["museum_object_type"])
 
         doc: dict[str, Any] = {
             "_meta": {
@@ -915,6 +1135,17 @@ def main() -> None:
             "media": _fetch_media(con, museum_object),
             "digir_dwc": _fetch_digir_dwc(con, oid, uuid),
         }
+
+        # Decode MUSEUM_OBJECT.museum_object_type via TYPES vocabulary
+        if mo_type_ids:
+            mo_type_rows = _try_query(
+                con,
+                f"SELECT * FROM {S}.TYPES WHERE TYPE_ID IN {_in_list(sorted(mo_type_ids))}",
+                label="TYPES (museum_object_type)",
+            )
+            mo_types_by_id = {r["type_id"]: r for r in mo_type_rows}
+            if museum_object and museum_object.get("museum_object_type") in mo_types_by_id:
+                doc["_MUSEUM_OBJECT_TYPE"] = mo_types_by_id[museum_object["museum_object_type"]]
 
         results.append(doc)
         print(f"  Done OBJECT_ID={oid}", file=sys.stderr)

@@ -174,6 +174,19 @@ specify_catalog_dump() {
     python3 "$_PF_SCRIPT_DIR/specify_catalog_dump.py" "$@"
 }
 
+#
+# Compare Oracle source data with Specify7 sink for one or more catalog numbers.
+# Runs both dump scripts under the hood and outputs a terminal summary, JSON
+# report, and/or a Markdown evidence card suitable for LLM judgement.
+#
+#   migration_compare --catalog "O-V-123456" --collection-code NHM-karplanter
+#   migration_compare --fixture scripts/test_fixtures.yaml
+#   migration_compare --fixture scripts/test_fixtures.yaml --format all --output-dir /tmp/reports
+#
+migration_compare() {
+    python3 "$_PF_SCRIPT_DIR/migration_compare.py" "$@"
+}
+
 specify_api() {
     python3 "$_PF_SCRIPT_DIR/specify_api.py" "$@"
 }
@@ -221,5 +234,7 @@ echo "Oracle catalog dump:    oracle_catalog_dump --catalog \"O-V-123456\" [--en
 echo "  Dumps ALL connected Oracle data for a catalog number as JSON — see scripts/oracle_catalog_dump.py"
 echo "Specify catalog dump:   specify_catalog_dump --catalog \"O-V-123456\" [--collection-code NHM-karplanter] [--output file.json]"
 echo "  Dumps ALL connected Specify rows for a catalog number as JSON — see scripts/specify_catalog_dump.py"
+echo "Migration compare:      migration_compare --catalog \"O-V-123456\" [--collection-code NHM-karplanter] [--format terminal|json|md|all]"
+echo "  Compare Oracle vs Specify data; use --fixture scripts/test_fixtures.yaml for batch runs — see scripts/migration_compare.py"
 echo "Specify API helper:     specify_api [--collection NHM] [--text-fields|--geography-tree] [<path>]"
 echo "  Requires 'backend' forward (localhost:8000) — see scripts/specify_api.py"
