@@ -257,122 +257,160 @@ class OracleAdapter:
 # ---------------------------------------------------------------------------
 
 class SpecifyAdapter:
-    """Extract a normalised, flat view of a single Specify7 dump document."""
+    """Extract a normalised, flat view of a single Specify7 dump document.
+
+    specify_catalog_dump.py emits:
+        {"_meta": {...}, "tables": {"collectionobject": [...], "collectingevent": [...], ...}}
+
+    All navigation is done by joining on FK values within the flat tables dict.
+    """
 
     def __init__(self, doc: dict) -> None:
         self._doc = doc
-        # specify_catalog_dump emits {collection: {...}, collectionobjects: [...]}
-        cos = doc.get("collectionobjects") or []
-        self._co: dict = cos[0] if cos else {}
-        self._co_row: dict = self._co.get("collectionobject") or {}
-        self._text3_json: dict = self._co.get("_text3_json") or {}
+        self._tables: dict[str, list[dict]] = doc.get("tables") or {}
+
+    # -- Low-level helpers --
+
+    def _tbl(self, table: str) -> list[dict]:
+        return self._tables.get(table) or []
+
+    def _find(self, table: str, col: str, val: Any) -> dict | None:
+        for row in self._tbl(table):
+            if row.get(col) == val:
+                return row
+        return None
+
+    def _find_all(self, table: str, col: str, val: Any) -> list[dict]:
+        return [row for row in self._tbl(table) if row.get(col) == val]
+
+    # -- Root collectionobject row --
+
+    @property
+    def _co(self) -> dict:
+        rows = self._tbl("collectionobject")
+        return rows[0] if rows else {}
 
     # -- Identity --
 
     @property
     def catalog_number(self) -> str:
-        return _str(self._co_row.get("catalognumber"))
+        return _str(self._co.get("catalognumber"))
 
     @property
     def guid(self) -> str:
-        return _str(self._co_row.get("guid"))
+        return _str(self._co.get("guid"))
 
     @property
     def field_number(self) -> str:
-        return _str(self._co_row.get("fieldnumber"))
+        return _str(self._co.get("fieldnumber"))
 
     @property
     def remarks(self) -> str:
-        return _str(self._co_row.get("remarks"))
+        return _str(self._co.get("remarks"))
+
+    @property
+    def text3_json(self) -> dict:
+        return self._co.get("_text3_json") or {}
 
     # -- Collecting event --
 
-    def _ce_row(self) -> dict:
-        ce_block = self._co.get("collectingevent") or {}
-        return ce_block.get("collectingevent") or {}
+    def _ce(self) -> dict:
+        ce_id = self._co.get("collectingeventid")
+        if ce_id is None:
+            return {}
+        return self._find("collectingevent", "collectingeventid", ce_id) or {}
 
     @property
     def collecting_start_date(self) -> str:
-        ce = self._ce_row()
-        # Specify stores date parts as startdatetimeprecision + startdate (ISO)
+        ce = self._ce()
         d = ce.get("startdate")
         return _date_str(d) if d else ""
 
     @property
     def verbatim_date(self) -> str:
-        ce = self._ce_row()
+        ce = self._ce()
         return _str(ce.get("verbatimdate") or ce.get("startdateverbatim") or "")
 
     @property
     def locality_text(self) -> str:
-        ce_block = self._co.get("collectingevent") or {}
-        loc_block = ce_block.get("locality") or {}
-        loc_row = loc_block.get("locality") if isinstance(loc_block, dict) else {}
-        if not loc_row:
-            loc_row = {}
-        return _str(
-            loc_row.get("localityname")
-            or loc_row.get("namedplace")
-            or loc_row.get("verbatimlatitude")
-            or ""
-        )
+        ce = self._ce()
+        loc_id = ce.get("localityid")
+        if loc_id is None:
+            return ""
+        loc = self._find("locality", "localityid", loc_id) or {}
+        return _str(loc.get("localityname") or loc.get("namedplace") or "")
 
     @property
     def collectors(self) -> list[str]:
+        ce = self._ce()
+        ce_id = ce.get("collectingeventid")
+        if ce_id is None:
+            return []
+        col_rows = self._find_all("collector", "collectingeventid", ce_id)
+        col_rows.sort(key=lambda r: r.get("ordernumber") or 0)
         names: list[str] = []
-        ce_block = self._co.get("collectingevent") or {}
-        for col in ce_block.get("collectors") or []:
-            agent = col.get("_agent") or col.get("agent") or {}
-            if isinstance(agent, dict):
-                agent_row = agent.get("agent") or agent
-            else:
-                agent_row = {}
+        for col_row in col_rows:
+            agent_id = col_row.get("agentid")
+            if agent_id is None:
+                continue
+            agent = self._find("agent", "agentid", agent_id) or {}
             parts = [
-                agent_row.get("lastname") or "",
-                agent_row.get("firstname") or "",
-                agent_row.get("middleinitial") or "",
+                agent.get("lastname") or "",
+                agent.get("firstname") or "",
+                agent.get("middleinitial") or "",
             ]
             name = " ".join(p for p in parts if p).strip()
             if not name:
-                name = _str(agent_row.get("name") or "")
+                name = _str(agent.get("name") or "")
             if name:
                 names.append(name)
         return names
 
-    # -- Determinations (sorted newest first) --
+    # -- Determinations (current first, then newest first) --
 
     @property
     def determinations(self) -> list[dict]:
+        co_id = self._co.get("collectionobjectid")
+        if co_id is None:
+            return []
+        det_rows = self._find_all("determination", "collectionobjectid", co_id)
         result = []
-        for det_block in self._co.get("determinations") or []:
-            det_row = det_block.get("determination") or det_block
-            if not isinstance(det_row, dict):
-                continue
-            taxon_name = _str(det_row.get("text1") or det_row.get("nameusage") or "")
-            det_date = _date_str(det_row.get("determineddate") or det_row.get("determineddateprecision") or "")
-            result.append({"taxon": taxon_name, "date": det_date, "iscurrent": det_row.get("iscurrent")})
-
-        # Sort: current first, then by date descending
-        result.sort(key=lambda d: (not d.get("iscurrent", False), d.get("date", "")), reverse=False)
-        # Reverse date within same iscurrent tier
+        for det in det_rows:
+            taxon_name = _str(det.get("text1") or det.get("nameusage") or "")
+            det_date = _date_str(det.get("determineddate") or "")
+            result.append({"taxon": taxon_name, "date": det_date, "iscurrent": det.get("iscurrent")})
         current = [d for d in result if d.get("iscurrent")]
-        non_current = sorted([d for d in result if not d.get("iscurrent")], key=lambda d: d.get("date", ""), reverse=True)
+        non_current = sorted(
+            [d for d in result if not d.get("iscurrent")],
+            key=lambda d: d.get("date", ""),
+            reverse=True,
+        )
         return current + non_current
 
-    # -- Media --
+    # -- Media / attachments --
 
     @property
     def attachment_urls(self) -> list[str]:
+        co_id = self._co.get("collectionobjectid")
+        if co_id is None:
+            return []
         urls: list[str] = []
-        for att_block in self._co.get("attachments") or []:
-            url = att_block.get("_url") or att_block.get("origfilename") or att_block.get("attachmentlocation") or ""
+        for coa in self._find_all("collectionobjectattachment", "collectionobjectid", co_id):
+            att_id = coa.get("attachmentid")
+            if att_id is None:
+                continue
+            att = self._find("attachment", "attachmentid", att_id) or {}
+            url = att.get("attachmentlocation") or att.get("origfilename") or ""
             if url:
                 urls.append(_str(url))
         return urls
 
     @property
     def attachment_count(self) -> int:
-        return len(self._co.get("attachments") or [])
+        co_id = self._co.get("collectionobjectid")
+        if co_id is None:
+            return 0
+        return len(self._find_all("collectionobjectattachment", "collectionobjectid", co_id))
 
 
 # ---------------------------------------------------------------------------
@@ -776,8 +814,7 @@ def render_markdown(
     )
 
     # -- Unmapped source fields (co.text3) --
-    text3 = (specify_doc.get("collectionobjects") or [{}])[0]
-    text3_json = text3.get("_text3_json") if isinstance(text3, dict) else None
+    text3_json = specify.text3_json or None
     if text3_json:
         lines.append("## Unmapped source fields (from co.text3)\n")
         lines.append("```json")
