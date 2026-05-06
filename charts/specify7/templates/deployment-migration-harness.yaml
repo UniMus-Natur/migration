@@ -18,6 +18,10 @@ spec:
         {{- include "specify7.selectorLabels" . | nindent 8 }}
         component: migration-harness
     spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: migration-harness
           image: "{{ .Values.migrationHarness.image.repository }}:{{ .Values.migrationHarness.image.tag }}"

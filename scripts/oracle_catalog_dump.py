@@ -92,10 +92,12 @@ _LOCAL_PORTS: dict[str, int] = {"prod": 1553, "test": 1554}
 
 def _connect(env: str):
     prefix = env.upper()
-    local_port = _LOCAL_PORTS[env.lower()]
+    default_port = _LOCAL_PORTS[env.lower()]
     user = os.environ.get(f"ORACLE_{prefix}_USER")
     password = os.environ.get(f"ORACLE_{prefix}_PASSWORD")
     service = os.environ.get(f"ORACLE_{prefix}_SERVICE")
+    host = os.environ.get(f"ORACLE_{prefix}_HOST", "localhost")
+    port = int(os.environ.get(f"ORACLE_{prefix}_PORT", str(default_port)))
     missing = [
         k for k, v in {
             f"ORACLE_{prefix}_USER": user,
@@ -105,7 +107,7 @@ def _connect(env: str):
     ]
     if missing:
         sys.exit(f"Missing env vars: {', '.join(missing)}\n  Export them or add to .env")
-    dsn = f"localhost:{local_port}/{service}"
+    dsn = f"{host}:{port}/{service}"
     return oracledb.connect(user=user, password=password, dsn=dsn)
 
 
@@ -1077,7 +1079,9 @@ def main() -> None:
     _init_oracle_client()
     print(
         f"[oracle_catalog_dump] env={args.env.upper()}  "
-        f"localhost:{_LOCAL_PORTS[args.env]}  mode={_current_mode}",
+        f"{os.environ.get(f'ORACLE_{args.env.upper()}_HOST', 'localhost')}:"
+        f"{os.environ.get(f'ORACLE_{args.env.upper()}_PORT', str(_LOCAL_PORTS[args.env]))}  "
+        f"mode={_current_mode}",
         file=sys.stderr,
     )
 
