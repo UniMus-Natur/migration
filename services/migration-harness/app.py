@@ -5,7 +5,10 @@ import html
 import json
 import os
 import sys
+import time
 import traceback
+import uuid
+from http.cookies import SimpleCookie
 from pathlib import Path
 from urllib.parse import parse_qs
 from wsgiref.simple_server import make_server
@@ -25,6 +28,8 @@ BASE_PATH = (os.getenv("HARNESS_BASE_PATH", "/migration-harness") or "/migration
 DEFAULT_COLLECTION = os.getenv("HARNESS_DEFAULT_COLLECTION", "NHM-karplanter")
 DEFAULT_ORACLE_ENV = os.getenv("HARNESS_DEFAULT_ORACLE_ENV", "prod")
 REQUIRED_TOKEN = os.getenv("HARNESS_TOKEN", "")
+MAX_STORED_RESULTS = int(os.getenv("HARNESS_MAX_STORED_RESULTS", "20"))
+RESULTS: dict[str, dict] = {}
 
 
 def _html_page(body: str) -> bytes:
@@ -83,7 +88,33 @@ def _form(error: str = "", default_catalog: str = "O-V-2000001") -> str:
 """
 
 
-def _render_results(catalog: str, checks: list[mc.CheckResult], oracle_doc: dict, specify_doc: dict) -> str:
+def _parse_cookies(environ) -> dict[str, str]:
+    raw = environ.get("HTTP_COOKIE", "")
+    if not raw:
+        return {}
+    c = SimpleCookie()
+    c.load(raw)
+    return {k: morsel.value for k, morsel in c.items()}
+
+
+def _is_authorized(environ) -> bool:
+    if not REQUIRED_TOKEN:
+        return True
+    cookies = _parse_cookies(environ)
+    return cookies.get("harness_token") == REQUIRED_TOKEN
+
+
+def _store_result(payload: dict) -> str:
+    rid = uuid.uuid4().hex
+    RESULTS[rid] = payload
+    if len(RESULTS) > MAX_STORED_RESULTS:
+        oldest = sorted(RESULTS.items(), key=lambda kv: kv[1].get("_created_at", 0))[: len(RESULTS) - MAX_STORED_RESULTS]
+        for key, _ in oldest:
+            RESULTS.pop(key, None)
+    return rid
+
+
+def _render_results(result_id: str, catalog: str, checks: list[mc.CheckResult], oracle_doc: dict, specify_doc: dict) -> str:
     counts = mc._summary_counts(checks)
     rows = []
     for c in checks:
@@ -112,15 +143,14 @@ def _render_results(catalog: str, checks: list[mc.CheckResult], oracle_doc: dict
   </tbody>
 </table>
 
-<details>
-  <summary>Oracle JSON</summary>
-  <pre>{html.escape(json.dumps(oracle_doc, indent=2, ensure_ascii=False))}</pre>
-</details>
+<h3>Data exports</h3>
+<ul>
+  <li><a href="{html.escape(BASE_PATH)}/result/{html.escape(result_id)}/oracle.json?pretty=1" target="_blank">Open Oracle JSON (pretty)</a></li>
+  <li><a href="{html.escape(BASE_PATH)}/result/{html.escape(result_id)}/specify.json?pretty=1" target="_blank">Open Specify JSON (pretty)</a></li>
+  <li><a href="{html.escape(BASE_PATH)}/result/{html.escape(result_id)}/checks.json?pretty=1" target="_blank">Open Check Results JSON</a></li>
+</ul>
 
-<details>
-  <summary>Specify JSON</summary>
-  <pre>{html.escape(json.dumps(specify_doc, indent=2, ensure_ascii=False))}</pre>
-</details>
+<p><small>Sizes: Oracle {len(json.dumps(oracle_doc, ensure_ascii=False)):,} bytes, Specify {len(json.dumps(specify_doc, ensure_ascii=False)):,} bytes.</small></p>
 
 <p><a href="{html.escape(BASE_PATH)}">Run another</a></p>
 """
@@ -173,8 +203,63 @@ def app(environ, start_response):
             start_response("500 Internal Server Error", [("Content-Type", "text/html; charset=utf-8")])
             return [_html_page(body)]
 
-        start_response("200 OK", [("Content-Type", "text/html; charset=utf-8")])
-        return [_html_page(_render_results(catalog, checks, oracle_doc, specify_doc))]
+        payload = {
+            "_created_at": time.time(),
+            "catalog": catalog,
+            "oracle": oracle_doc,
+            "specify": specify_doc,
+            "checks": [
+                {
+                    "name": c.name,
+                    "status": c.status,
+                    "detail": c.detail,
+                    "oracle_val": c.oracle_val,
+                    "specify_val": c.specify_val,
+                }
+                for c in checks
+            ],
+        }
+        result_id = _store_result(payload)
+        headers = [("Content-Type", "text/html; charset=utf-8")]
+        if REQUIRED_TOKEN:
+            headers.append(("Set-Cookie", f"harness_token={token}; Path={BASE_PATH}; HttpOnly; SameSite=Lax"))
+        start_response("200 OK", headers)
+        return [_html_page(_render_results(result_id, catalog, checks, oracle_doc, specify_doc))]
+
+    if path.startswith(f"{BASE_PATH}/result/") and method == "GET":
+        if not _is_authorized(environ):
+            start_response("401 Unauthorized", [("Content-Type", "text/plain; charset=utf-8")])
+            return [b"unauthorized"]
+
+        suffix = path[len(f"{BASE_PATH}/result/") :]
+        parts = [p for p in suffix.split("/") if p]
+        if len(parts) == 1:
+            rid = parts[0]
+            result = RESULTS.get(rid)
+            if not result:
+                start_response("404 Not Found", [("Content-Type", "text/plain; charset=utf-8")])
+                return [b"result not found"]
+            checks = [mc.CheckResult(name=c["name"], status=c["status"], detail=c.get("detail", "")) for c in result["checks"]]
+            start_response("200 OK", [("Content-Type", "text/html; charset=utf-8")])
+            return [_html_page(_render_results(rid, result["catalog"], checks, result["oracle"], result["specify"]))]
+        if len(parts) == 2 and parts[1] in {"oracle.json", "specify.json", "checks.json"}:
+            rid = parts[0]
+            result = RESULTS.get(rid)
+            if not result:
+                start_response("404 Not Found", [("Content-Type", "text/plain; charset=utf-8")])
+                return [b"result not found"]
+            kind = parts[1]
+            if kind == "oracle.json":
+                obj = result["oracle"]
+            elif kind == "specify.json":
+                obj = result["specify"]
+            else:
+                obj = result["checks"]
+            qs = parse_qs(environ.get("QUERY_STRING", ""))
+            pretty = (qs.get("pretty") or ["0"])[0] in {"1", "true", "yes"}
+            body = json.dumps(obj, ensure_ascii=False, indent=2 if pretty else None).encode("utf-8")
+            start_response("200 OK", [("Content-Type", "application/json; charset=utf-8")])
+            return [body]
 
     start_response("404 Not Found", [("Content-Type", "text/plain; charset=utf-8")])
     return [b"not found"]
