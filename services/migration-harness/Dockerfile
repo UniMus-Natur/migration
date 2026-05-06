@@ -8,7 +8,9 @@ RUN apt-get update && apt-get install -y \
     unzip \
     libaio1t64 \
     libnsl2 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    # Oracle Instant Client expects libaio.so.1; Debian t64 ships libaio.so.1t64.
+    && ln -sf /usr/lib/x86_64-linux-gnu/libaio.so.1t64 /usr/lib/x86_64-linux-gnu/libaio.so.1
 
 # Oracle Instant Client for python-oracledb thick mode
 ARG ORACLE_IC_URL="https://download.oracle.com/otn_software/linux/instantclient/2113000/instantclient-basiclite-linux.x64-21.13.0.0.0dbru.zip"
