@@ -1,0 +1,45 @@
+{{- if .Values.migrationHarness.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "specify7.fullname" . }}-migration-harness
+  labels:
+    {{- include "specify7.labels" . | nindent 4 }}
+    component: migration-harness
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "specify7.selectorLabels" . | nindent 6 }}
+      component: migration-harness
+  template:
+    metadata:
+      labels:
+        {{- include "specify7.selectorLabels" . | nindent 8 }}
+        component: migration-harness
+    spec:
+      containers:
+        - name: migration-harness
+          image: "{{ .Values.migrationHarness.image.repository }}:{{ .Values.migrationHarness.image.tag }}"
+          imagePullPolicy: {{ .Values.migrationHarness.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.migrationHarness.service.port }}
+              protocol: TCP
+          env:
+            - name: HARNESS_PORT
+              value: {{ .Values.migrationHarness.service.port | quote }}
+            - name: HARNESS_BASE_PATH
+              value: {{ .Values.migrationHarness.basePath | quote }}
+            - name: HARNESS_DEFAULT_COLLECTION
+              value: {{ .Values.migrationHarness.defaultCollection | quote }}
+            - name: HARNESS_DEFAULT_ORACLE_ENV
+              value: {{ .Values.migrationHarness.defaultOracleEnv | quote }}
+          {{- if .Values.secrets.existingSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secrets.existingSecret }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.migrationHarness.resources | nindent 12 }}
+{{- end }}

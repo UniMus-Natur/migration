@@ -29,6 +29,15 @@ spec:
     - host: {{ .host | quote }}
       http:
         paths:
+          {{- if $.Values.migrationHarness.enabled }}
+          - path: {{ $.Values.migrationHarness.basePath }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullName }}-migration-harness
+                port:
+                  number: {{ $.Values.migrationHarness.service.port }}
+          {{- end }}
           # 1. Route static requests to the static service
           - path: /static
             pathType: Prefix

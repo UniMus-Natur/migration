@@ -1238,6 +1238,44 @@ def _write_one_object(
         if v is not None:
             unmapped[key] = v if not isinstance(v, (date, datetime)) else str(v)
 
+    # Keep all locality-related row variants so we do not lose source context when
+    # a specimen has multiple place/event rows in MUSIT.
+    locality_candidates: list[dict[str, Any]] = []
+    seen_locality_keys: set[tuple[Any, ...]] = set()
+    for idx, row in enumerate(rows):
+        place_id = row.get("place_id")
+        locality_text = row.get("locality_text")
+        if place_id is None and not locality_text:
+            continue
+        entry: dict[str, Any] = {
+            "row_index": idx,
+            "event_id": row.get("event_id"),
+            "class_event_id": row.get("class_event_id"),
+            "place_id": place_id,
+            "locality_text": locality_text,
+            "from_date": str(row["from_date"]) if row.get("from_date") is not None else None,
+            "to_date": str(row["to_date"]) if row.get("to_date") is not None else None,
+            "time_as_text": row.get("time_as_text"),
+            "date_uncertain": row.get("date_uncertain"),
+            "coordinate_string": row.get("coordinate_string"),
+            "datum": row.get("datum"),
+        }
+        dedupe_key = (
+            entry.get("event_id"),
+            entry.get("class_event_id"),
+            entry.get("place_id"),
+            entry.get("locality_text"),
+            entry.get("from_date"),
+            entry.get("to_date"),
+            entry.get("time_as_text"),
+            entry.get("coordinate_string"),
+            entry.get("datum"),
+        )
+        if dedupe_key in seen_locality_keys:
+            continue
+        seen_locality_keys.add(dedupe_key)
+        locality_candidates.append(entry)
+
     json_payload = json.dumps(
         {
             "source": {
@@ -1246,6 +1284,13 @@ def _write_one_object(
                 "dataset": config.dataset_label,
             },
             "unmapped": unmapped,
+            "locality_candidates": locality_candidates,
+            "selected_locality_source": {
+                "selection_rule": "first_row_current_loader_behavior",
+                "event_id": first.get("event_id"),
+                "place_id": first.get("place_id"),
+                "locality_text": first.get("locality_text"),
+            },
             "migration_meta": {
                 "exported_at_utc": run_ts,
                 "mapping_version": config.dataset_label,

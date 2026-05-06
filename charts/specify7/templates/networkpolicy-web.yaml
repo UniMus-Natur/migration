@@ -88,4 +88,37 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
+{{- if .Values.migrationHarness.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "specify7.fullname" . }}-migration-harness-web
+  labels:
+    {{- include "specify7.labels" . | nindent 4 }}
+    component: migration-harness
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "specify7.selectorLabels" . | nindent 6 }}
+      component: migration-harness
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- if .Values.networkPolicy.allowAllNamespaces }}
+        - namespaceSelector: {}
+        {{- else if .Values.networkPolicy.allowedNamespaceNames }}
+        {{- range .Values.networkPolicy.allowedNamespaceNames }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . | quote }}
+        {{- end }}
+        {{- else }}
+        - podSelector: {}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.migrationHarness.service.port }}
+{{- end }}
 {{- end }}

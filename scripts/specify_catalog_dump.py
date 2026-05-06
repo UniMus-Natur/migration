@@ -17,6 +17,7 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import decimal
 import datetime
 import json
 import os
@@ -177,6 +178,8 @@ def _coerce(v: Any) -> Any:
         return None
     if isinstance(v, (datetime.date, datetime.datetime, datetime.time)):
         return v.isoformat()
+    if isinstance(v, decimal.Decimal):
+        return int(v) if v == v.to_integral_value() else float(v)
     if isinstance(v, (bytes, bytearray)):
         return f"<BLOB {len(v):,} bytes>"
     return v
