@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import os
@@ -31,7 +32,17 @@ DEFAULT_COLLECTION = os.getenv("HARNESS_DEFAULT_COLLECTION", "NHM-karplanter")
 DEFAULT_ORACLE_ENV = os.getenv("HARNESS_DEFAULT_ORACLE_ENV", "prod")
 REQUIRED_TOKEN = os.getenv("HARNESS_TOKEN", "")
 MAX_STORED_RESULTS = int(os.getenv("HARNESS_MAX_STORED_RESULTS", "20"))
+# Leaf keys longer than this are masked in the value index (default: 2^16 - 1).
+VALUE_INDEX_MAX_KEY_CHARS = int(os.getenv("HARNESS_VALUE_INDEX_MAX_KEY_CHARS", "65535"))
 RESULTS: dict[str, dict] = {}
+
+
+def _mask_large_value_key(raw: str) -> str:
+    """Avoid huge JSON/BLOB strings as map keys; keep short stable placeholder."""
+    if VALUE_INDEX_MAX_KEY_CHARS <= 0 or len(raw) <= VALUE_INDEX_MAX_KEY_CHARS:
+        return raw
+    digest = hashlib.md5(raw.encode("utf-8", errors="replace")).hexdigest()[:8]
+    return f"<BLOB len={len(raw)} md5={digest}>"
 
 
 def _leaf_value_key(v: Any) -> str:
@@ -43,12 +54,13 @@ def _leaf_value_key(v: Any) -> str:
     if isinstance(v, (int, float)):
         return str(v)
     if isinstance(v, str):
-        return v
+        return _mask_large_value_key(v)
     if isinstance(v, bytes):
         return f"<bytes {len(v)}>"
     if isinstance(v, (list, dict)):
-        return json.dumps(v, ensure_ascii=False, sort_keys=True, default=str)
-    return str(v)
+        dumped = json.dumps(v, ensure_ascii=False, sort_keys=True, default=str)
+        return _mask_large_value_key(dumped)
+    return _mask_large_value_key(str(v))
 
 
 def _index_leaf_values(obj: Any, path: str, acc: dict[str, list[str]]) -> None:
@@ -86,6 +98,7 @@ def build_value_index(doc: Any) -> dict[str, Any]:
             "unique_leaf_values": len(by_value),
             "total_leaf_occurrences": total_occ,
             "max_paths_for_one_value": max_paths,
+            "max_key_chars_before_mask": VALUE_INDEX_MAX_KEY_CHARS,
         },
     }
 
