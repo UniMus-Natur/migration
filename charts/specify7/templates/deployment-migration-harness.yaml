@@ -31,6 +31,14 @@ spec:
               containerPort: {{ .Values.migrationHarness.service.port }}
               protocol: TCP
           env:
+            - name: DB_HOST
+              value: {{ if .Values.mariadb.enabled }}{{ include "specify7.fullname" . }}-mariadb{{ else }}{{ .Values.specify.database.host | quote }}{{ end }}
+            - name: DB_PORT
+              value: {{ .Values.specify.database.port | quote }}
+            - name: DB_NAME
+              value: {{ .Values.mariadb.auth.database | quote }}
+            - name: DB_USER
+              value: {{ .Values.mariadb.auth.username | quote }}
             - name: HARNESS_PORT
               value: {{ .Values.migrationHarness.service.port | quote }}
             - name: HARNESS_BASE_PATH
