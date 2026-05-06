@@ -6,6 +6,7 @@ interface Props {
   schema: SpecifySchema;
   mappings: MappingEdge[];
   onAddNode: (data: SpecifyNodeData) => void;
+  onShowMapping: (mapping: MappingEdge) => void;
 }
 
 const ROOT_TABLE = "collectionobject";
@@ -82,6 +83,7 @@ export default function SchemaOutline({ schema, mappings, onAddNode }: Props) {
             coverage={coverage}
             onToggle={() => toggle(tname)}
             onAddNode={onAddNode}
+            onShowMapping={onShowMapping}
           />
         ))}
       </div>
@@ -105,6 +107,7 @@ function TableRow({
   coverage: Map<string, MappingEdge>;
   onToggle: () => void;
   onAddNode: (d: SpecifyNodeData) => void;
+  onShowMapping: (m: MappingEdge) => void;
 }) {
   const mapped = table.columns.filter((c) =>
     coverage.has(`${tname}.${c.name}`),
@@ -133,7 +136,7 @@ function TableRow({
             key={col.name}
             tname={tname}
             col={col}
-            mapped={coverage.has(`${tname}.${col.name}`)}
+            mappedEdge={coverage.get(`${tname}.${col.name}`)}
             onAdd={() =>
               onAddNode({
                 label: `${tname}.${col.name}`,
@@ -143,6 +146,7 @@ function TableRow({
                 nullable: col.nullable,
               })
             }
+            onShowMapping={onShowMapping}
           />
         ))}
     </div>
@@ -152,19 +156,33 @@ function TableRow({
 function ColRow({
   tname,
   col,
-  mapped,
+  mappedEdge,
   onAdd,
 }: {
   tname: string;
   col: SpecifyColumn;
-  mapped: boolean;
+  mappedEdge?: MappingEdge;
   onAdd: () => void;
+  onShowMapping: (m: MappingEdge) => void;
 }) {
   return (
     <div style={s.colRow} title={`${tname}.${col.name} — ${col.type}`}>
-      <span style={{ ...s.dot, background: mapped ? "#22c55e" : "#374151" }} />
-      <span style={s.colName}>{col.name}</span>
-      <span style={s.colType}>{col.type.replace(/\(.*\)/, "")}</span>
+      <span style={{ ...s.dot, background: mappedEdge ? "#22c55e" : "#374151" }} />
+      <div style={s.colInfo}>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={s.colName}>{col.name}</span>
+          <span style={s.colType}>{col.type.replace(/\(.*\)/, "")}</span>
+        </div>
+        {mappedEdge && (
+          <div
+            style={s.sourceInfo}
+            title={`Source: ${mappedEdge.oracle_path}\nClick to show on canvas`}
+            onClick={() => onShowMapping(mappedEdge)}
+          >
+            ← {mappedEdge.oracle_path.split(".").slice(-1)[0]} 👁
+          </div>
+        )}
+      </div>
       <button
         style={s.addBtn}
         title="Add to canvas"
@@ -216,8 +234,10 @@ const s = {
     borderBottom: "1px solid #1a2030",
   },
   dot: { width: 6, height: 6, borderRadius: "50%", flexShrink: 0 },
-  colName: { flex: 1, color: "#cbd5e1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
-  colType: { color: "#4b5563", fontSize: 10, fontFamily: "monospace", flexShrink: 0 },
+  colInfo: { flex: 1, overflow: "hidden" },
+  colName: { color: "#cbd5e1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
+  colType: { color: "#4b5563", fontSize: 10, fontFamily: "monospace" },
+  sourceInfo: { color: "#fbbf24", fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, marginTop: 1 },
   addBtn: {
     background: "transparent", border: "1px solid #374151", color: "#94a3b8",
     borderRadius: 3, cursor: "pointer", padding: "0 5px", lineHeight: "16px",

@@ -63,6 +63,31 @@ export default function App() {
     setStore(loadStore(resultId, catalog));
   }, [resultId]);
 
+  // Synchronize store edges → React Flow edges (only for nodes already on canvas).
+  useEffect(() => {
+    const nodeIds = new Set(rfNodes.map((n) => n.id));
+    const newRfEdges: Edge[] = [];
+
+    for (const mapping of store.edges) {
+      const source = `oracle::${mapping.oracle_path}`;
+      const target = `specify::${mapping.specify_table}.${mapping.specify_column}`;
+
+      if (nodeIds.has(source) && nodeIds.has(target)) {
+        newRfEdges.push({
+          id: `edge-${source}-${target}`,
+          source,
+          target,
+          label: mapping.transform,
+          animated: mapping.transform === "direct",
+          style: { stroke: transformColor(mapping.transform), strokeWidth: 2 },
+          labelStyle: { fill: "#e2e8f0", fontSize: 10 },
+          labelBgStyle: { fill: "#1e2530", fillOpacity: 0.9 },
+        });
+      }
+    }
+    setRfEdges(newRfEdges);
+  }, [store.edges, rfNodes]);
+
   // Persist store whenever it changes.
   useEffect(() => {
     if (store.edges.length > 0 || store.result_id) saveStore(store);
@@ -117,6 +142,26 @@ export default function App() {
     },
     [],
   );
+
+  const addMappingToCanvas = useCallback((mapping: MappingEdge) => {
+    // 1. Add Oracle node if missing.
+    addOracleNode({
+      label: mapping.oracle_path,
+      oracle_path: mapping.oracle_path,
+      examples: [], // Will be empty if not already loaded, but that's okay for visual.
+      leaf_count: 0,
+    });
+    // 2. Add Specify node if missing.
+    // We need to find the column type/nullability from schema if possible.
+    const col = schema?.tables[mapping.specify_table]?.columns.find(c => c.name === mapping.specify_column);
+    addSpecifyNode({
+      label: `${mapping.specify_table}.${mapping.specify_column}`,
+      specify_table: mapping.specify_table,
+      specify_column: mapping.specify_column,
+      col_type: col?.type ?? "unknown",
+      nullable: col?.nullable ?? true,
+    });
+  }, [addOracleNode, addSpecifyNode, schema]);
 
   const onRemoveEdge = useCallback((edgeId: string) => {
     setStore((s) => removeEdge(s, edgeId));
@@ -245,6 +290,7 @@ export default function App() {
               schema={schema}
               mappings={store.edges}
               onAddNode={addSpecifyNode}
+              onShowMapping={addMappingToCanvas}
             />
           )}
           {schemaState === "idle" && <Placeholder text="Specify Schema" />}
@@ -272,6 +318,7 @@ export default function App() {
               outline={oracleOutline}
               mappings={store.edges}
               onAddNode={addOracleNode}
+              onShowMapping={addMappingToCanvas}
             />
           )}
         </aside>
@@ -387,3 +434,16 @@ const styles = {
     overflowY: "hidden" as const,
   },
 };
+
+function transformColor(t: string): string {
+  const m: Record<string, string> = {
+    direct: "#22c55e",
+    concat: "#f59e0b",
+    lookup: "#818cf8",
+    derived: "#ec4899",
+    constant: "#94a3b8",
+    split: "#06b6d4",
+    custom: "#f97316",
+  };
+  return m[t] ?? "#94a3b8";
+}

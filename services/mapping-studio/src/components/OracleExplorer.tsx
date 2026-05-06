@@ -7,9 +7,10 @@ interface Props {
   outline: PathOutline;
   mappings: MappingEdge[];
   onAddNode: (data: OracleNodeData) => void;
+  onShowMapping: (mapping: MappingEdge) => void;
 }
 
-export default function OracleExplorer({ outline, mappings, onAddNode }: Props) {
+export default function OracleExplorer({ outline, mappings, onAddNode, onShowMapping }: Props) {
   const [search, setSearch] = useState("");
   const [showMapped, setShowMapped] = useState(true);
 
@@ -26,8 +27,13 @@ export default function OracleExplorer({ outline, mappings, onAddNode }: Props) 
   );
 
   const mapped = useMemo(() => {
-    const s = new Set(mappings.map((m) => m.oracle_path));
-    return s;
+    const m = new Map<string, MappingEdge[]>();
+    for (const edge of mappings) {
+      const list = m.get(edge.oracle_path) ?? [];
+      list.push(edge);
+      m.set(edge.oracle_path, list);
+    }
+    return m;
   }, [mappings]);
 
   const visible: FlatPath[] = useMemo(() => {
@@ -81,6 +87,7 @@ export default function OracleExplorer({ outline, mappings, onAddNode }: Props) 
             paths={paths}
             mapped={mapped}
             onAddNode={onAddNode}
+            onShowMapping={onShowMapping}
           />
         ))}
         {visible.length === 0 && (
@@ -101,8 +108,9 @@ function BucketGroup({
 }: {
   bucket: string;
   paths: FlatPath[];
-  mapped: Set<string>;
+  mapped: Map<string, MappingEdge[]>;
   onAddNode: (d: OracleNodeData) => void;
+  onShowMapping: (m: MappingEdge) => void;
 }) {
   const [open, setOpen] = useState(true);
   return (
@@ -117,7 +125,7 @@ function BucketGroup({
           <PathRow
             key={fp.path}
             fp={fp}
-            isMapped={mapped.has(fp.path)}
+            mappedEdges={mapped.get(fp.path) ?? []}
             onAdd={() =>
               onAddNode({
                 label: fp.path,
@@ -126,6 +134,7 @@ function BucketGroup({
                 leaf_count: fp.leaf_count,
               })
             }
+            onShowMapping={onShowMapping}
           />
         ))}
     </div>
@@ -134,20 +143,37 @@ function BucketGroup({
 
 function PathRow({
   fp,
-  isMapped,
+  mappedEdges,
   onAdd,
+  onShowMapping,
 }: {
   fp: FlatPath;
-  isMapped: boolean;
+  mappedEdges: MappingEdge[];
   onAdd: () => void;
+  onShowMapping: (m: MappingEdge) => void;
 }) {
+  const isMapped = mappedEdges.length > 0;
   const shortLabel = fp.path.replace(/^[^.]+\./, ""); // strip top bucket
   return (
-    <div style={{ ...s.pathRow, opacity: isMapped ? 0.5 : 1 }} title={fp.path}>
+    <div style={{ ...s.pathRow, opacity: isMapped ? 0.8 : 1 }} title={fp.path}>
       <span style={{ ...s.dot, background: isMapped ? "#22c55e" : "#374151" }} />
       <div style={s.pathInfo}>
         <span style={s.pathName}>{shortLabel}</span>
-        {fp.examples.length > 0 && (
+        {isMapped && (
+          <div style={s.targetInfo}>
+            {mappedEdges.map((e) => (
+              <span
+                key={e.id}
+                style={s.targetTag}
+                onClick={() => onShowMapping(e)}
+                title="Show connection on canvas"
+              >
+                → {e.specify_table}.{e.specify_column} 👁
+              </span>
+            ))}
+          </div>
+        )}
+        {!isMapped && fp.examples.length > 0 && (
           <span style={s.example}>{fp.examples[0]}</span>
         )}
       </div>
@@ -193,6 +219,8 @@ const s = {
   dot: { width: 6, height: 6, borderRadius: "50%", flexShrink: 0, marginTop: 2 },
   pathInfo: { flex: 1, overflow: "hidden" },
   pathName: { display: "block", color: "#cbd5e1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
+  targetInfo: { display: "flex", flexWrap: "wrap" as const, gap: 4, marginTop: 2 },
+  targetTag: { color: "#60a5fa", fontSize: 10, fontWeight: 500 },
   example: {
     display: "block", color: "#6b7280", fontSize: 10, fontFamily: "monospace",
     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const,
