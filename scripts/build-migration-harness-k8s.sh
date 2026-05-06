@@ -108,7 +108,23 @@ kubectl wait --for=condition=Ready pod/$POD_NAME --timeout=300s
 echo "📜 Streaming logs..."
 kubectl logs -f $POD_NAME
 
+echo "🔎 Checking build result..."
+KANIKO_EXIT_CODE=$(kubectl get pod "$POD_NAME" -o jsonpath='{.status.containerStatuses[0].state.terminated.exitCode}' 2>/dev/null || echo "")
+if [ -z "$KANIKO_EXIT_CODE" ]; then
+    KANIKO_EXIT_CODE=$(kubectl get pod "$POD_NAME" -o jsonpath='{.status.containerStatuses[0].lastState.terminated.exitCode}' 2>/dev/null || echo "")
+fi
+
 echo "🧹 Cleaning up..."
 kubectl delete pod $POD_NAME
+
+if [ -z "$KANIKO_EXIT_CODE" ]; then
+    echo "❌ Could not determine Kaniko exit code. Treating build as failed."
+    exit 1
+fi
+
+if [ "$KANIKO_EXIT_CODE" != "0" ]; then
+    echo "❌ Build failed (Kaniko exit code: $KANIKO_EXIT_CODE)"
+    exit "$KANIKO_EXIT_CODE"
+fi
 
 echo "✅ Done: $DESTINATION"

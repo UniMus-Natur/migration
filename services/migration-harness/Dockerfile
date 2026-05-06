@@ -6,7 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y \
     curl \
     unzip \
-    libaio1 \
+    libaio1t64 \
     libnsl2 \
     && rm -rf /var/lib/apt/lists/*
 
