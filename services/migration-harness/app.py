@@ -16,6 +16,11 @@ from typing import Any
 from urllib.parse import parse_qs
 from wsgiref.simple_server import make_server
 
+try:
+    from waitress import serve as _waitress_serve
+except ImportError:
+    _waitress_serve = None
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
@@ -27,6 +32,7 @@ import migration_compare as mc  # noqa: E402
 
 HOST = os.getenv("HARNESS_HOST", "0.0.0.0")
 PORT = int(os.getenv("HARNESS_PORT", "8088"))
+WAITRESS_THREADS = int(os.getenv("HARNESS_WAITRESS_THREADS", "8"))
 BASE_PATH = (os.getenv("HARNESS_BASE_PATH", "/migration-harness") or "/migration-harness").rstrip("/")
 DEFAULT_COLLECTION = os.getenv("HARNESS_DEFAULT_COLLECTION", "NHM-karplanter")
 DEFAULT_ORACLE_ENV = os.getenv("HARNESS_DEFAULT_ORACLE_ENV", "prod")
@@ -359,6 +365,10 @@ def app(environ, start_response):
 
 if __name__ == "__main__":
     print(f"migration-harness listening on {HOST}:{PORT} base={BASE_PATH}")
-    with make_server(HOST, PORT, app) as srv:
-        srv.serve_forever()
+    if _waitress_serve is not None:
+        # Threaded server: wsgiref blocks all clients on one long /run request (504s on /).
+        _waitress_serve(app, host=HOST, port=PORT, threads=max(1, WAITRESS_THREADS))
+    else:
+        with make_server(HOST, PORT, app) as srv:
+            srv.serve_forever()
 
