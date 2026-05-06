@@ -8,8 +8,10 @@ import sys
 import time
 import traceback
 import uuid
+from collections import defaultdict
 from http.cookies import SimpleCookie
 from pathlib import Path
+from typing import Any
 from urllib.parse import parse_qs
 from wsgiref.simple_server import make_server
 
@@ -30,6 +32,62 @@ DEFAULT_ORACLE_ENV = os.getenv("HARNESS_DEFAULT_ORACLE_ENV", "prod")
 REQUIRED_TOKEN = os.getenv("HARNESS_TOKEN", "")
 MAX_STORED_RESULTS = int(os.getenv("HARNESS_MAX_STORED_RESULTS", "20"))
 RESULTS: dict[str, dict] = {}
+
+
+def _leaf_value_key(v: Any) -> str:
+    """Stable string for deduplication keys (JSON leaves only)."""
+    if v is None:
+        return "<null>"
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return str(v)
+    if isinstance(v, str):
+        return v
+    if isinstance(v, bytes):
+        return f"<bytes {len(v)}>"
+    if isinstance(v, (list, dict)):
+        return json.dumps(v, ensure_ascii=False, sort_keys=True, default=str)
+    return str(v)
+
+
+def _index_leaf_values(obj: Any, path: str, acc: dict[str, list[str]]) -> None:
+    """Map each leaf scalar to JSON-path-like strings where it appears."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            seg = str(k)
+            if not seg.isidentifier():
+                seg = "[" + json.dumps(seg, ensure_ascii=False) + "]"
+                next_path = f"{path}{seg}" if path else seg.lstrip(".")
+            else:
+                next_path = f"{path}.{seg}" if path else seg
+            _index_leaf_values(v, next_path, acc)
+        return
+    if isinstance(obj, list):
+        for i, v in enumerate(obj):
+            next_path = f"{path}[{i}]"
+            _index_leaf_values(v, next_path, acc)
+        return
+    key = _leaf_value_key(obj)
+    acc[key].append(path if path else "$")
+
+
+def build_value_index(doc: Any) -> dict[str, Any]:
+    """Inverse view: deduplicated leaf values -> sorted list of paths."""
+    acc: dict[str, list[str]] = defaultdict(list)
+    _index_leaf_values(doc, "", acc)
+    by_value = {k: sorted(set(paths)) for k, paths in sorted(acc.items(), key=lambda x: (-len(x[1]), x[0][:80]))}
+    total_occ = sum(len(paths) for paths in by_value.values())
+    max_paths = max((len(p) for p in by_value.values()), default=0)
+    return {
+        "schema": "migration-harness/value-index/v1",
+        "by_value": by_value,
+        "meta": {
+            "unique_leaf_values": len(by_value),
+            "total_leaf_occurrences": total_occ,
+            "max_paths_for_one_value": max_paths,
+        },
+    }
 
 
 def _html_page(body: str) -> bytes:
@@ -148,6 +206,9 @@ def _render_results(result_id: str, catalog: str, checks: list[mc.CheckResult], 
   <li><a href="{html.escape(BASE_PATH)}/result/{html.escape(result_id)}/oracle.json?pretty=1" target="_blank">Open Oracle JSON (pretty)</a></li>
   <li><a href="{html.escape(BASE_PATH)}/result/{html.escape(result_id)}/specify.json?pretty=1" target="_blank">Open Specify JSON (pretty)</a></li>
   <li><a href="{html.escape(BASE_PATH)}/result/{html.escape(result_id)}/checks.json?pretty=1" target="_blank">Open Check Results JSON</a></li>
+  <li><a href="{html.escape(BASE_PATH)}/result/{html.escape(result_id)}/oracle-values.json?pretty=1" target="_blank">Oracle value index (deduped values → paths)</a></li>
+  <li><a href="{html.escape(BASE_PATH)}/result/{html.escape(result_id)}/specify-values.json?pretty=1" target="_blank">Specify value index (deduped values → paths)</a></li>
+  <li><a href="{html.escape(BASE_PATH)}/result/{html.escape(result_id)}/value-index.json?pretty=1" target="_blank">Combined value index (both sides)</a></li>
 </ul>
 
 <p><small>Sizes: Oracle {len(json.dumps(oracle_doc, ensure_ascii=False)):,} bytes, Specify {len(json.dumps(specify_doc, ensure_ascii=False)):,} bytes.</small></p>
@@ -242,7 +303,14 @@ def app(environ, start_response):
             checks = [mc.CheckResult(name=c["name"], status=c["status"], detail=c.get("detail", "")) for c in result["checks"]]
             start_response("200 OK", [("Content-Type", "text/html; charset=utf-8")])
             return [_html_page(_render_results(rid, result["catalog"], checks, result["oracle"], result["specify"]))]
-        if len(parts) == 2 and parts[1] in {"oracle.json", "specify.json", "checks.json"}:
+        if len(parts) == 2 and parts[1] in {
+            "oracle.json",
+            "specify.json",
+            "checks.json",
+            "oracle-values.json",
+            "specify-values.json",
+            "value-index.json",
+        }:
             rid = parts[0]
             result = RESULTS.get(rid)
             if not result:
@@ -253,8 +321,19 @@ def app(environ, start_response):
                 obj = result["oracle"]
             elif kind == "specify.json":
                 obj = result["specify"]
-            else:
+            elif kind == "checks.json":
                 obj = result["checks"]
+            elif kind == "oracle-values.json":
+                obj = build_value_index(result["oracle"])
+            elif kind == "specify-values.json":
+                obj = build_value_index(result["specify"])
+            else:
+                obj = {
+                    "schema": "migration-harness/value-index-bundle/v1",
+                    "catalog": result.get("catalog"),
+                    "oracle": build_value_index(result["oracle"]),
+                    "specify": build_value_index(result["specify"]),
+                }
             qs = parse_qs(environ.get("QUERY_STRING", ""))
             pretty = (qs.get("pretty") or ["0"])[0] in {"1", "true", "yes"}
             body = json.dumps(obj, ensure_ascii=False, indent=2 if pretty else None).encode("utf-8")
