@@ -8,6 +8,10 @@ This script connects directly to the Specify MariaDB (typically via
 It then walks related rows through foreign keys (both directions where safe)
 and emits one large JSON document.
 
+Binary columns (BLOB/BINARY/…) are not transferred by default: SQL uses OCTET_LENGTH
+only so the wire payload stays small.  Use --include-binary-blobs or
+SPECIFY_CATALOG_INCLUDE_BLOBS=1 to pull full binary values.
+
 Examples:
   python scripts/specify_catalog_dump.py --catalog O-V-14399
   python scripts/specify_catalog_dump.py --catalog O-V-14399 --collection-code NHM-karplanter
@@ -189,6 +193,59 @@ def _lower_keys(row: dict[str, Any]) -> dict[str, Any]:
     return {str(k).lower(): _coerce(v) for k, v in row.items()}
 
 
+_BLOB_DATA_TYPES = frozenset({"blob", "tinyblob", "mediumblob", "longblob", "binary", "varbinary"})
+
+
+def _fetch_table_column_info(con, schema: str) -> dict[str, list[tuple[str, bool]]]:
+    """table_name(lower) -> [(column_name, is_binary_blob), ...] in ordinal order."""
+    with con.cursor() as cur:
+        cur.execute(
+            """
+            SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, ORDINAL_POSITION
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = %s
+            ORDER BY TABLE_NAME, ORDINAL_POSITION
+            """,
+            [schema],
+        )
+        rows = cur.fetchall()
+    out: dict[str, list[tuple[str, bool]]] = defaultdict(list)
+    for r in rows:
+        t = str(r["TABLE_NAME"]).lower()
+        c = str(r["COLUMN_NAME"])
+        is_blob = str(r["DATA_TYPE"]).lower() in _BLOB_DATA_TYPES
+        out[t].append((c, is_blob))
+    return dict(out)
+
+
+def _sql_ident(name: str) -> str:
+    return "`" + str(name).replace("`", "``") + "`"
+
+
+def _select_list_for_table(
+    table_cols: dict[str, list[tuple[str, bool]]],
+    table: str,
+    alias: str | None = None,
+) -> str:
+    """Build SELECT list; binary columns become server-side size placeholders only."""
+    cols = table_cols.get(table.lower())
+    if not cols:
+        return f"{_sql_ident(alias)}.*" if alias else "*"
+    prefix = f"{_sql_ident(alias)}." if alias else ""
+    parts: list[str] = []
+    for col_name, is_blob in cols:
+        ident = _sql_ident(col_name)
+        qcol = prefix + ident
+        if is_blob:
+            parts.append(
+                f"CASE WHEN {qcol} IS NULL THEN NULL "
+                f"ELSE CONCAT('<BLOB ', OCTET_LENGTH({qcol}), ' bytes>') END AS {ident}"
+            )
+        else:
+            parts.append(qcol)
+    return ", ".join(parts)
+
+
 # ---------------------------------------------------------------------------
 # Traversal
 # ---------------------------------------------------------------------------
@@ -218,15 +275,33 @@ _BLOCK_REVERSE_INTO = {
 
 
 class GraphCollector:
-    def __init__(self, con, schema: str) -> None:
+    def __init__(
+        self,
+        con,
+        schema: str,
+        table_cols: dict[str, list[tuple[str, bool]]],
+        *,
+        include_binary_blobs: bool = False,
+    ) -> None:
         self.con = con
         self.schema = schema
+        self._table_cols = table_cols
+        self._include_binary_blobs = include_binary_blobs
+        self._select_cache: dict[tuple[str, str | None], str] = {}
         self.outgoing, self.incoming, self.pks = _fetch_fk_maps(con, schema)
 
         self.rows_by_table: dict[str, list[dict[str, Any]]] = defaultdict(list)
         self.index_by_pk: dict[str, dict[tuple, dict[str, Any]]] = defaultdict(dict)
         self.seen_pk: dict[str, set[tuple]] = defaultdict(set)
         self.warnings: list[str] = []
+
+    def _select_clause(self, table: str, alias: str | None = None) -> str:
+        if self._include_binary_blobs:
+            return f"{_sql_ident(alias)}.*" if alias else "*"
+        key = (table.lower(), alias)
+        if key not in self._select_cache:
+            self._select_cache[key] = _select_list_for_table(self._table_cols, table, alias)
+        return self._select_cache[key]
 
     def _pk_tuple(self, table: str, row: dict[str, Any]) -> tuple | None:
         pk_cols = self.pks.get(table, [])
@@ -247,7 +322,8 @@ class GraphCollector:
         *,
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
-        sql = f"SELECT * FROM `{table}` WHERE `{where_col}` = %s"
+        sel = self._select_clause(table, None)
+        sql = f"SELECT {sel} FROM {_sql_ident(table)} WHERE {_sql_ident(where_col)} = %s"
         params: list[Any] = [where_val]
         if limit is not None:
             sql += " LIMIT %s"
@@ -260,8 +336,9 @@ class GraphCollector:
         pk_cols = self.pks.get(table, [])
         if not pk_cols:
             return None
-        where = " AND ".join(f"`{c}` = %s" for c in pk_cols)
-        sql = f"SELECT * FROM `{table}` WHERE {where} LIMIT 1"
+        where = " AND ".join(f"{_sql_ident(c)} = %s" for c in pk_cols)
+        sel = self._select_clause(table, None)
+        sql = f"SELECT {sel} FROM {_sql_ident(table)} WHERE {where} LIMIT 1"
         with self.con.cursor() as cur:
             cur.execute(sql, list(pk_vals))
             row = cur.fetchone()
@@ -363,6 +440,11 @@ def main() -> None:
     )
     parser.add_argument("--output", "-o", help="Write JSON to file instead of stdout")
     parser.add_argument("--compact", action="store_true", help="Compact JSON output")
+    parser.add_argument(
+        "--include-binary-blobs",
+        action="store_true",
+        help="Transfer full BLOB/BINARY columns (default: OCTET_LENGTH placeholder in SQL only).",
+    )
     args = parser.parse_args()
 
     cfg = _db_config()
@@ -375,7 +457,13 @@ def main() -> None:
 
     con = MySQLdb.connect(**cfg)
 
+    include_binary_blobs = bool(
+        args.include_binary_blobs
+        or os.getenv("SPECIFY_CATALOG_INCLUDE_BLOBS", "").lower() in ("1", "true", "yes")
+    )
+
     try:
+        table_cols = _fetch_table_column_info(con, cfg["db"])
         with con.cursor() as cur:
             cur.execute(
                 """
@@ -439,11 +527,16 @@ def main() -> None:
                 "cannot scope collectionobject lookup."
             )
 
+        co_sel = (
+            "co.*"
+            if include_binary_blobs
+            else _select_list_for_table(table_cols, "collectionobject", "co")
+        )
         with con.cursor() as cur:
             if collection_member_id is not None and collection_id is not None:
                 cur.execute(
-                    """
-                    SELECT co.*
+                    f"""
+                    SELECT {co_sel}
                     FROM collectionobject co
                     WHERE co.catalognumber = %s
                       AND (co.collectionmemberid = %s OR co.collectionid = %s)
@@ -453,8 +546,8 @@ def main() -> None:
                 )
             elif collection_member_id is not None:
                 cur.execute(
-                    """
-                    SELECT co.*
+                    f"""
+                    SELECT {co_sel}
                     FROM collectionobject co
                     WHERE co.catalognumber = %s
                       AND co.collectionmemberid = %s
@@ -464,8 +557,8 @@ def main() -> None:
                 )
             else:
                 cur.execute(
-                    """
-                    SELECT co.*
+                    f"""
+                    SELECT {co_sel}
                     FROM collectionobject co
                     WHERE co.catalognumber = %s
                       AND co.collectionid = %s
@@ -480,7 +573,12 @@ def main() -> None:
                 f"No collectionobject found for catalog={args.catalog!r} in collection={args.collection_code!r}"
             )
 
-        collector = GraphCollector(con, cfg["db"])
+        collector = GraphCollector(
+            con,
+            cfg["db"],
+            table_cols,
+            include_binary_blobs=include_binary_blobs,
+        )
         collector.collect_from_collectionobjects(co_rows)
 
         # Include collection row explicitly in output even though reverse traversal is blocked.

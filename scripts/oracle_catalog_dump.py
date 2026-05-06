@@ -19,6 +19,10 @@ After sourcing port-forward.sh the shell alias also works:
 
 Credentials are read from env vars (ORACLE_PROD_USER / _PASSWORD / _SERVICE etc.)
 or from the .env file in the project root.  Requires: source scripts/port-forward.sh.
+
+LOB columns (CLOB/BLOB/NCLOB) are not read by default — only a length placeholder is
+stored (no bulk transfer).  Use --include-lobs or ORACLE_CATALOG_INCLUDE_LOBS=1 for a
+full read when needed.
 """
 from __future__ import annotations
 
@@ -50,6 +54,9 @@ def _load_dotenv(path: Path) -> None:
 
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent
+
+# When False (default), LOB columns are not read — only length metadata is used.
+_INCLUDE_ORACLE_LOBS = False
 _load_dotenv(_SCRIPTS_DIR.parent / ".env")
 
 # ---------------------------------------------------------------------------
@@ -122,11 +129,24 @@ def _coerce(v: Any) -> Any:
     if isinstance(v, (datetime.datetime, datetime.date)):
         return v.isoformat()
     if hasattr(oracledb, "LOB") and isinstance(v, oracledb.LOB):
+        if _INCLUDE_ORACLE_LOBS:
+            try:
+                text = v.read()
+                return text if isinstance(text, str) else text.decode("utf-8", errors="replace")
+            except Exception as exc:
+                return f"<LOB read error: {exc}>"
         try:
-            text = v.read()
-            return text if isinstance(text, str) else text.decode("utf-8", errors="replace")
+            sz = v.size()
         except Exception as exc:
-            return f"<LOB read error: {exc}>"
+            return f"<LOB size error: {exc}>"
+        lob_type = getattr(v, "type", None)
+        if lob_type in (oracledb.DB_TYPE_CLOB, oracledb.DB_TYPE_NCLOB):
+            unit = "chars"
+        elif lob_type == oracledb.DB_TYPE_BLOB:
+            unit = "bytes"
+        else:
+            unit = "units"
+        return f"<LOB {sz:,} {unit}>"
     if isinstance(v, bytes):
         return f"<BLOB {len(v):,} bytes>"
     if isinstance(v, decimal.Decimal):
@@ -1074,7 +1094,18 @@ def main() -> None:
                         help="Write JSON to FILE instead of stdout")
     parser.add_argument("--compact", action="store_true",
                         help="Compact JSON (no indentation); default is pretty-printed")
+    parser.add_argument(
+        "--include-lobs",
+        action="store_true",
+        help="Read full LOB/CLOB/BLOB contents (default: size-only placeholder; avoids bulk transfer).",
+    )
     args = parser.parse_args()
+
+    global _INCLUDE_ORACLE_LOBS
+    _INCLUDE_ORACLE_LOBS = bool(
+        args.include_lobs
+        or os.getenv("ORACLE_CATALOG_INCLUDE_LOBS", "").lower() in ("1", "true", "yes")
+    )
 
     _init_oracle_client()
     print(
