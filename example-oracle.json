@@ -1,840 +1,718 @@
 {
-  "schema": "migration-harness/value-index/v1",
-  "by_value": {
-    "<null>": [
-      "MUSEUM_OBJECT.sub_collection_id",
-      "MUSEUM_OBJECT.sub_number",
-      "MUSEUM_OBJECT_NOTE[0]._NOTE.long_note",
-      "MUSEUM_OBJECT_NOTE[0]._NOTE.note_text",
-      "OBJECT_ATTRIBUTES.analysis_request",
-      "OBJECT_ATTRIBUTES.artsobs_nr",
-      "OBJECT_ATTRIBUTES.dublettes",
-      "OBJECT_ATTRIBUTES.ex_herb",
-      "OBJECT_ATTRIBUTES.is_corrected",
-      "OBJECT_ATTRIBUTES.korr_date",
-      "OBJECT_ATTRIBUTES.korr_user",
-      "OBJECT_ATTRIBUTES.object_state",
-      "OBJECT_ATTRIBUTES.project_name",
-      "OBJECT_ATTRIBUTES.same_sheet_as",
-      "OBJECT_ATTRIBUTES.voucher",
-      "V_OBJECT_ATTRIBUTES.artsobs_nr",
-      "V_OBJECT_ATTRIBUTES.dublettes",
-      "V_OBJECT_ATTRIBUTES.ex_herb",
-      "V_OBJECT_ATTRIBUTES.is_corrected",
-      "V_OBJECT_ATTRIBUTES.korr_date",
-      "V_OBJECT_ATTRIBUTES.korr_user",
-      "V_OBJECT_ATTRIBUTES.object_state",
-      "V_OBJECT_ATTRIBUTES.project_name",
-      "V_OBJECT_ATTRIBUTES.same_sheet_as",
-      "V_OBJECT_ATTRIBUTES.voucher",
-      "events[0].EVENT.timespan_id",
-      "events[0].EVENT_MUSEUM_OBJECT.prev_event_for_objekt",
-      "events[0].IDENTIFIER_ASSIGNMENT.identifier_num",
-      "events[0].TIMESPAN",
-      "events[1].EVENT.timespan_id",
-      "events[1].PLACE_REVISION[0].old_koordinate_place",
-      "events[1].TIMESPAN",
-      "events[2].COLLECTING_EVENT.agg_personnames",
-      "events[2].COLLECTING_EVENT.legname_orig",
-      "events[2].EVENT_ROLE_PERSON_NAME[0]._PERSON_NAME.person_middle_name",
-      "events[2].EVENT_ROLE_PERSON_NAME[0]._PERSON_NAME.title",
-      "events[2].EVENT_ROLE_PERSON_NAME[0]._ROLE.description",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.ECOLOGY_PLACE[0]._ECOLOGY_PLACE.nin_type",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.HIERARCHICAL_PLACE[0]._HIERARCHICAL_PLACE_OLD.koordinate_place_id",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._DERIVED_COORDINATES[0].band",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._DERIVED_COORDINATES[0].datum",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._DERIVED_COORDINATES[0].lat_wgs84",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._DERIVED_COORDINATES[0].latitude",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._DERIVED_COORDINATES[0].long_wgs84",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._DERIVED_COORDINATES[0].longitude",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._DERIVED_COORDINATES[0].north_south",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._DERIVED_COORDINATES[0].utm33_x",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._DERIVED_COORDINATES[0].utm33_y",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._DERIVED_COORDINATES[0].utm_x",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._DERIVED_COORDINATES[0].utm_x_wgs84",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._DERIVED_COORDINATES[0].utm_y",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._DERIVED_COORDINATES[0].utm_y_wgs84",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._DERIVED_COORDINATES[0].zone",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.accuracy",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.alt_h",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.altitude_of_depth_reference",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.altitude_source_id",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.belt",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.coord_expected_output_echo",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.coordinate_source_id",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.coordinate_string",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.coordinate_string_actual",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.coordinate_type",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.datum",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.depth_expected_output_echo",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.depth_h",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.depth_l",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.depth_string",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.depth_unit",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.lat_direction",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.latitude_h",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.latitude_l",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.long_direction",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.longitude_h",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.longitude_l",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.map_sheet",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.mgrs_h",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.mgrs_l",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.precision",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.shapefile",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.utm33_x",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.utm33_x_h",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.utm33_y",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.utm33_y_h",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.utm_x",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.utm_x_h",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.utm_y",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.utm_y_h",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.zone",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.PLACE.place_name_agg",
-      "events[2].TIMESPAN.uncertain",
-      "events[3].CLASSIFICATION_EVENT.agg_personnames",
-      "events[3].CLASSIFICATION_EVENT.detname_orig",
-      "events[3].CLASSIFICATION_EVENT.gender_class_term_id",
-      "events[3].EVENT_ROLE_PERSON_NAME[0]._PERSON_NAME.person_middle_name",
-      "events[3].EVENT_ROLE_PERSON_NAME[0]._PERSON_NAME.title",
-      "events[3].EVENT_ROLE_PERSON_NAME[0]._ROLE.description",
-      "events[3].TIMESPAN.uncertain",
-      "events[3]._TAXONOMY.CLASSIFICATION_TERM.infraspes_name",
-      "events[3]._TAXONOMY.CLASSIFICATION_TERM.infraspes_rank",
-      "events[3]._TAXONOMY.CLASSIFICATION_TERM.sensu_term",
-      "events[4].TIMESPAN.to_date",
-      "events[4].TIMESPAN.uncertain",
-      "media.MEDIAGRUPPE_ENHET.sidenr",
-      "media.MEDIAGRUPPE_ENHET.tittel",
-      "media.MEDIA_FIL[0].annen_type",
-      "media.MEDIA_FIL[0].audio",
-      "media.MEDIA_FIL[0].dokument",
-      "media.MEDIA_FIL[0].dokument_antall_sider",
-      "media.MEDIA_FIL[0].format_id_annen_type",
-      "media.MEDIA_FIL[0].icon_representation_bfile",
-      "media.MEDIA_FIL[0].id_i_samling",
-      "media.MEDIA_FIL[0].klausul",
-      "media.MEDIA_FIL[0].magasinplass_id",
-      "media.MEDIA_FIL[0].original_kildehenvisning",
-      "media.MEDIA_FIL[0].produktnr",
-      "media.MEDIA_FIL[0].sidenummer",
-      "media.MEDIA_FIL[0].skal_slettes",
-      "media.MEDIA_FIL[0].tilstand",
-      "media.MEDIA_FIL[0].tittel",
-      "media.MEDIA_FIL[0].video",
-      "media.MEDIA_FIL[1].annen_type",
-      "media.MEDIA_FIL[1].audio",
-      "media.MEDIA_FIL[1].dokument",
-      "media.MEDIA_FIL[1].dokument_antall_sider",
-      "media.MEDIA_FIL[1].format",
-      "media.MEDIA_FIL[1].format_id_annen_type",
-      "media.MEDIA_FIL[1].icon_representation_bfile",
-      "media.MEDIA_FIL[1].klausul",
-      "media.MEDIA_FIL[1].magasinplass_id",
-      "media.MEDIA_FIL[1].opprinnelig_filnavn",
-      "media.MEDIA_FIL[1].original_kildehenvisning",
-      "media.MEDIA_FIL[1].produktnr",
-      "media.MEDIA_FIL[1].sidenummer",
-      "media.MEDIA_FIL[1].skal_slettes",
-      "media.MEDIA_FIL[1].tilstand",
-      "media.MEDIA_FIL[1].tittel",
-      "media.MEDIA_FIL[1].video",
-      "media.MEDIA_FIL[2].annen_type",
-      "media.MEDIA_FIL[2].audio",
-      "media.MEDIA_FIL[2].dokument",
-      "media.MEDIA_FIL[2].dokument_antall_sider",
-      "media.MEDIA_FIL[2].format",
-      "media.MEDIA_FIL[2].format_id_annen_type",
-      "media.MEDIA_FIL[2].icon_representation_bfile",
-      "media.MEDIA_FIL[2].klausul",
-      "media.MEDIA_FIL[2].magasinplass_id",
-      "media.MEDIA_FIL[2].opprinnelig_filnavn",
-      "media.MEDIA_FIL[2].original_kildehenvisning",
-      "media.MEDIA_FIL[2].produktnr",
-      "media.MEDIA_FIL[2].sidenummer",
-      "media.MEDIA_FIL[2].skal_slettes",
-      "media.MEDIA_FIL[2].tilstand",
-      "media.MEDIA_FIL[2].tittel",
-      "media.MEDIA_FIL[2].video"
-    ],
-    "0": [
-      "OBJECT_ATTRIBUTES.object_withheld",
-      "V_OBJECT_ATTRIBUTES.has_artsobs_no",
-      "V_OBJECT_ATTRIBUTES.object_withheld",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.ca_altitude",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.ca_depth",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.ca_utm",
-      "events[2].TIMESPAN.interpreted",
-      "events[3].TIMESPAN.interpreted",
-      "events[4].TIMESPAN.interpreted",
-      "media.MEDIAGRUPPE_ENHET.frimerkebilde.source.local",
-      "media.MEDIA_FIL[0].bilde.source.local",
-      "media.MEDIA_FIL[0].icon_representation.source.local",
-      "media.MEDIA_FIL[1].bilde.source.local",
-      "media.MEDIA_FIL[1].icon_representation.source.local",
-      "media.MEDIA_FIL[2].bilde.source.local",
-      "media.MEDIA_FIL[2].icon_representation.source.local"
-    ],
-    "1": [
-      "OBJECT_ATTRIBUTES.is_approved",
-      "OBJECT_ATTRIBUTES.is_reg",
-      "OBJECT_ATTRIBUTES.number_of_sheets",
-      "V_COUNT_PHOTO.photo_count",
-      "V_OBJECT_ATTRIBUTES.is_approved",
-      "V_OBJECT_ATTRIBUTES.is_reg",
-      "V_OBJECT_ATTRIBUTES.number_of_sheets",
-      "events[0].EVENT_MUSEUM_OBJECT.sequence_number",
-      "events[0].IDENTIFIER_ASSIGNMENT.identifier_string",
-      "events[2].EVENT_ROLE_PERSON_NAME[0].sorting_sequence",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.HIERARCHICAL_PLACE[0].sequence_number",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.utm_senere",
-      "events[3].EVENT_ROLE_PERSON_NAME[0].sorting_sequence",
-      "media.MEDIA_FIL[0].media_type",
-      "media.MEDIA_FIL[1].media_type",
-      "media.MEDIA_FIL[2].media_type"
-    ],
-    "454175": [
-      "MUSEUM_OBJECT.object_id",
-      "MUSEUM_OBJECT_LEGNR_PERSON[0].object_id",
-      "MUSEUM_OBJECT_NOTE[0].object_id",
-      "OBJECT_ATTRIBUTES.object_id",
-      "V_COUNT_PHOTO.object_id",
-      "V_OBJECT_ATTRIBUTES.object_id",
-      "_meta.object_id",
-      "events[0].EVENT_MUSEUM_OBJECT.object_id",
-      "events[0].IDENTIFIER_ASSIGNMENT.object_id",
-      "events[1].EVENT_MUSEUM_OBJECT.object_id",
-      "events[2].EVENT_MUSEUM_OBJECT.object_id",
-      "events[3].EVENT_MUSEUM_OBJECT.object_id",
-      "events[4].EVENT_MUSEUM_OBJECT.object_id"
-    ],
-    "USDR_USER": [
-      "media.MEDIA_FIL[0][\"ktrl#les_rolle\"]",
-      "media.MEDIA_FIL[0][\"ktrl#oppdater_rolle\"]",
-      "media.MEDIA_FIL[0][\"ktrl#slett_rolle\"]",
-      "media.MEDIA_FIL[1][\"ktrl#les_rolle\"]",
-      "media.MEDIA_FIL[1][\"ktrl#oppdater_rolle\"]",
-      "media.MEDIA_FIL[1][\"ktrl#slett_rolle\"]",
-      "media.MEDIA_FIL[2][\"ktrl#les_rolle\"]",
-      "media.MEDIA_FIL[2][\"ktrl#oppdater_rolle\"]",
-      "media.MEDIA_FIL[2][\"ktrl#slett_rolle\"]"
-    ],
-    "24BITRGB": [
-      "media.MEDIAGRUPPE_ENHET.frimerkebilde.contentformat",
-      "media.MEDIA_FIL[0].bilde.contentformat",
-      "media.MEDIA_FIL[0].icon_representation.contentformat",
-      "media.MEDIA_FIL[1].bilde.contentformat",
-      "media.MEDIA_FIL[1].icon_representation.contentformat",
-      "media.MEDIA_FIL[2].bilde.contentformat",
-      "media.MEDIA_FIL[2].icon_representation.contentformat"
-    ],
-    "<LOB 0 bytes>": [
-      "media.MEDIAGRUPPE_ENHET.frimerkebilde.source.localdata",
-      "media.MEDIA_FIL[0].bilde.source.localdata",
-      "media.MEDIA_FIL[0].icon_representation.source.localdata",
-      "media.MEDIA_FIL[1].bilde.source.localdata",
-      "media.MEDIA_FIL[1].icon_representation.source.localdata",
-      "media.MEDIA_FIL[2].bilde.source.localdata",
-      "media.MEDIA_FIL[2].icon_representation.source.localdata"
-    ],
-    "file": [
-      "media.MEDIAGRUPPE_ENHET.frimerkebilde.source.srctype",
-      "media.MEDIA_FIL[0].bilde.source.srctype",
-      "media.MEDIA_FIL[0].icon_representation.source.srctype",
-      "media.MEDIA_FIL[1].bilde.source.srctype",
-      "media.MEDIA_FIL[1].icon_representation.source.srctype",
-      "media.MEDIA_FIL[2].bilde.source.srctype",
-      "media.MEDIA_FIL[2].icon_representation.source.srctype"
-    ],
-    "13085563": [
-      "MUSEUM_OBJECT.mediagruppe_enhets_id",
-      "media.MEDIAGRUPPE_ENHET.mediagruppe_enhets_id",
-      "media.MEDIA_FIL[0].mediagruppe_enhets_id",
-      "media.MEDIA_FIL[1].mediagruppe_enhets_id",
-      "media.MEDIA_FIL[2].mediagruppe_enhets_id",
-      "media.mediagruppe_enhets_id"
-    ],
-    "2422970": [
-      "events[2].COLLECTING_EVENT.event_id",
-      "events[2].EVENT.event_id",
-      "events[2].EVENT_MUSEUM_OBJECT.event_id",
-      "events[2].EVENT_ROLE_PERSON_NAME[0].event_id",
-      "events[2].PLACE_EVENT_ROLE[0].event_id",
-      "events[3].EVENT_MUSEUM_OBJECT.prev_event_for_objekt"
-    ],
-    "458950": [
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.ECOLOGY_PLACE[0].place_id",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.HIERARCHICAL_PLACE[0].place_id",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0].place_id",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.LOCALITY_PLACE[0].place_id",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.PLACE.place_id",
-      "events[2].PLACE_EVENT_ROLE[0].place_id"
-    ],
-    "JFIF": [
-      "media.MEDIAGRUPPE_ENHET.frimerkebilde.fileformat",
-      "media.MEDIA_FIL[0].icon_representation.fileformat",
-      "media.MEDIA_FIL[1].bilde.fileformat",
-      "media.MEDIA_FIL[1].icon_representation.fileformat",
-      "media.MEDIA_FIL[2].bilde.fileformat",
-      "media.MEDIA_FIL[2].icon_representation.fileformat"
-    ],
-    "JPEG": [
-      "media.MEDIAGRUPPE_ENHET.frimerkebilde.compressionformat",
-      "media.MEDIA_FIL[0].icon_representation.compressionformat",
-      "media.MEDIA_FIL[1].bilde.compressionformat",
-      "media.MEDIA_FIL[1].icon_representation.compressionformat",
-      "media.MEDIA_FIL[2].bilde.compressionformat",
-      "media.MEDIA_FIL[2].icon_representation.compressionformat"
-    ],
-    "image/jpeg": [
-      "media.MEDIAGRUPPE_ENHET.frimerkebilde.mimetype",
-      "media.MEDIA_FIL[0].icon_representation.mimetype",
-      "media.MEDIA_FIL[1].bilde.mimetype",
-      "media.MEDIA_FIL[1].icon_representation.mimetype",
-      "media.MEDIA_FIL[2].bilde.mimetype",
-      "media.MEDIA_FIL[2].icon_representation.mimetype"
-    ],
-    "2422971": [
-      "events[3].CLASSIFICATION_EVENT.event_id",
-      "events[3].EVENT.event_id",
-      "events[3].EVENT_MUSEUM_OBJECT.event_id",
-      "events[3].EVENT_ROLE_PERSON_NAME[0].event_id",
-      "events[4].EVENT_MUSEUM_OBJECT.prev_event_for_objekt"
-    ],
-    "1972-04-30T00:00:00": [
-      "events[2].TIMESPAN.from_date",
-      "events[2].TIMESPAN.to_date",
-      "events[3].TIMESPAN.from_date",
-      "events[3].TIMESPAN.to_date"
-    ],
-    "201489": [
-      "events[1].PLACE_REVISION[0].new_koordinate_place",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._DERIVED_COORDINATES[0].koordinate_place_id",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.koordinate_place_id",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0].koordinate_place_id"
-    ],
-    "2422968": [
-      "events[0].EVENT.event_id",
-      "events[0].EVENT_MUSEUM_OBJECT.event_id",
-      "events[0].IDENTIFIER_ASSIGNMENT.event_id",
-      "events[1].EVENT_MUSEUM_OBJECT.prev_event_for_objekt"
-    ],
-    "2422969": [
-      "events[1].EVENT.event_id",
-      "events[1].EVENT_MUSEUM_OBJECT.event_id",
-      "events[1].PLACE_REVISION[0].event_id",
-      "events[2].EVENT_MUSEUM_OBJECT.prev_event_for_objekt"
-    ],
-    "4": [
-      "events[3].EVENT_MUSEUM_OBJECT.sequence_number",
-      "media.MEDIA_FIL[1].media_objekt_type",
-      "media.MEDIA_FIL[2].media_objekt_type",
-      "media.MEDIA_FIL[2].media_versjonstype_id"
-    ],
-    "42181": [
-      "events[2].EVENT_ROLE_PERSON_NAME[0]._PERSON_NAME.person_name_id",
-      "events[2].EVENT_ROLE_PERSON_NAME[0].person_name_id",
-      "events[3].EVENT_ROLE_PERSON_NAME[0]._PERSON_NAME.person_name_id",
-      "events[3].EVENT_ROLE_PERSON_NAME[0].person_name_id"
-    ],
-    "51": [
-      "events[1]._TYPE_LOOKUPS[\"EVENT.event_type\"].type_id_broader",
-      "events[2]._TYPE_LOOKUPS[\"EVENT.event_type\"].type_id_broader",
-      "events[3]._TYPE_LOOKUPS[\"EVENT.event_type\"].type_id_broader",
-      "events[4]._TYPE_LOOKUPS[\"EVENT.event_type\"].type_id_broader"
-    ],
-    "60": [
-      "media.MEDIAGRUPPE_ENHET.frimerkebilde.width",
-      "media.MEDIA_FIL[0].icon_representation.width",
-      "media.MEDIA_FIL[1].icon_representation.width",
-      "media.MEDIA_FIL[2].icon_representation.width"
-    ],
-    "90": [
-      "media.MEDIAGRUPPE_ENHET.frimerkebilde.height",
-      "media.MEDIA_FIL[0].icon_representation.height",
-      "media.MEDIA_FIL[1].icon_representation.height",
-      "media.MEDIA_FIL[2].icon_representation.height"
-    ],
-    "BPLOFALL": [
-      "OBJECT_ATTRIBUTES.approve_user",
-      "OBJECT_ATTRIBUTES.last_modified_by",
-      "V_OBJECT_ATTRIBUTES.approve_user",
-      "V_OBJECT_ATTRIBUTES.last_modified_by"
-    ],
-    "115": [
-      "events[0].EVENT.event_type",
-      "events[0].IDENTIFIER_ASSIGNMENT.identifier_type",
-      "events[0]._TYPE_LOOKUPS[\"EVENT.event_type\"].type_id"
-    ],
-    "1206": [
-      "media.MEDIA_FIL[0].samlings_id",
-      "media.MEDIA_FIL[1].samlings_id",
-      "media.MEDIA_FIL[2].samlings_id"
-    ],
-    "3": [
-      "MUSEUM_OBJECT_NOTE[0].type_id",
-      "events[2].EVENT_MUSEUM_OBJECT.sequence_number",
-      "media.MEDIA_FIL[0].media_objekt_type"
-    ],
-    "36228": [
-      "MUSEUM_OBJECT_LEGNR_PERSON[0].actor_id",
-      "events[2].EVENT_ROLE_PERSON_NAME[0]._PERSON_NAME.actor_id",
-      "events[3].EVENT_ROLE_PERSON_NAME[0]._PERSON_NAME.actor_id"
-    ],
-    "438540": [
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.LOCALITY_PLACE[0]._LOCALITY_PLACE.locality_place_id",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.LOCALITY_PLACE[0].locality_place_id",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.LOCALITY_PLACE[0].place_locplace_id"
-    ],
-    "52": [
-      "events[4].EVENT.event_type",
-      "events[4]._TYPE_LOOKUPS[\"DATABASE_EVENT.database_event_type_id\"].type_id_broader",
-      "events[4]._TYPE_LOOKUPS[\"EVENT.event_type\"].type_id"
-    ],
-    "55676": [
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.ECOLOGY_PLACE[0]._ECOLOGY_PLACE.ecology_place_id",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.ECOLOGY_PLACE[0].ecology_place_id",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.ECOLOGY_PLACE[0].place_ecology_id"
-    ],
-    "6437529": [
-      "events[4].DATABASE_EVENT.event_id",
-      "events[4].EVENT.event_id",
-      "events[4].EVENT_MUSEUM_OBJECT.event_id"
-    ],
-    "66": [
-      "events[3].EVENT.event_type",
-      "events[3]._TYPE_LOOKUPS[\"CLASSIFICATION_EVENT.classification_type_id\"].type_id_broader",
-      "events[3]._TYPE_LOOKUPS[\"EVENT.event_type\"].type_id"
-    ],
-    "77": [
-      "events[2].EVENT.event_type",
-      "events[2]._TYPE_LOOKUPS[\"COLLECTING_EVENT.collectiontype_id\"].type_id_broader",
-      "events[2]._TYPE_LOOKUPS[\"EVENT.event_type\"].type_id"
-    ],
-    "BOTANIKK_FELLES_FOTO_7270811": [
-      "media.MEDIAGRUPPE_ENHET.frimerkebilde.source.srclocation",
-      "media.MEDIA_FIL[2].bilde.source.srclocation",
-      "media.MEDIA_FIL[2].icon_representation.source.srclocation"
-    ],
-    "IGNORE": [
-      "media.MEDIA_FIL[0].dokument_filter",
-      "media.MEDIA_FIL[1].dokument_filter",
-      "media.MEDIA_FIL[2].dokument_filter"
-    ],
-    "MUSIT_BOTANIKK_FELLES": [
-      "MUSEUM_OBJECT.last_edit_by",
-      "_meta.schema",
-      "events[4].DATABASE_EVENT.ora_username"
-    ],
-    "10": [
-      "events[2].EVENT_ROLE_PERSON_NAME[0]._ROLE.role_id",
-      "events[2].EVENT_ROLE_PERSON_NAME[0].role_id"
-    ],
-    "12": [
-      "events[3].EVENT_ROLE_PERSON_NAME[0]._ROLE.role_id",
-      "events[3].EVENT_ROLE_PERSON_NAME[0].role_id"
-    ],
-    "17249178": [
-      "media.MEDIAGRUPPE_ENHET.fremvisnings_mediafil_id",
-      "media.MEDIA_FIL[2].mediafil_id"
-    ],
-    "18": [
-      "events[2].EVENT_ROLE_PERSON_NAME[0]._PERSON_NAME.person_name_type",
-      "events[3].EVENT_ROLE_PERSON_NAME[0]._PERSON_NAME.person_name_type"
-    ],
-    "2": [
-      "events[1].EVENT_MUSEUM_OBJECT.sequence_number",
-      "media.MEDIA_FIL[0].media_versjonstype_id"
-    ],
-    "2011-06-08T00:00:00": [
-      "OBJECT_ATTRIBUTES.reg_date",
-      "V_OBJECT_ATTRIBUTES.reg_date"
-    ],
-    "2014-10-30T08:53:28": [
-      "media.MEDIA_FIL[0].bilde.source.updatetime",
-      "media.MEDIA_FIL[0].icon_representation.source.updatetime"
-    ],
-    "2014-10-30T08:53:38": [
-      "media.MEDIAGRUPPE_ENHET.frimerkebilde.source.updatetime",
-      "media.MEDIA_FIL[2].icon_representation.source.updatetime"
-    ],
-    "2015-05-04T00:00:00": [
-      "OBJECT_ATTRIBUTES.approved_date",
-      "V_OBJECT_ATTRIBUTES.approved_date"
-    ],
-    "2024-01-09T00:00:00": [
-      "OBJECT_ATTRIBUTES.last_modified",
-      "V_OBJECT_ATTRIBUTES.last_modified"
-    ],
-    "2188954": [
-      "events[2].EVENT.timespan_id",
-      "events[2].TIMESPAN.timespan_id"
-    ],
-    "2188955": [
-      "events[3].EVENT.timespan_id",
-      "events[3].TIMESPAN.timespan_id"
-    ],
-    "2698327": [
-      "MUSEUM_OBJECT_NOTE[0]._NOTE.note_id",
-      "MUSEUM_OBJECT_NOTE[0].note_id"
-    ],
-    "29": [
-      "MUSEUM_OBJECT.museum_object_type",
-      "_MUSEUM_OBJECT_TYPE.type_id"
-    ],
-    "30.04.1972": [
-      "events[2].TIMESPAN.time_as_text",
-      "events[3].TIMESPAN.time_as_text"
-    ],
-    "3445": [
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.HIERARCHICAL_PLACE[0]._HIERARCHICAL_PLACE_OLD.hierarch_place_id",
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.HIERARCHICAL_PLACE[0].hierachical_place_id"
-    ],
-    "35225798": [
-      "media.MEDIA_FIL[0].bilde.contentlength",
-      "media.MEDIA_FIL[0].fil_storrelse"
-    ],
-    "3639": [
-      "media.MEDIAGRUPPE_ENHET.frimerkebilde.contentlength",
-      "media.MEDIA_FIL[2].icon_representation.contentlength"
-    ],
-    "43729": [
-      "media.MEDIA_FIL[2].bilde.contentlength",
-      "media.MEDIA_FIL[2].fil_storrelse"
-    ],
-    "4912": [
-      "media.MEDIA_FIL[0].bilde.width",
-      "media.MEDIA_FIL[1].bilde.width"
-    ],
-    "4942416": [
-      "media.MEDIA_FIL[1].bilde.contentlength",
-      "media.MEDIA_FIL[1].fil_storrelse"
-    ],
-    "5": [
-      "events[4].EVENT_MUSEUM_OBJECT.sequence_number",
-      "media.MEDIA_FIL[1].media_versjonstype_id"
-    ],
-    "5100947": [
-      "events[4].EVENT.timespan_id",
-      "events[4].TIMESPAN.timespan_id"
-    ],
-    "521187": [
-      "events[3].CLASSIFICATION_EVENT.class_term_id",
-      "events[3]._TAXONOMY.CLASSIFICATION_TERM.class_term_id"
-    ],
-    "58": [
-      "events[4].DATABASE_EVENT.database_event_type_id",
-      "events[4]._TYPE_LOOKUPS[\"DATABASE_EVENT.database_event_type_id\"].type_id"
-    ],
-    "68": [
-      "events[3].CLASSIFICATION_EVENT.classification_type_id",
-      "events[3]._TYPE_LOOKUPS[\"CLASSIFICATION_EVENT.classification_type_id\"].type_id"
-    ],
-    "7": [
-      "events[2].EVENT_ROLE_PERSON_NAME[0]._ROLE.parent_role",
-      "events[3].EVENT_ROLE_PERSON_NAME[0]._ROLE.parent_role"
-    ],
-    "7360": [
-      "media.MEDIA_FIL[0].bilde.height",
-      "media.MEDIA_FIL[1].bilde.height"
-    ],
-    "78": [
-      "events[2].COLLECTING_EVENT.collectiontype_id",
-      "events[2]._TYPE_LOOKUPS[\"COLLECTING_EVENT.collectiontype_id\"].type_id"
-    ],
-    "79": [
-      "events[1].EVENT.event_type",
-      "events[1]._TYPE_LOOKUPS[\"EVENT.event_type\"].type_id"
-    ],
-    "BOTANIKK_FELLES_FOTO_7270809": [
-      "media.MEDIA_FIL[0].bilde.source.srclocation",
-      "media.MEDIA_FIL[0].icon_representation.source.srclocation"
-    ],
-    "BOTANIKK_FELLES_FOTO_7270810": [
-      "media.MEDIA_FIL[1].bilde.source.srclocation",
-      "media.MEDIA_FIL[1].icon_representation.source.srclocation"
-    ],
-    "Berg": [
-      "events[2].EVENT_ROLE_PERSON_NAME[0]._PERSON_NAME.person_surname",
-      "events[3].EVENT_ROLE_PERSON_NAME[0]._PERSON_NAME.person_surname"
-    ],
-    "Berg Australia": [
-      "OBJECT_ATTRIBUTES.dataset",
-      "V_OBJECT_ATTRIBUTES.dataset"
-    ],
-    "MUSIT_BOTANIKK_FELLES_FOTO_7374255.jpg": [
-      "media.MEDIA_FIL[1].bilde.source.srcname",
-      "media.MEDIA_FIL[1].id_i_samling"
-    ],
-    "MUSIT_BOTANIKK_FELLES_FOTO_7374256.jpg": [
-      "media.MEDIA_FIL[2].bilde.source.srcname",
-      "media.MEDIA_FIL[2].id_i_samling"
-    ],
-    "MUSIT_BOTANIKK_FELLES_FOTO_7374256_tmb.jpg": [
-      "media.MEDIAGRUPPE_ENHET.frimerkebilde.source.srcname",
-      "media.MEDIA_FIL[2].icon_representation.source.srcname"
-    ],
-    "O-V-2000001": [
-      "MUSEUM_OBJECT.identifier_string",
-      "_meta.catalog_number_input"
-    ],
-    "O-V-2000001-01.tif": [
-      "media.MEDIAGRUPPE_ENHET.filmnr_negativnr",
-      "media.MEDIA_FIL[0].opprinnelig_filnavn"
-    ],
-    "PERLI": [
-      "OBJECT_ATTRIBUTES.reg_user",
-      "V_OBJECT_ATTRIBUTES.reg_user"
-    ],
-    "Podocarpus lawrencei Hook. J. D. ": [
-      "events[3]._TAXONOMY.CLASSIFICATION_TERM.classterm",
-      "events[3]._TAXONOMY.CLASSIFICATION_TERM.entered_classterm"
-    ],
-    "Rolf Y.": [
-      "events[2].EVENT_ROLE_PERSON_NAME[0]._PERSON_NAME.person_given_name",
-      "events[3].EVENT_ROLE_PERSON_NAME[0]._PERSON_NAME.person_given_name"
-    ],
-    "cd54a4f8-b063-4bd7-a217-91c65e7087cb": [
-      "OBJECT_ATTRIBUTES.uuid",
-      "V_OBJECT_ATTRIBUTES.uuid"
-    ],
-    "03.02.2015": [
-      "events[4].TIMESPAN.time_as_text"
-    ],
-    "1014991": [
-      "events[2].EVENT_ROLE_PERSON_NAME[0].event_person_name_role_id"
-    ],
-    "1014992": [
-      "events[3].EVENT_ROLE_PERSON_NAME[0].event_person_name_role_id"
-    ],
-    "114": [
-      "events[0]._TYPE_LOOKUPS[\"EVENT.event_type\"].type_id_broader"
-    ],
-    "17249176": [
-      "media.MEDIA_FIL[0].mediafil_id"
-    ],
-    "17249177": [
-      "media.MEDIA_FIL[1].mediafil_id"
-    ],
-    "2000001": [
-      "MUSEUM_OBJECT.identifier_num"
-    ],
-    "2014-10-30T08:53:33": [
-      "media.MEDIA_FIL[1].bilde.source.updatetime"
-    ],
-    "2014-10-30T08:53:34": [
-      "media.MEDIA_FIL[1].icon_representation.source.updatetime"
-    ],
-    "2014-10-30T08:53:37": [
-      "media.MEDIA_FIL[2].bilde.source.updatetime"
-    ],
-    "201452": [
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0].koordinateplace_place_id"
-    ],
-    "2015-02-03T00:00:00": [
-      "events[4].TIMESPAN.from_date"
-    ],
-    "2017-01-15T00:00:00": [
-      "MUSEUM_OBJECT.last_edited"
-    ],
-    "2026-05-06T19:47:48.782553+00:00": [
-      "_meta.extracted_at_utc"
-    ],
-    "21": [
-      "events[2].PLACE_EVENT_ROLE[0].role_id"
-    ],
-    "2421334": [
-      "events[0].EVENT_MUSEUM_OBJECT.event_museum_object_id"
-    ],
-    "2421335": [
-      "events[1].EVENT_MUSEUM_OBJECT.event_museum_object_id"
-    ],
-    "2421336": [
-      "events[2].EVENT_MUSEUM_OBJECT.event_museum_object_id"
-    ],
-    "2421337": [
-      "events[3].EVENT_MUSEUM_OBJECT.event_museum_object_id"
-    ],
-    "2485": [
-      "media.MEDIAGRUPPE_ENHET.tabell_id_beskrivelse"
-    ],
-    "26": [
-      "_MUSEUM_OBJECT_TYPE.type_id_broader"
-    ],
-    "266": [
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._DERIVED_COORDINATES[0].derived_coordinates_type"
-    ],
-    "320": [
-      "media.MEDIA_FIL[2].bilde.width"
-    ],
-    "3444": [
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.HIERARCHICAL_PLACE[0]._HIERARCHICAL_PLACE_OLD.place_id_partof"
-    ],
-    "3630": [
-      "media.MEDIA_FIL[1].icon_representation.contentlength"
-    ],
-    "3631": [
-      "media.MEDIA_FIL[0].icon_representation.contentlength"
-    ],
-    "408439": [
-      "MUSEUM_OBJECT.parent_object_id"
-    ],
-    "43": [
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.HIERARCHICAL_PLACE[0]._HIERARCHICAL_PLACE_OLD.hierachical_type"
-    ],
-    "438351": [
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.HIERARCHICAL_PLACE[0].place_hierachical_id"
-    ],
-    "438922": [
-      "events[2].PLACE_EVENT_ROLE[0].place_event_role_id"
-    ],
-    "480": [
-      "media.MEDIA_FIL[2].bilde.height"
-    ],
-    "5750": [
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.alt_l"
-    ],
-    "5750 f": [
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.altitude_string"
-    ],
-    "5750 ft": [
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.altitude_expected_output_echo"
-    ],
-    "615858": [
-      "MUSEUM_OBJECT_NOTE[0].museum_object_note_id"
-    ],
-    "6418533": [
-      "events[4].EVENT_MUSEUM_OBJECT.event_museum_object_id"
-    ],
-    "73869": [
-      "MUSEUM_OBJECT_LEGNR_PERSON[0].object_legnr_person_id"
-    ],
-    "82": [
-      "events[1].PLACE_REVISION[0].place_revision_type"
-    ],
-    "852A": [
-      "MUSEUM_OBJECT_LEGNR_PERSON[0].legnr"
-    ],
-    "<LOB 3,639 units>": [
-      "media.MEDIAGRUPPE_ENHET.frimerkebilde_bfile"
-    ],
-    "<LOB 35,225,798 units>": [
-      "media.MEDIA_FIL[0].bilde_bfile"
-    ],
-    "<LOB 4,942,416 units>": [
-      "media.MEDIA_FIL[1].bilde_bfile"
-    ],
-    "<LOB 43,729 units>": [
-      "media.MEDIA_FIL[2].bilde_bfile"
-    ],
-    "Approved": [
-      "events[4]._TYPE_LOOKUPS[\"DATABASE_EVENT.database_event_type_id\"].typeterm"
-    ],
-    "Australian Capital Territory": [
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.HIERARCHICAL_PLACE[0]._HIERARCHICAL_PLACE_OLD.hierachical_placename"
-    ],
-    "Bestemmelseshendelse": [
-      "events[3]._TYPE_LOOKUPS[\"EVENT.event_type\"].typeterm"
-    ],
-    "Brindabella Range: Mt. Ginini": [
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.LOCALITY_PLACE[0]._LOCALITY_PLACE.locality"
-    ],
-    "Classification event for general herbarium": [
-      "events[3].EVENT.eventname"
-    ],
-    "Collecting event for general herbarium": [
-      "events[2].EVENT.eventname"
-    ],
-    "Databaseevent": [
-      "events[4].EVENT.eventname"
-    ],
-    "Databasehendelser": [
-      "events[4]._TYPE_LOOKUPS[\"EVENT.event_type\"].typeterm"
-    ],
-    "Det": [
-      "events[3].EVENT_ROLE_PERSON_NAME[0]._ROLE.roleterm"
-    ],
-    "Identifier assignment ": [
-      "events[0].EVENT.eventname"
-    ],
-    "Identifier from import": [
-      "events[0]._TYPE_LOOKUPS[\"EVENT.event_type\"].typeterm"
-    ],
-    "Innsamlingshendelse": [
-      "events[2]._TYPE_LOOKUPS[\"EVENT.event_type\"].typeterm"
-    ],
-    "LZWHDIFF": [
-      "media.MEDIA_FIL[0].bilde.compressionformat"
-    ],
-    "Leg": [
-      "events[2].EVENT_ROLE_PERSON_NAME[0]._ROLE.roleterm"
-    ],
-    "MUSIT_BOTANIKK_FELLES_FOTO_7374254.tif": [
-      "media.MEDIA_FIL[0].bilde.source.srcname"
-    ],
-    "MUSIT_BOTANIKK_FELLES_FOTO_7374254_tmb.jpg": [
-      "media.MEDIA_FIL[0].icon_representation.source.srcname"
-    ],
-    "MUSIT_BOTANIKK_FELLES_FOTO_7374255_tmb.jpg": [
-      "media.MEDIA_FIL[1].icon_representation.source.srcname"
-    ],
-    "O": [
-      "V_OBJECT_ATTRIBUTES.institutioncode"
-    ],
-    "Object": [
-      "_MUSEUM_OBJECT_TYPE.typeterm"
-    ],
-    "Originalbestemmelse": [
-      "events[3]._TYPE_LOOKUPS[\"CLASSIFICATION_EVENT.classification_type_id\"].typeterm"
-    ],
-    "Place revision": [
-      "events[1]._TYPE_LOOKUPS[\"EVENT.event_type\"].typeterm"
-    ],
-    "Place_revision": [
-      "events[1].EVENT.eventname"
-    ],
-    "Plant collecting": [
-      "events[2]._TYPE_LOOKUPS[\"COLLECTING_EVENT.collectiontype_id\"].typeterm"
-    ],
-    "Podocarpus lawrencei Hook.f.": [
-      "events[3]._TAXONOMY.CLASSIFICATION_TERM.valid_classterm"
-    ],
-    "Stony S slope with low shrub vegetation, dominated by Podocarpus lawrencei and Drimys xerophila": [
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.ECOLOGY_PLACE[0]._ECOLOGY_PLACE.ecology"
-    ],
-    "TIFF": [
-      "media.MEDIA_FIL[0].bilde.fileformat"
-    ],
-    "V": [
-      "V_OBJECT_ATTRIBUTES.collectioncode"
-    ],
-    "Vascular plant object from general herbarium no. 2000001": [
-      "MUSEUM_OBJECT.long_name"
-    ],
-    "c21a0291-f154-4e55-9e75-c8be544d6c43": [
-      "media.MEDIAGRUPPE_ENHET.mediagruppe_uuid"
-    ],
-    "f": [
-      "events[2].PLACE_EVENT_ROLE[0]._PLACE_DATA.KOORDINATE_PLACE[0]._KOORDINATE_PLACE.altitude_unit"
-    ],
-    "https://www.unimus.no/felles/bilder/web_hent_bilde.php?id=13085563&type=jpeg": [
-      "media._unimus_url"
-    ],
-    "image/tiff": [
-      "media.MEDIA_FIL[0].bilde.mimetype"
-    ],
-    "prod": [
-      "_meta.env"
-    ],
-    "x": [
-      "media.MEDIA_FIL[0].format"
-    ]
+  "_meta": {
+    "catalog_number_input": "O-V-2000001",
+    "object_id": 454175,
+    "schema": "MUSIT_BOTANIKK_FELLES",
+    "extracted_at_utc": "2026-05-06T22:44:49.437854+00:00",
+    "env": "prod"
   },
-  "meta": {
-    "unique_leaf_values": 158,
-    "total_leaf_occurrences": 513,
-    "max_paths_for_one_value": 155,
-    "max_key_chars_before_mask": 65535
+  "MUSEUM_OBJECT": {
+    "object_id": 454175,
+    "museum_object_type": 29,
+    "identifier_num": 2000001,
+    "identifier_string": "O-V-2000001",
+    "long_name": "Vascular plant object from general herbarium no. 2000001",
+    "parent_object_id": 408439,
+    "last_edited": "2017-01-15T00:00:00",
+    "last_edit_by": "MUSIT_BOTANIKK_FELLES",
+    "mediagruppe_enhets_id": 13085563,
+    "sub_number": null,
+    "sub_collection_id": null
+  },
+  "OBJECT_ATTRIBUTES": {
+    "object_id": 454175,
+    "reg_date": "2011-06-08T00:00:00",
+    "last_modified": "2024-01-09T00:00:00",
+    "number_of_sheets": 1,
+    "korr_date": null,
+    "approved_date": "2015-05-04T00:00:00",
+    "last_modified_by": "BPLOFALL",
+    "reg_user": "PERLI",
+    "korr_user": null,
+    "approve_user": "BPLOFALL",
+    "is_reg": "1",
+    "is_corrected": null,
+    "is_approved": "1",
+    "dataset": "Berg Australia",
+    "project_name": null,
+    "dublettes": null,
+    "same_sheet_as": null,
+    "ex_herb": null,
+    "voucher": null,
+    "artsobs_nr": null,
+    "object_withheld": "0",
+    "object_state": null,
+    "uuid": "cd54a4f8-b063-4bd7-a217-91c65e7087cb",
+    "analysis_request": null
+  },
+  "V_OBJECT_ATTRIBUTES": {
+    "object_id": 454175,
+    "reg_date": "2011-06-08T00:00:00",
+    "last_modified": "2024-01-09T00:00:00",
+    "number_of_sheets": 1,
+    "korr_date": null,
+    "approved_date": "2015-05-04T00:00:00",
+    "last_modified_by": "BPLOFALL",
+    "reg_user": "PERLI",
+    "korr_user": null,
+    "approve_user": "BPLOFALL",
+    "is_reg": "1",
+    "is_corrected": null,
+    "is_approved": "1",
+    "dataset": "Berg Australia",
+    "project_name": null,
+    "dublettes": null,
+    "same_sheet_as": null,
+    "ex_herb": null,
+    "voucher": null,
+    "artsobs_nr": null,
+    "object_withheld": "0",
+    "object_state": null,
+    "has_artsobs_no": "0",
+    "uuid": "cd54a4f8-b063-4bd7-a217-91c65e7087cb",
+    "institutioncode": "O",
+    "collectioncode": "V"
+  },
+  "V_COUNT_PHOTO": {
+    "object_id": 454175,
+    "photo_count": 1
+  },
+  "OBJECT_HIERARCHY": [],
+  "MUSEUM_OBJECT_LEGNR_PERSON": [
+    {
+      "object_legnr_person_id": 73869,
+      "object_id": 454175,
+      "actor_id": 36228,
+      "legnr": "852A"
+    }
+  ],
+  "CLASS_HIST_FOR_OBJECT": [],
+  "MUSEUM_OBJECT_DNA_EVENT": [],
+  "LENDING_OBJECTS": [],
+  "PLACE_OBJECT_ROLE": [],
+  "events": [
+    {
+      "EVENT_MUSEUM_OBJECT": {
+        "event_museum_object_id": 2421334,
+        "event_id": 2422968,
+        "object_id": 454175,
+        "sequence_number": 1,
+        "prev_event_for_objekt": null
+      },
+      "EVENT": {
+        "event_id": 2422968,
+        "eventname": "Identifier assignment ",
+        "timespan_id": null,
+        "event_type": 115
+      },
+      "TIMESPAN": null,
+      "IDENTIFIER_ASSIGNMENT": {
+        "event_id": 2422968,
+        "object_id": 454175,
+        "identifier_string": "1",
+        "identifier_num": null,
+        "identifier_type": 115
+      },
+      "_TYPE_LOOKUPS": {
+        "EVENT.event_type": {
+          "type_id": 115,
+          "typeterm": "Identifier from import",
+          "type_id_broader": 114
+        }
+      }
+    },
+    {
+      "EVENT_MUSEUM_OBJECT": {
+        "event_museum_object_id": 2421335,
+        "event_id": 2422969,
+        "object_id": 454175,
+        "sequence_number": 2,
+        "prev_event_for_objekt": 2422968
+      },
+      "EVENT": {
+        "event_id": 2422969,
+        "eventname": "Place_revision",
+        "timespan_id": null,
+        "event_type": 79
+      },
+      "TIMESPAN": null,
+      "PLACE_REVISION": [
+        {
+          "event_id": 2422969,
+          "old_koordinate_place": null,
+          "new_koordinate_place": 201489,
+          "place_revision_type": 82
+        }
+      ],
+      "_TYPE_LOOKUPS": {
+        "EVENT.event_type": {
+          "type_id": 79,
+          "typeterm": "Place revision",
+          "type_id_broader": 51
+        }
+      }
+    },
+    {
+      "EVENT_MUSEUM_OBJECT": {
+        "event_museum_object_id": 2421336,
+        "event_id": 2422970,
+        "object_id": 454175,
+        "sequence_number": 3,
+        "prev_event_for_objekt": 2422969
+      },
+      "EVENT": {
+        "event_id": 2422970,
+        "eventname": "Collecting event for general herbarium",
+        "timespan_id": 2188954,
+        "event_type": 77
+      },
+      "TIMESPAN": {
+        "timespan_id": 2188954,
+        "from_date": "1972-04-30T00:00:00",
+        "to_date": "1972-04-30T00:00:00",
+        "time_as_text": "30.04.1972",
+        "uncertain": null,
+        "interpreted": "0"
+      },
+      "COLLECTING_EVENT": {
+        "event_id": 2422970,
+        "collectiontype_id": 78,
+        "legname_orig": null,
+        "agg_personnames": null
+      },
+      "EVENT_ROLE_PERSON_NAME": [
+        {
+          "event_person_name_role_id": 1014991,
+          "event_id": 2422970,
+          "role_id": 10,
+          "person_name_id": 42181,
+          "sorting_sequence": 1,
+          "_PERSON_NAME": {
+            "person_name_id": 42181,
+            "actor_id": 36228,
+            "person_surname": "Berg",
+            "person_middle_name": null,
+            "person_given_name": "Rolf Y.",
+            "title": null,
+            "person_name_type": 18
+          },
+          "_ROLE": {
+            "role_id": 10,
+            "roleterm": "Leg",
+            "description": null,
+            "parent_role": 7
+          }
+        }
+      ],
+      "PLACE_EVENT_ROLE": [
+        {
+          "place_event_role_id": 438922,
+          "place_id": 458950,
+          "event_id": 2422970,
+          "role_id": 21,
+          "_PLACE_DATA": {
+            "PLACE": {
+              "place_id": 458950,
+              "place_name_agg": null
+            },
+            "LOCALITY_PLACE": [
+              {
+                "place_locplace_id": "438540",
+                "place_id": 458950,
+                "locality_place_id": 438540,
+                "_LOCALITY_PLACE": {
+                  "locality_place_id": 438540,
+                  "locality": "Brindabella Range: Mt. Ginini"
+                }
+              }
+            ],
+            "HIERARCHICAL_PLACE": [
+              {
+                "place_hierachical_id": 438351,
+                "place_id": 458950,
+                "hierachical_place_id": 3445,
+                "sequence_number": 1,
+                "_HIERARCHICAL_PLACE_OLD": {
+                  "hierarch_place_id": 3445,
+                  "hierachical_type": 43,
+                  "place_id_partof": 3444,
+                  "hierachical_placename": "Australian Capital Territory",
+                  "koordinate_place_id": null
+                }
+              }
+            ],
+            "KOORDINATE_PLACE": [
+              {
+                "koordinateplace_place_id": 201452,
+                "koordinate_place_id": 201489,
+                "place_id": 458950,
+                "_KOORDINATE_PLACE": {
+                  "koordinate_place_id": 201489,
+                  "coordinate_type": null,
+                  "coordinate_string": null,
+                  "zone": null,
+                  "belt": null,
+                  "datum": null,
+                  "longitude_h": null,
+                  "latitude_l": null,
+                  "altitude_string": "5750 f",
+                  "altitude_unit": "f",
+                  "ca_utm": "0",
+                  "ca_altitude": "0",
+                  "utm_senere": "1",
+                  "mgrs_l": null,
+                  "mgrs_h": null,
+                  "longitude_l": null,
+                  "latitude_h": null,
+                  "alt_l": 5750,
+                  "alt_h": null,
+                  "depth_string": null,
+                  "depth_l": null,
+                  "depth_h": null,
+                  "map_sheet": null,
+                  "altitude_of_depth_reference": null,
+                  "precision": null,
+                  "accuracy": null,
+                  "shapefile": null,
+                  "lat_direction": null,
+                  "long_direction": null,
+                  "utm_x": null,
+                  "utm_y": null,
+                  "utm33_x": null,
+                  "utm33_y": null,
+                  "utm_x_h": null,
+                  "utm_y_h": null,
+                  "utm33_x_h": null,
+                  "utm33_y_h": null,
+                  "coordinate_source_id": null,
+                  "ca_depth": "0",
+                  "coord_expected_output_echo": null,
+                  "coordinate_string_actual": null,
+                  "altitude_expected_output_echo": "5750 ft",
+                  "depth_expected_output_echo": null,
+                  "depth_unit": null,
+                  "altitude_source_id": null
+                },
+                "_DERIVED_COORDINATES": [
+                  {
+                    "koordinate_place_id": 201489,
+                    "datum": null,
+                    "zone": null,
+                    "band": null,
+                    "north_south": null,
+                    "utm_x": null,
+                    "utm_y": null,
+                    "utm33_x": null,
+                    "utm33_y": null,
+                    "longitude": null,
+                    "latitude": null,
+                    "derived_coordinates_type": 266,
+                    "utm_x_wgs84": null,
+                    "utm_y_wgs84": null,
+                    "lat_wgs84": null,
+                    "long_wgs84": null
+                  }
+                ]
+              }
+            ],
+            "ECOLOGY_PLACE": [
+              {
+                "place_ecology_id": 55676,
+                "place_id": 458950,
+                "ecology_place_id": 55676,
+                "_ECOLOGY_PLACE": {
+                  "ecology_place_id": 55676,
+                  "nin_type": null,
+                  "ecology": "Stony S slope with low shrub vegetation, dominated by Podocarpus lawrencei and Drimys xerophila"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "_TYPE_LOOKUPS": {
+        "COLLECTING_EVENT.collectiontype_id": {
+          "type_id": 78,
+          "typeterm": "Plant collecting",
+          "type_id_broader": 77
+        },
+        "EVENT.event_type": {
+          "type_id": 77,
+          "typeterm": "Innsamlingshendelse",
+          "type_id_broader": 51
+        }
+      }
+    },
+    {
+      "EVENT_MUSEUM_OBJECT": {
+        "event_museum_object_id": 2421337,
+        "event_id": 2422971,
+        "object_id": 454175,
+        "sequence_number": 4,
+        "prev_event_for_objekt": 2422970
+      },
+      "EVENT": {
+        "event_id": 2422971,
+        "eventname": "Classification event for general herbarium",
+        "timespan_id": 2188955,
+        "event_type": 66
+      },
+      "TIMESPAN": {
+        "timespan_id": 2188955,
+        "from_date": "1972-04-30T00:00:00",
+        "to_date": "1972-04-30T00:00:00",
+        "time_as_text": "30.04.1972",
+        "uncertain": null,
+        "interpreted": "0"
+      },
+      "CLASSIFICATION_EVENT": {
+        "event_id": 2422971,
+        "classification_type_id": 68,
+        "class_term_id": 521187,
+        "gender_class_term_id": null,
+        "detname_orig": null,
+        "agg_personnames": null
+      },
+      "EVENT_ROLE_PERSON_NAME": [
+        {
+          "event_person_name_role_id": 1014992,
+          "event_id": 2422971,
+          "role_id": 12,
+          "person_name_id": 42181,
+          "sorting_sequence": 1,
+          "_PERSON_NAME": {
+            "person_name_id": 42181,
+            "actor_id": 36228,
+            "person_surname": "Berg",
+            "person_middle_name": null,
+            "person_given_name": "Rolf Y.",
+            "title": null,
+            "person_name_type": 18
+          },
+          "_ROLE": {
+            "role_id": 12,
+            "roleterm": "Det",
+            "description": null,
+            "parent_role": 7
+          }
+        }
+      ],
+      "_TAXONOMY": {
+        "CLASSIFICATION_TERM": {
+          "class_term_id": 521187,
+          "classterm": "Podocarpus lawrencei Hook. J. D. ",
+          "entered_classterm": "Podocarpus lawrencei Hook. J. D. ",
+          "valid_classterm": "Podocarpus lawrencei Hook.f.",
+          "infraspes_rank": null,
+          "infraspes_name": null,
+          "sensu_term": null
+        },
+        "CLASSTERM_LATIN_NAME": []
+      },
+      "_TYPE_LOOKUPS": {
+        "CLASSIFICATION_EVENT.classification_type_id": {
+          "type_id": 68,
+          "typeterm": "Originalbestemmelse",
+          "type_id_broader": 66
+        },
+        "EVENT.event_type": {
+          "type_id": 66,
+          "typeterm": "Bestemmelseshendelse",
+          "type_id_broader": 51
+        }
+      }
+    },
+    {
+      "EVENT_MUSEUM_OBJECT": {
+        "event_museum_object_id": 6418533,
+        "event_id": 6437529,
+        "object_id": 454175,
+        "sequence_number": 5,
+        "prev_event_for_objekt": 2422971
+      },
+      "EVENT": {
+        "event_id": 6437529,
+        "eventname": "Databaseevent",
+        "timespan_id": 5100947,
+        "event_type": 52
+      },
+      "TIMESPAN": {
+        "timespan_id": 5100947,
+        "from_date": "2015-02-03T00:00:00",
+        "to_date": null,
+        "time_as_text": "03.02.2015",
+        "uncertain": null,
+        "interpreted": "0"
+      },
+      "DATABASE_EVENT": {
+        "event_id": 6437529,
+        "database_event_type_id": 58,
+        "ora_username": "MUSIT_BOTANIKK_FELLES"
+      },
+      "_TYPE_LOOKUPS": {
+        "DATABASE_EVENT.database_event_type_id": {
+          "type_id": 58,
+          "typeterm": "Approved",
+          "type_id_broader": 52
+        },
+        "EVENT.event_type": {
+          "type_id": 52,
+          "typeterm": "Databasehendelser",
+          "type_id_broader": 51
+        }
+      }
+    }
+  ],
+  "MUSEUM_OBJECT_NOTE": [
+    {
+      "museum_object_note_id": 615858,
+      "object_id": 454175,
+      "note_id": 2698327,
+      "type_id": 3,
+      "_NOTE": {
+        "note_id": 2698327,
+        "note_text": null,
+        "long_note": null
+      }
+    }
+  ],
+  "DOCUMENT_OBJECT": [],
+  "media": {
+    "mediagruppe_enhets_id": 13085563,
+    "MEDIAGRUPPE_ENHET": {
+      "mediagruppe_enhets_id": 13085563,
+      "fremvisnings_mediafil_id": 17249178,
+      "tittel": null,
+      "filmnr_negativnr": "O-V-2000001-01.tif",
+      "tabell_id_beskrivelse": 2485,
+      "frimerkebilde": {
+        "source": {
+          "localdata": "<LOB 0 bytes>",
+          "srctype": "file",
+          "srclocation": "BOTANIKK_FELLES_FOTO_7270811",
+          "srcname": "MUSIT_BOTANIKK_FELLES_FOTO_7374256_tmb.jpg",
+          "updatetime": "2014-10-30T08:53:38",
+          "local": 0
+        },
+        "height": 90,
+        "width": 60,
+        "contentlength": 3639,
+        "fileformat": "JFIF",
+        "contentformat": "24BITRGB",
+        "compressionformat": "JPEG",
+        "mimetype": "image/jpeg"
+      },
+      "sidenr": null,
+      "frimerkebilde_bfile": "<LOB 3,639 units>",
+      "mediagruppe_uuid": "c21a0291-f154-4e55-9e75-c8be544d6c43"
+    },
+    "MEDIA_FIL": [
+      {
+        "mediafil_id": 17249176,
+        "media_type": "1",
+        "bilde": {
+          "source": {
+            "localdata": "<LOB 0 bytes>",
+            "srctype": "file",
+            "srclocation": "BOTANIKK_FELLES_FOTO_7270809",
+            "srcname": "MUSIT_BOTANIKK_FELLES_FOTO_7374254.tif",
+            "updatetime": "2014-10-30T08:53:28",
+            "local": 0
+          },
+          "height": 7360,
+          "width": 4912,
+          "contentlength": 35225798,
+          "fileformat": "TIFF",
+          "contentformat": "24BITRGB",
+          "compressionformat": "LZWHDIFF",
+          "mimetype": "image/tiff"
+        },
+        "video": null,
+        "audio": null,
+        "icon_representation": {
+          "source": {
+            "localdata": "<LOB 0 bytes>",
+            "srctype": "file",
+            "srclocation": "BOTANIKK_FELLES_FOTO_7270809",
+            "srcname": "MUSIT_BOTANIKK_FELLES_FOTO_7374254_tmb.jpg",
+            "updatetime": "2014-10-30T08:53:28",
+            "local": 0
+          },
+          "height": 90,
+          "width": 60,
+          "contentlength": 3631,
+          "fileformat": "JFIF",
+          "contentformat": "24BITRGB",
+          "compressionformat": "JPEG",
+          "mimetype": "image/jpeg"
+        },
+        "annen_type": null,
+        "format_id_annen_type": null,
+        "ktrl#les_rolle": "USDR_USER",
+        "ktrl#oppdater_rolle": "USDR_USER",
+        "ktrl#slett_rolle": "USDR_USER",
+        "media_objekt_type": 3,
+        "mediagruppe_enhets_id": 13085563,
+        "id_i_samling": null,
+        "samlings_id": 1206,
+        "magasinplass_id": null,
+        "format": "x",
+        "original_kildehenvisning": null,
+        "klausul": null,
+        "produktnr": null,
+        "tilstand": null,
+        "tittel": null,
+        "sidenummer": null,
+        "media_versjonstype_id": 2,
+        "skal_slettes": null,
+        "dokument": null,
+        "dokument_filter": "IGNORE",
+        "dokument_antall_sider": null,
+        "opprinnelig_filnavn": "O-V-2000001-01.tif",
+        "bilde_bfile": "<LOB 35,225,798 units>",
+        "icon_representation_bfile": null,
+        "fil_storrelse": 35225798
+      },
+      {
+        "mediafil_id": 17249177,
+        "media_type": "1",
+        "bilde": {
+          "source": {
+            "localdata": "<LOB 0 bytes>",
+            "srctype": "file",
+            "srclocation": "BOTANIKK_FELLES_FOTO_7270810",
+            "srcname": "MUSIT_BOTANIKK_FELLES_FOTO_7374255.jpg",
+            "updatetime": "2014-10-30T08:53:33",
+            "local": 0
+          },
+          "height": 7360,
+          "width": 4912,
+          "contentlength": 4942416,
+          "fileformat": "JFIF",
+          "contentformat": "24BITRGB",
+          "compressionformat": "JPEG",
+          "mimetype": "image/jpeg"
+        },
+        "video": null,
+        "audio": null,
+        "icon_representation": {
+          "source": {
+            "localdata": "<LOB 0 bytes>",
+            "srctype": "file",
+            "srclocation": "BOTANIKK_FELLES_FOTO_7270810",
+            "srcname": "MUSIT_BOTANIKK_FELLES_FOTO_7374255_tmb.jpg",
+            "updatetime": "2014-10-30T08:53:34",
+            "local": 0
+          },
+          "height": 90,
+          "width": 60,
+          "contentlength": 3630,
+          "fileformat": "JFIF",
+          "contentformat": "24BITRGB",
+          "compressionformat": "JPEG",
+          "mimetype": "image/jpeg"
+        },
+        "annen_type": null,
+        "format_id_annen_type": null,
+        "ktrl#les_rolle": "USDR_USER",
+        "ktrl#oppdater_rolle": "USDR_USER",
+        "ktrl#slett_rolle": "USDR_USER",
+        "media_objekt_type": 4,
+        "mediagruppe_enhets_id": 13085563,
+        "id_i_samling": "MUSIT_BOTANIKK_FELLES_FOTO_7374255.jpg",
+        "samlings_id": 1206,
+        "magasinplass_id": null,
+        "format": null,
+        "original_kildehenvisning": null,
+        "klausul": null,
+        "produktnr": null,
+        "tilstand": null,
+        "tittel": null,
+        "sidenummer": null,
+        "media_versjonstype_id": 5,
+        "skal_slettes": null,
+        "dokument": null,
+        "dokument_filter": "IGNORE",
+        "dokument_antall_sider": null,
+        "opprinnelig_filnavn": null,
+        "bilde_bfile": "<LOB 4,942,416 units>",
+        "icon_representation_bfile": null,
+        "fil_storrelse": 4942416
+      },
+      {
+        "mediafil_id": 17249178,
+        "media_type": "1",
+        "bilde": {
+          "source": {
+            "localdata": "<LOB 0 bytes>",
+            "srctype": "file",
+            "srclocation": "BOTANIKK_FELLES_FOTO_7270811",
+            "srcname": "MUSIT_BOTANIKK_FELLES_FOTO_7374256.jpg",
+            "updatetime": "2014-10-30T08:53:37",
+            "local": 0
+          },
+          "height": 480,
+          "width": 320,
+          "contentlength": 43729,
+          "fileformat": "JFIF",
+          "contentformat": "24BITRGB",
+          "compressionformat": "JPEG",
+          "mimetype": "image/jpeg"
+        },
+        "video": null,
+        "audio": null,
+        "icon_representation": {
+          "source": {
+            "localdata": "<LOB 0 bytes>",
+            "srctype": "file",
+            "srclocation": "BOTANIKK_FELLES_FOTO_7270811",
+            "srcname": "MUSIT_BOTANIKK_FELLES_FOTO_7374256_tmb.jpg",
+            "updatetime": "2014-10-30T08:53:38",
+            "local": 0
+          },
+          "height": 90,
+          "width": 60,
+          "contentlength": 3639,
+          "fileformat": "JFIF",
+          "contentformat": "24BITRGB",
+          "compressionformat": "JPEG",
+          "mimetype": "image/jpeg"
+        },
+        "annen_type": null,
+        "format_id_annen_type": null,
+        "ktrl#les_rolle": "USDR_USER",
+        "ktrl#oppdater_rolle": "USDR_USER",
+        "ktrl#slett_rolle": "USDR_USER",
+        "media_objekt_type": 4,
+        "mediagruppe_enhets_id": 13085563,
+        "id_i_samling": "MUSIT_BOTANIKK_FELLES_FOTO_7374256.jpg",
+        "samlings_id": 1206,
+        "magasinplass_id": null,
+        "format": null,
+        "original_kildehenvisning": null,
+        "klausul": null,
+        "produktnr": null,
+        "tilstand": null,
+        "tittel": null,
+        "sidenummer": null,
+        "media_versjonstype_id": 4,
+        "skal_slettes": null,
+        "dokument": null,
+        "dokument_filter": "IGNORE",
+        "dokument_antall_sider": null,
+        "opprinnelig_filnavn": null,
+        "bilde_bfile": "<LOB 43,729 units>",
+        "icon_representation_bfile": null,
+        "fil_storrelse": 43729
+      }
+    ],
+    "MEDIA__PATHS": [],
+    "_unimus_url": "https://www.unimus.no/felles/bilder/web_hent_bilde.php?id=13085563&type=jpeg"
+  },
+  "digir_dwc": {},
+  "_MUSEUM_OBJECT_TYPE": {
+    "type_id": 29,
+    "typeterm": "Object",
+    "type_id_broader": 26
   }
 }

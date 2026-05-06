@@ -199,11 +199,13 @@ export default function App() {
 
         for (const oPath of oraclePaths) {
           for (const sPath of specifyPaths) {
-            // sPath is "table.column" or just "column" if root?
-            // Actually _index_leaf_values uses "." as separator.
+            // sPath format is usually "tables.tableName[0].columnName"
             const parts = sPath.split(".");
-            if (parts.length < 2) continue; // Skip root-level fields or ambiguous ones
-            const [table, col] = parts;
+            if (parts.length < 3) continue;
+
+            const tablePart = parts[1]; // e.g. "collectionobject[0]"
+            const table = tablePart.replace(/\[.*\]$/, "");
+            const col = parts[parts.length - 1]; // e.g. "lastmodifiedby"
 
             const exists = store.edges.some(
               (e) => e.oracle_path === oPath && e.specify_table === table && e.specify_column === col,
