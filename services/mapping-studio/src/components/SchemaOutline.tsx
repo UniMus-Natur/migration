@@ -23,7 +23,7 @@ const PRIORITY = [
   "attachment",
 ];
 
-export default function SchemaOutline({ schema, mappings, onAddNode }: Props) {
+export default function SchemaOutline({ schema, mappings, onAddNode, onShowMapping }: Props) {
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set([ROOT_TABLE]),
