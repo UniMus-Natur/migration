@@ -1,12 +1,51 @@
+# Python
 __pycache__/
-*.pyc
-.DS_Store
-config/local_specify_settings.py
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
 specify7_venv/
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+
+# Environment / secrets
 .env
+*.env.local
+
+# Helm / Kubernetes
 **/staging.values.yaml
-.venv
-.cursor
-**/*.layout.json
-schemas/migration_report.json
+**/production.values.yaml
+
+# Node / frontend
+node_modules/
+services/mapping-studio/node_modules/
+services/mapping-studio/dist/
+services/mapping-studio/.vite/
+.npm/
+*.tsbuildinfo
+
+# Editor / OS
+.DS_Store
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+Thumbs.db
+
+# Cursor
+.cursor/
+
+# Generated / large data files
 data/
+schemas/migration_report.json
+**/*.layout.json
+config/local_specify_settings.py
+
+# Temporary
+tmp/
+*.tmp
+*.bak

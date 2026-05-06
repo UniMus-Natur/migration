@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import mimetypes
 import os
 import sys
 import time
@@ -24,11 +25,18 @@ except ImportError:
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
+SPA_DIST = Path(__file__).resolve().parent.parent / "mapping-studio" / "dist"
+
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import migration_compare as mc  # noqa: E402
+from json_path_outline import build_path_outline, build_path_outline_bundle  # noqa: E402
+from specify_schema_export import build_specify_schema  # noqa: E402
 
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
 
 HOST = os.getenv("HARNESS_HOST", "0.0.0.0")
 PORT = int(os.getenv("HARNESS_PORT", "8088"))
@@ -40,8 +48,15 @@ REQUIRED_TOKEN = os.getenv("HARNESS_TOKEN", "")
 MAX_STORED_RESULTS = int(os.getenv("HARNESS_MAX_STORED_RESULTS", "20"))
 # Leaf keys longer than this are masked in the value index (default: 2^16 - 1).
 VALUE_INDEX_MAX_KEY_CHARS = int(os.getenv("HARNESS_VALUE_INDEX_MAX_KEY_CHARS", "65535"))
+
 RESULTS: dict[str, dict] = {}
 
+# In-process cache for specify schema (expensive DB query; schema rarely changes).
+_SPECIFY_SCHEMA_CACHE: dict[str, Any] | None = None
+
+# ---------------------------------------------------------------------------
+# Value index helpers
+# ---------------------------------------------------------------------------
 
 def _mask_large_value_key(raw: str) -> str:
     """Avoid huge JSON/BLOB strings as map keys; keep short stable placeholder."""
@@ -108,6 +123,9 @@ def build_value_index(doc: Any) -> dict[str, Any]:
         },
     }
 
+# ---------------------------------------------------------------------------
+# HTML helpers
+# ---------------------------------------------------------------------------
 
 def _html_page(body: str) -> bytes:
     return f"""<!doctype html>
@@ -126,6 +144,11 @@ def _html_page(body: str) -> bytes:
     table {{ border-collapse: collapse; width: 100%; margin-top: 8px; }}
     th, td {{ border: 1px solid #ddd; padding: 6px; text-align: left; }}
     details {{ margin: 10px 0; }}
+    .studio-btn {{
+      display: inline-block; margin-top: 16px; padding: 10px 20px;
+      background: #1a56db; color: #fff; border-radius: 6px;
+      text-decoration: none; font-weight: 600; font-size: 15px;
+    }}
   </style>
 </head>
 <body>
@@ -202,6 +225,8 @@ def _render_results(result_id: str, catalog: str, checks: list[mc.CheckResult], 
             f"<td>{html.escape(detail)}</td></tr>"
         )
 
+    studio_url = f"{html.escape(BASE_PATH)}/explore?result={html.escape(result_id)}"
+
     return f"""
 <h1>Migration Harness</h1>
 <p><b>Catalog:</b> {html.escape(catalog)}</p>
@@ -212,6 +237,8 @@ def _render_results(result_id: str, catalog: str, checks: list[mc.CheckResult], 
   <span class="warn">warn={counts["WARN"]}</span>,
   skip={counts["SKIP"]}
 </p>
+
+<a class="studio-btn" href="{studio_url}" target="_blank">Open in Mapping Studio &rarr;</a>
 
 <table>
   <thead><tr><th>Check</th><th>Status</th><th>Detail</th></tr></thead>
@@ -225,9 +252,14 @@ def _render_results(result_id: str, catalog: str, checks: list[mc.CheckResult], 
   <li><a href="{html.escape(BASE_PATH)}/result/{html.escape(result_id)}/oracle.json?pretty=1" target="_blank">Open Oracle JSON (pretty)</a></li>
   <li><a href="{html.escape(BASE_PATH)}/result/{html.escape(result_id)}/specify.json?pretty=1" target="_blank">Open Specify JSON (pretty)</a></li>
   <li><a href="{html.escape(BASE_PATH)}/result/{html.escape(result_id)}/checks.json?pretty=1" target="_blank">Open Check Results JSON</a></li>
-  <li><a href="{html.escape(BASE_PATH)}/result/{html.escape(result_id)}/oracle-values.json?pretty=1" target="_blank">Oracle value index (deduped values → paths)</a></li>
-  <li><a href="{html.escape(BASE_PATH)}/result/{html.escape(result_id)}/specify-values.json?pretty=1" target="_blank">Specify value index (deduped values → paths)</a></li>
+  <li><a href="{html.escape(BASE_PATH)}/result/{html.escape(result_id)}/oracle-values.json?pretty=1" target="_blank">Oracle value index (deduped values &rarr; paths)</a></li>
+  <li><a href="{html.escape(BASE_PATH)}/result/{html.escape(result_id)}/specify-values.json?pretty=1" target="_blank">Specify value index (deduped values &rarr; paths)</a></li>
   <li><a href="{html.escape(BASE_PATH)}/result/{html.escape(result_id)}/value-index.json?pretty=1" target="_blank">Combined value index (both sides)</a></li>
+  <li><a href="{html.escape(BASE_PATH)}/result/{html.escape(result_id)}/oracle-path-outline.json?pretty=1" target="_blank">Oracle path outline (trie)</a>
+      &mdash; <a href="{html.escape(BASE_PATH)}/result/{html.escape(result_id)}/oracle-path-outline.json?pretty=1&amp;generalize=1" target="_blank">generalized</a></li>
+  <li><a href="{html.escape(BASE_PATH)}/result/{html.escape(result_id)}/specify-path-outline.json?pretty=1" target="_blank">Specify path outline</a>
+      &mdash; <a href="{html.escape(BASE_PATH)}/result/{html.escape(result_id)}/specify-path-outline.json?pretty=1&amp;generalize=1" target="_blank">generalized</a></li>
+  <li><a href="{html.escape(BASE_PATH)}/result/{html.escape(result_id)}/path-outline.json?pretty=1" target="_blank">Combined path outline (both sides)</a></li>
 </ul>
 
 <p><small>Sizes: Oracle {len(json.dumps(oracle_doc, ensure_ascii=False)):,} bytes, Specify {len(json.dumps(specify_doc, ensure_ascii=False)):,} bytes.</small></p>
@@ -235,23 +267,101 @@ def _render_results(result_id: str, catalog: str, checks: list[mc.CheckResult], 
 <p><a href="{html.escape(BASE_PATH)}">Run another</a></p>
 """
 
+# ---------------------------------------------------------------------------
+# Static file serving for the Mapping Studio SPA
+# ---------------------------------------------------------------------------
+
+_MIME_FALLBACK = "application/octet-stream"
+_MIME_MAP = {
+    ".js": "application/javascript",
+    ".mjs": "application/javascript",
+    ".css": "text/css",
+    ".html": "text/html; charset=utf-8",
+    ".json": "application/json",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".ico": "image/x-icon",
+    ".woff2": "font/woff2",
+    ".woff": "font/woff",
+    ".ttf": "font/ttf",
+    ".map": "application/json",
+}
+
+
+def _serve_static(environ, start_response, rel_path: str):
+    """Serve a file from SPA_DIST; rel_path is relative to dist root."""
+    if not SPA_DIST.exists():
+        start_response("503 Service Unavailable", [("Content-Type", "text/plain")])
+        return [b"Mapping Studio not built yet (dist/ missing)"]
+
+    # Prevent directory traversal.
+    target = (SPA_DIST / rel_path.lstrip("/")).resolve()
+    try:
+        target.relative_to(SPA_DIST.resolve())
+    except ValueError:
+        start_response("403 Forbidden", [("Content-Type", "text/plain")])
+        return [b"Forbidden"]
+
+    # For non-asset paths (e.g. deep links into the SPA) serve index.html.
+    if not target.exists() or target.is_dir():
+        target = SPA_DIST / "index.html"
+
+    if not target.exists():
+        start_response("404 Not Found", [("Content-Type", "text/plain")])
+        return [b"not found"]
+
+    suffix = target.suffix.lower()
+    content_type = _MIME_MAP.get(suffix, mimetypes.types_map.get(suffix, _MIME_FALLBACK))
+    data = target.read_bytes()
+    etag = f'"{hashlib.md5(data).hexdigest()}"'
+    if environ.get("HTTP_IF_NONE_MATCH") == etag:
+        start_response("304 Not Modified", [("ETag", etag)])
+        return [b""]
+    start_response("200 OK", [
+        ("Content-Type", content_type),
+        ("Content-Length", str(len(data))),
+        ("ETag", etag),
+        ("Cache-Control", "public, max-age=3600"),
+    ])
+    return [data]
+
+# ---------------------------------------------------------------------------
+# Specify schema: cached live query
+# ---------------------------------------------------------------------------
+
+def _get_specify_schema() -> dict[str, Any]:
+    global _SPECIFY_SCHEMA_CACHE
+    if _SPECIFY_SCHEMA_CACHE is not None:
+        return _SPECIFY_SCHEMA_CACHE
+    import specify_schema_export as sse  # noqa: PLC0415
+    cfg = sse._db_config()
+    _SPECIFY_SCHEMA_CACHE = sse.build_specify_schema(cfg)
+    return _SPECIFY_SCHEMA_CACHE
+
+# ---------------------------------------------------------------------------
+# WSGI application
+# ---------------------------------------------------------------------------
 
 def app(environ, start_response):
     path = (environ.get("PATH_INFO") or "").rstrip("/") or "/"
     method = environ.get("REQUEST_METHOD", "GET").upper()
 
+    # Health probe (no auth, no base-path prefix needed).
     if path == "/healthz":
         start_response("200 OK", [("Content-Type", "text/plain; charset=utf-8")])
         return [b"ok"]
 
+    # Root redirect.
     if path == "/" and BASE_PATH != "":
         start_response("302 Found", [("Location", BASE_PATH)])
         return [b""]
 
+    # ---- Harness home form ------------------------------------------------
     if path == BASE_PATH and method == "GET":
         start_response("200 OK", [("Content-Type", "text/html; charset=utf-8")])
         return [_html_page(_form())]
 
+    # ---- Compare run (POST) -----------------------------------------------
     if path == f"{BASE_PATH}/run" and method == "POST":
         try:
             size = int(environ.get("CONTENT_LENGTH") or "0")
@@ -306,13 +416,37 @@ def app(environ, start_response):
         start_response("200 OK", headers)
         return [_html_page(_render_results(result_id, catalog, checks, oracle_doc, specify_doc))]
 
+    # ---- Specify schema API -----------------------------------------------
+    if path == f"{BASE_PATH}/api/specify-schema" and method == "GET":
+        try:
+            schema = _get_specify_schema()
+        except Exception as exc:  # noqa: BLE001
+            start_response("502 Bad Gateway", [("Content-Type", "application/json")])
+            return [json.dumps({"error": str(exc)}).encode("utf-8")]
+        qs = parse_qs(environ.get("QUERY_STRING", ""))
+        pretty = (qs.get("pretty") or ["0"])[0] in {"1", "true", "yes"}
+        # Allow SPA (same origin) to always get fresh schema on force refresh.
+        force = (qs.get("force") or ["0"])[0] in {"1", "true", "yes"}
+        if force:
+            global _SPECIFY_SCHEMA_CACHE
+            _SPECIFY_SCHEMA_CACHE = None
+            schema = _get_specify_schema()
+        body = json.dumps(schema, indent=2 if pretty else None, ensure_ascii=False).encode("utf-8")
+        start_response("200 OK", [
+            ("Content-Type", "application/json; charset=utf-8"),
+            ("Access-Control-Allow-Origin", "*"),
+        ])
+        return [body]
+
+    # ---- Per-result JSON exports ------------------------------------------
     if path.startswith(f"{BASE_PATH}/result/") and method == "GET":
         if not _is_authorized(environ):
             start_response("401 Unauthorized", [("Content-Type", "text/plain; charset=utf-8")])
             return [b"unauthorized"]
 
-        suffix = path[len(f"{BASE_PATH}/result/") :]
+        suffix = path[len(f"{BASE_PATH}/result/"):]
         parts = [p for p in suffix.split("/") if p]
+
         if len(parts) == 1:
             rid = parts[0]
             result = RESULTS.get(rid)
@@ -322,20 +456,29 @@ def app(environ, start_response):
             checks = [mc.CheckResult(name=c["name"], status=c["status"], detail=c.get("detail", "")) for c in result["checks"]]
             start_response("200 OK", [("Content-Type", "text/html; charset=utf-8")])
             return [_html_page(_render_results(rid, result["catalog"], checks, result["oracle"], result["specify"]))]
-        if len(parts) == 2 and parts[1] in {
+
+        _RESULT_KINDS = {
             "oracle.json",
             "specify.json",
             "checks.json",
             "oracle-values.json",
             "specify-values.json",
             "value-index.json",
-        }:
+            "oracle-path-outline.json",
+            "specify-path-outline.json",
+            "path-outline.json",
+        }
+        if len(parts) == 2 and parts[1] in _RESULT_KINDS:
             rid = parts[0]
             result = RESULTS.get(rid)
             if not result:
                 start_response("404 Not Found", [("Content-Type", "text/plain; charset=utf-8")])
                 return [b"result not found"]
             kind = parts[1]
+            qs = parse_qs(environ.get("QUERY_STRING", ""))
+            pretty = (qs.get("pretty") or ["0"])[0] in {"1", "true", "yes"}
+            generalize = (qs.get("generalize") or ["0"])[0] in {"1", "true", "yes"}
+
             if kind == "oracle.json":
                 obj = result["oracle"]
             elif kind == "specify.json":
@@ -346,6 +489,17 @@ def app(environ, start_response):
                 obj = build_value_index(result["oracle"])
             elif kind == "specify-values.json":
                 obj = build_value_index(result["specify"])
+            elif kind == "oracle-path-outline.json":
+                obj = build_path_outline(result["oracle"], generalize_array_indices=generalize)
+            elif kind == "specify-path-outline.json":
+                obj = build_path_outline(result["specify"], generalize_array_indices=generalize)
+            elif kind == "path-outline.json":
+                obj = build_path_outline_bundle(
+                    result["oracle"],
+                    result["specify"],
+                    catalog=result.get("catalog"),
+                    generalize_array_indices=generalize,
+                )
             else:
                 obj = {
                     "schema": "migration-harness/value-index-bundle/v1",
@@ -353,11 +507,21 @@ def app(environ, start_response):
                     "oracle": build_value_index(result["oracle"]),
                     "specify": build_value_index(result["specify"]),
                 }
-            qs = parse_qs(environ.get("QUERY_STRING", ""))
-            pretty = (qs.get("pretty") or ["0"])[0] in {"1", "true", "yes"}
+
             body = json.dumps(obj, ensure_ascii=False, indent=2 if pretty else None).encode("utf-8")
-            start_response("200 OK", [("Content-Type", "application/json; charset=utf-8")])
+            start_response("200 OK", [
+                ("Content-Type", "application/json; charset=utf-8"),
+                ("Access-Control-Allow-Origin", "*"),
+            ])
             return [body]
+
+    # ---- Mapping Studio SPA (static files) --------------------------------
+    explore_prefix = f"{BASE_PATH}/explore"
+    if path == explore_prefix or path.startswith(explore_prefix + "/"):
+        rel = path[len(explore_prefix):]  # "" or "/assets/foo.js"
+        if not rel:
+            rel = "/"
+        return _serve_static(environ, start_response, rel)
 
     start_response("404 Not Found", [("Content-Type", "text/plain; charset=utf-8")])
     return [b"not found"]
@@ -366,9 +530,8 @@ def app(environ, start_response):
 if __name__ == "__main__":
     print(f"migration-harness listening on {HOST}:{PORT} base={BASE_PATH}")
     if _waitress_serve is not None:
-        # Threaded server: wsgiref blocks all clients on one long /run request (504s on /).
+        # Threaded: wsgiref blocks all clients on one long /run request (504s on /).
         _waitress_serve(app, host=HOST, port=PORT, threads=max(1, WAITRESS_THREADS))
     else:
         with make_server(HOST, PORT, app) as srv:
             srv.serve_forever()
-

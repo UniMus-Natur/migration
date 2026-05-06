@@ -1,3 +1,16 @@
+# ---------------------------------------------------------------------------
+# Stage 1: build the Mapping Studio SPA
+# ---------------------------------------------------------------------------
+FROM node:20-slim AS spa-builder
+WORKDIR /spa
+COPY services/mapping-studio/package*.json ./
+RUN npm ci
+COPY services/mapping-studio/ ./
+RUN npm run build
+
+# ---------------------------------------------------------------------------
+# Stage 2: Python runtime (migration-harness)
+# ---------------------------------------------------------------------------
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -32,6 +45,9 @@ COPY services/migration-harness/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 COPY . /app
+
+# Embed the pre-built Mapping Studio SPA.
+COPY --from=spa-builder /spa/dist /app/services/mapping-studio/dist
 
 EXPOSE 8088
 
