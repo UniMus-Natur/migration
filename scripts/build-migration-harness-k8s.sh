@@ -16,6 +16,10 @@ BRANCH=$(git rev-parse --abbrev-ref HEAD)
 DESTINATION_REPO="ghcr.io/unimus-natur/migration-harness"
 GHCR_SECRET_NAME="ghcr-secret"
 DOCKERFILE_PATH="services/migration-harness/Dockerfile"
+KANIKO_REQUEST_CPU="${KANIKO_REQUEST_CPU:-250m}"
+KANIKO_REQUEST_MEMORY="${KANIKO_REQUEST_MEMORY:-512Mi}"
+KANIKO_LIMIT_CPU="${KANIKO_LIMIT_CPU:-500m}"
+KANIKO_LIMIT_MEMORY="${KANIKO_LIMIT_MEMORY:-1Gi}"
 
 if [ ! -z "$1" ]; then
     BRANCH="$1"
@@ -40,6 +44,7 @@ DESTINATION="$DESTINATION_REPO:$TAG"
 echo "🎯 Build Destination: $DESTINATION"
 echo "📍 Branch: $BRANCH"
 echo "📄 Dockerfile: $DOCKERFILE_PATH"
+echo "🧠 Resources: requests(cpu=$KANIKO_REQUEST_CPU,mem=$KANIKO_REQUEST_MEMORY) limits(cpu=$KANIKO_LIMIT_CPU,mem=$KANIKO_LIMIT_MEMORY)"
 
 if ! kubectl get secret $GHCR_SECRET_NAME >/dev/null 2>&1; then
     echo "❌ Error: Kubernetes secret '$GHCR_SECRET_NAME' not found."
@@ -90,11 +95,11 @@ spec:
       mountPath: /kaniko/.docker
     resources:
       requests:
-        memory: "2Gi"
-        cpu: "1000m"
+        memory: "$KANIKO_REQUEST_MEMORY"
+        cpu: "$KANIKO_REQUEST_CPU"
       limits:
-        memory: "4Gi"
-        cpu: "2000m"
+        memory: "$KANIKO_LIMIT_MEMORY"
+        cpu: "$KANIKO_LIMIT_CPU"
 EOF
 
 echo "⏳ Waiting for pod $POD_NAME to start..."
