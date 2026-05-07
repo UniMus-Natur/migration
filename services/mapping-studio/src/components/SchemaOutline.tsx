@@ -176,7 +176,7 @@ function ColRow({
 }) {
   return (
     <div style={s.colRow} title={`${tname}.${col.name} — ${col.type}`}>
-      <span style={{ ...s.dot, background: mappedEdge ? "#22c55e" : "#374151" }} />
+      <span style={{ ...s.dot, background: mappedEdge ? "var(--success)" : "var(--text-dim)" }} />
       <div style={s.colInfo}>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <span style={s.colName}>{col.name}</span>
@@ -216,17 +216,17 @@ const s = {
   container: { display: "flex", flexDirection: "column" as const, height: "100%", fontSize: 12 },
   header: {
     display: "flex", alignItems: "center", justifyContent: "space-between",
-    padding: "10px 12px 4px", borderBottom: "1px solid #21262d",
+    padding: "10px 12px 4px", borderBottom: "1px solid var(--border)",
   },
-  title: { fontWeight: 700, color: "#60a5fa", fontSize: 13 },
-  meta: { color: "#6b7280", fontSize: 11 },
+  title: { fontWeight: 700, color: "var(--accent)", fontSize: 13 },
+  meta: { color: "var(--text-muted)", fontSize: 11 },
   search: {
     margin: "6px 8px",
     padding: "4px 8px",
-    background: "#0f1117",
-    border: "1px solid #30363d",
+    background: "var(--bg-input)",
+    border: "1px solid var(--border)",
     borderRadius: 4,
-    color: "#e2e8f0",
+    color: "var(--text-main)",
     fontSize: 12,
     width: "calc(100% - 16px)",
   },
@@ -234,32 +234,32 @@ const s = {
   tableRow: {
     display: "flex", alignItems: "center", gap: 4,
     padding: "5px 8px", cursor: "pointer",
-    background: "#1e2530",
-    borderBottom: "1px solid #21262d",
+    background: "var(--bg-panel)",
+    borderBottom: "1px solid var(--border)",
     position: "relative" as const,
     userSelect: "none" as const,
   },
-  caret: { color: "#4b5563", width: 10, flexShrink: 0 },
-  tableName: { fontWeight: 600, color: "#e2e8f0", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
-  badge: { color: "#94a3b8", fontSize: 10, whiteSpace: "nowrap" as const },
+  caret: { color: "var(--text-dim)", width: 10, flexShrink: 0 },
+  tableName: { fontWeight: 600, color: "var(--text-main)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
+  badge: { color: "var(--text-muted)", fontSize: 10, whiteSpace: "nowrap" as const },
   miniBar: {
     position: "absolute" as const, bottom: 0, left: 0, height: 2,
-    background: "#22c55e", opacity: 0.6, transition: "width 0.3s",
+    background: "var(--success)", opacity: 0.6, transition: "width 0.3s",
   },
   colRow: {
     display: "flex", alignItems: "center", gap: 5,
     padding: "3px 8px 3px 22px",
-    borderBottom: "1px solid #1a2030",
+    borderBottom: "1px solid var(--border)",
   },
   dot: { width: 6, height: 6, borderRadius: "50%", flexShrink: 0 },
   colInfo: { flex: 1, overflow: "hidden" },
-  colName: { color: "#cbd5e1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
-  colType: { color: "#4b5563", fontSize: 10, fontFamily: "monospace" },
+  colName: { color: "var(--text-main)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
+  colType: { color: "var(--text-dim)", fontSize: 10, fontFamily: "monospace" },
   sourceGroup: { display: "flex", alignItems: "center", gap: 4, marginTop: 1 },
-  sourceInfo: { color: "#fbbf24", fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, cursor: "pointer" },
-  removeBtn: { background: "transparent", border: "none", color: "#64748b", cursor: "pointer", fontSize: 12, padding: "0 2px", lineHeight: 1 },
+  sourceInfo: { color: "var(--accent)", fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, cursor: "pointer" },
+  removeBtn: { background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 12, padding: "0 2px", lineHeight: 1 },
   addBtn: {
-    background: "transparent", border: "1px solid #374151", color: "#94a3b8",
+    background: "transparent", border: "1px solid var(--border)", color: "var(--text-muted)",
     borderRadius: 3, cursor: "pointer", padding: "0 5px", lineHeight: "16px",
     fontSize: 13, flexShrink: 0,
     transition: "border-color 0.15s, color 0.15s",

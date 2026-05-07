@@ -174,39 +174,23 @@ export default function App() {
 
   const handleAutoMap = async () => {
     if (!resultId) return;
-    try {
-      if (!schema) {
-        alert("Specify schema is not loaded yet. Please wait a moment.");
-        return;
-      }
-      const bundle = await fetchValueIndexBundle(resultId);
-      const { newEdges, stats } = performAutoMap(bundle, schema, store.edges);
-      
-      console.log("Auto-map finished:", stats);
+  const [theme, setTheme] = useState<"light" | "dark">(() => 
+    (localStorage.getItem("theme") as "light" | "dark") || "dark"
+  );
 
-      if (stats.added > 0) {
-        let currentStore = store;
-        for (const edge of newEdges) {
-          currentStore = addEdge(currentStore, edge);
-          // Also spawn them on the canvas automatically
-          addMappingToCanvas(edge as MappingEdge);
-        }
-        setStore(currentStore);
-        alert(`Auto-mapped ${stats.added} field(s) and added them to the board.`);
-      } else {
-        alert("No obvious new mappings found.");
-      }
-    } catch (e) {
-      alert(`Auto-map failed: ${e}`);
-    }
-  };
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme(t => t === "dark" ? "light" : "dark");
 
   return (
     <div style={styles.root}>
       <header style={styles.topbar}>
         <span style={styles.brand}>Mapping Studio</span>
         <div style={styles.resultPicker}>
-          <span style={{ color: "#94a3b8", marginRight: 6 }}>Result ID:</span>
+          <span style={{ color: "var(--text-muted)", marginRight: 6 }}>Result ID:</span>
           <input
             style={styles.input}
             value={pendingId}
@@ -217,18 +201,25 @@ export default function App() {
           <button style={styles.btn} onClick={handleLoadResult}>Load</button>
         </div>
         <div style={styles.topActions}>
-          <button style={{ ...styles.btn, background: "#059669" }} onClick={handleAutoMap} title="Auto-map fields with identical values">
+          <button 
+            style={{ ...styles.btn, background: "transparent", border: "1px solid var(--border)", color: "var(--text-main)" }} 
+            onClick={toggleTheme}
+            title="Toggle Light/Dark Mode"
+          >
+            {theme === "dark" ? "☀️" : "🌙"}
+          </button>
+          <button style={{ ...styles.btn, background: "var(--success)" }} onClick={handleAutoMap} title="Auto-map fields with identical values">
             Auto-map
           </button>
           <button style={styles.btn} onClick={() => exportJSON(store)} title="Export mappings JSON">
             Export JSON
           </button>
-          <button style={{ ...styles.btn, background: "#374151" }}
+          <button style={{ ...styles.btn, background: "var(--text-dim)" }}
             onClick={() => importRef.current?.click()} title="Import mappings JSON">
             Import JSON
           </button>
           <input ref={importRef} type="file" accept=".json" style={{ display: "none" }} onChange={handleImport} />
-          <span style={{ color: "#64748b", fontSize: 12, marginLeft: 8 }}>
+          <span style={{ color: "var(--text-muted)", fontSize: 12, marginLeft: 8 }}>
             {store.edges.length} mapping{store.edges.length !== 1 ? "s" : ""}
           </span>
         </div>
@@ -242,33 +233,8 @@ export default function App() {
       )}
 
       <div style={styles.panels}>
-        <aside style={styles.sidePanel}>
-          {schemaState === "loading" && <Spinner label="Loading schema…" />}
-          {schemaState === "ready" && schema && (
-            <SchemaOutline
-              schema={schema}
-              mappings={store.edges}
-              onAddNode={addSpecifyNode}
-              onShowMapping={addMappingToCanvas}
-              onRemoveMapping={onRemoveEdge}
-            />
-          )}
-          {schemaState === "idle" && <Placeholder text="Specify Schema" />}
-        </aside>
-
-        <main style={styles.canvasPanel}>
-          <MappingCanvas
-            nodes={rfNodes}
-            edges={rfEdges}
-            store={store}
-            onNodesChange={setRfNodes}
-            onEdgesChange={handleCanvasEdgesChange}
-            onMappingConfirmed={onMappingConfirmed}
-            onRemoveEdge={onRemoveEdge}
-          />
-        </main>
-
-        <aside style={styles.sidePanel}>
+        {/* Left: Oracle path explorer */}
+        <aside style={{ ...styles.sidePanel, borderRight: "1px solid var(--border)" }}>
           {!resultId && <Placeholder text="Load a result ID to explore Oracle paths" />}
           {resultId && outlineState === "loading" && <Spinner label="Loading Oracle outline…" />}
           {outlineState === "ready" && oracleOutline && (
@@ -280,6 +246,33 @@ export default function App() {
               onRemoveMapping={onRemoveEdge}
             />
           )}
+        </aside>
+
+        <main style={styles.canvasPanel}>
+          <MappingCanvas
+            nodes={rfNodes}
+            edges={rfEdges}
+            store={store}
+            onNodesChange={setRfNodes}
+            onEdgesChange={handleCanvasEdgesChange}
+            onMappingConfirmed={onMappingConfirmed}
+            onRemoveEdge={onRemoveEdge}
+            theme={theme}
+          />
+        </main>
+
+        <aside style={{ ...styles.sidePanel, borderLeft: "1px solid var(--border)", borderRight: "none" }}>
+          {schemaState === "loading" && <Spinner label="Loading schema…" />}
+          {schemaState === "ready" && schema && (
+            <SchemaOutline
+              schema={schema}
+              mappings={store.edges}
+              onAddNode={addSpecifyNode}
+              onShowMapping={addMappingToCanvas}
+              onRemoveMapping={onRemoveEdge}
+            />
+          )}
+          {schemaState === "idle" && <Placeholder text="Specify Schema" />}
         </aside>
       </div>
 
@@ -293,12 +286,12 @@ export default function App() {
 }
 
 function Spinner({ label }: { label: string }) {
-  return <div style={{ color: "#94a3b8", padding: 20, textAlign: "center" }}>{label}</div>;
+  return <div style={{ color: "var(--text-muted)", padding: 20, textAlign: "center" }}>{label}</div>;
 }
 
 function Placeholder({ text }: { text: string }) {
   return (
-    <div style={{ color: "#4b5563", padding: 24, textAlign: "center", fontSize: 13, lineHeight: 1.7 }}>
+    <div style={{ color: "var(--text-dim)", padding: 24, textAlign: "center", fontSize: 13, lineHeight: 1.7 }}>
       {text}
     </div>
   );
@@ -309,8 +302,8 @@ const styles = {
     display: "flex",
     flexDirection: "column" as const,
     height: "100vh",
-    background: "#0f1117",
-    color: "#e2e8f0",
+    background: "var(--bg-root)",
+    color: "var(--text-main)",
     overflow: "hidden",
   },
   topbar: {
@@ -319,32 +312,32 @@ const styles = {
     gap: 12,
     padding: "0 16px",
     height: 48,
-    background: "#161b22",
-    borderBottom: "1px solid #21262d",
+    background: "var(--bg-panel)",
+    borderBottom: "1px solid var(--border)",
     flexShrink: 0,
     flexWrap: "wrap" as const,
   },
   brand: {
     fontWeight: 700,
     fontSize: 15,
-    color: "#60a5fa",
+    color: "var(--accent)",
     letterSpacing: "0.02em",
     marginRight: 8,
   },
   resultPicker: { display: "flex", alignItems: "center", gap: 6 },
   topActions: { display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" },
   input: {
-    background: "#0f1117",
-    border: "1px solid #30363d",
+    background: "var(--bg-input)",
+    border: "1px solid var(--border)",
     borderRadius: 4,
-    color: "#e2e8f0",
+    color: "var(--text-main)",
     padding: "3px 8px",
     fontSize: 12,
     width: 260,
     fontFamily: "monospace",
   },
   btn: {
-    background: "#1d4ed8",
+    background: "var(--accent)",
     color: "#fff",
     border: "none",
     borderRadius: 4,
@@ -354,8 +347,8 @@ const styles = {
     fontWeight: 600,
   },
   errBanner: {
-    background: "#450a0a",
-    color: "#fca5a5",
+    background: "var(--error-bg)",
+    color: "var(--error-text)",
     padding: "4px 16px",
     fontSize: 12,
     flexShrink: 0,
@@ -370,8 +363,8 @@ const styles = {
     width: 300,
     minWidth: 240,
     flexShrink: 0,
-    background: "#161b22",
-    borderRight: "1px solid #21262d",
+    background: "var(--bg-panel)",
+    borderRight: "1px solid var(--border)",
     overflowY: "auto" as const,
     overflowX: "hidden" as const,
   },
@@ -383,8 +376,8 @@ const styles = {
   footer: {
     height: 120,
     flexShrink: 0,
-    background: "#161b22",
-    borderTop: "1px solid #21262d",
+    background: "var(--bg-panel)",
+    borderTop: "1px solid var(--border)",
     overflowX: "auto" as const,
     overflowY: "hidden" as const,
   },
