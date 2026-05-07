@@ -38,13 +38,11 @@ export default function App() {
     emptyStore(getResultIdFromUrl(), ""),
   );
 
-  // React Flow node/edge state lifted here so canvas + panels share it.
   const [rfNodes, setRfNodes] = useState<Node[]>([]);
   const [rfEdges, setRfEdges] = useState<Edge[]>([]);
 
   const importRef = useRef<HTMLInputElement>(null);
 
-  // Load Specify schema on mount (independent of result id).
   useEffect(() => {
     setSchemaState("loading");
     fetchSpecifySchema()
@@ -52,7 +50,6 @@ export default function App() {
       .catch((e) => { setSchemaErr(String(e)); setSchemaState("error"); });
   }, []);
 
-  // Load Oracle outline whenever result ID changes.
   useEffect(() => {
     if (!resultId) return;
     setOutlineState("loading");
@@ -64,7 +61,6 @@ export default function App() {
     setStore(loadStore(resultId, catalog));
   }, [resultId]);
 
-  // Synchronize store edges → React Flow edges (only for nodes already on canvas).
   useEffect(() => {
     const nodeIds = new Set(rfNodes.map((n) => n.id));
     const newRfEdges: Edge[] = [];
@@ -89,18 +85,15 @@ export default function App() {
     setRfEdges(newRfEdges);
   }, [store.edges, rfNodes]);
 
-  // Persist store whenever it changes.
   useEffect(() => {
     if (store.edges.length > 0 || store.result_id) saveStore(store);
   }, [store]);
 
-  // Sync rfEdges → store (called by canvas when edges change).
   const handleCanvasEdgesChange = useCallback(
     (edges: Edge[]) => { setRfEdges(edges); },
     [],
   );
 
-  // Add Oracle node from right panel click.
   const addOracleNode = useCallback((data: OracleNodeData) => {
     setRfNodes((prev) => {
       if (prev.some((n) => n.id === `oracle::${data.oracle_path}`)) return prev;
@@ -118,7 +111,6 @@ export default function App() {
     });
   }, []);
 
-  // Add Specify node from left panel click.
   const addSpecifyNode = useCallback((data: SpecifyNodeData) => {
     setRfNodes((prev) => {
       if (prev.some((n) => n.id === `specify::${data.specify_table}.${data.specify_column}`)) return prev;
@@ -136,7 +128,6 @@ export default function App() {
     });
   }, []);
 
-  // Called when user confirms a mapping edge in the canvas.
   const onMappingConfirmed = useCallback(
     (edge: Omit<MappingEdge, "id" | "created_at">) => {
       setStore((s) => addEdge(s, edge));
@@ -145,15 +136,12 @@ export default function App() {
   );
 
   const addMappingToCanvas = useCallback((mapping: MappingEdge) => {
-    // 1. Add Oracle node if missing.
     addOracleNode({
       label: mapping.oracle_path,
       oracle_path: mapping.oracle_path,
-      examples: [], // Will be empty if not already loaded, but that's okay for visual.
+      examples: [], 
       leaf_count: 0,
     });
-    // 2. Add Specify node if missing.
-    // We need to find the column type/nullability from schema if possible.
     const col = schema?.tables[mapping.specify_table]?.columns.find(c => c.name === mapping.specify_column);
     addSpecifyNode({
       label: `${mapping.specify_table}.${mapping.specify_column}`,
@@ -192,86 +180,17 @@ export default function App() {
         return;
       }
       const bundle = await fetchValueIndexBundle(resultId);
-      console.log("Auto-map: Loaded bundle for", resultId, "with", Object.keys(bundle.oracle.by_value).length, "Oracle values");
+      const { newEdges, stats } = performAutoMap(bundle, schema, store.edges);
       
-      const IGNORE_VALUES = new Set(["<null>", "", "0", "1", "true", "false", "[]", "{}", "none", "null", "undefined"]);
-      const IGNORE_COLUMNS = new Set(["version", "ordinal", "timestampcreated", "timestampmodified", "id", "collectionmemberid"]);
-      let added = 0;
-      let skipped_junk = 0;
-      let skipped_collision = 0;
-      let skipped_schema = 0;
+      console.log("Auto-map finished:", stats);
 
-      const newEdges: Omit<MappingEdge, "id" | "created_at">[] = [];
-
-      // Create a normalized map for Specify values
-      const specifyByNormalized = new Map<string, string[]>();
-      for (const [val, paths] of Object.entries(bundle.specify.by_value)) {
-        const norm = val.trim();
-        if (!specifyByNormalized.has(norm)) specifyByNormalized.set(norm, []);
-        specifyByNormalized.get(norm)!.push(...paths);
-      }
-
-      for (const [val, oraclePaths] of Object.entries(bundle.oracle.by_value)) {
-        const v = val.trim();
-        const vLower = v.toLowerCase();
-        if (IGNORE_VALUES.has(vLower)) { skipped_junk++; continue; }
-        if (v.length <= 2 && /^\d+$/.test(v)) { skipped_junk++; continue; }
-
-        const specifyPaths = specifyByNormalized.get(v);
-        if (!specifyPaths || specifyPaths.length === 0) continue;
-
-        // Heuristic: unique targets
-        const uniqueTargets = new Set(specifyPaths.map(p => {
-          const parts = p.split(".");
-          return parts.length >= 3 ? `${parts[1].replace(/\[.*\]$/, "")}.${parts[parts.length-1]}` : p;
-        }));
-        if (uniqueTargets.size > 5) { skipped_collision++; continue; }
-
-        for (const oPath of oraclePaths) {
-          if (oPath.startsWith("_meta")) continue;
-          for (const sPath of specifyPaths) {
-            if (sPath.startsWith("_meta")) continue;
-            const parts = sPath.split(".");
-            if (parts.length < 3) continue;
-
-            const tablePart = parts[1];
-            const table = tablePart.replace(/\[.*\]$/, "");
-            const col = parts[parts.length - 1];
-
-            if (IGNORE_COLUMNS.has(col.toLowerCase())) continue;
-
-            const tableSchema = schema.tables[table];
-            if (!tableSchema) { skipped_schema++; continue; }
-            const columnExists = tableSchema.columns.some((c) => c.name === col);
-            if (!columnExists) { skipped_schema++; continue; }
-
-            const exists = store.edges.some(
-              (e) => e.oracle_path === oPath && e.specify_table === table && e.specify_column === col,
-            );
-            if (!exists) {
-              newEdges.push({
-                oracle_path: oPath,
-                specify_table: table,
-                specify_column: col,
-                transform: "direct",
-                note: `Auto-mapped (matched value: ${v.slice(0, 30)}${v.length > 30 ? "…" : ""})`,
-                confirmed: false,
-              });
-              added++;
-            }
-          }
-        }
-      }
-
-      console.log(`Auto-map finished. Added: ${added}, Junk: ${skipped_junk}, Collisions: ${skipped_collision}, SchemaMismatch: ${skipped_schema}`);
-
-      if (added > 0) {
+      if (stats.added > 0) {
         let currentStore = store;
         for (const edge of newEdges) {
           currentStore = addEdge(currentStore, edge);
         }
         setStore(currentStore);
-        alert(`Auto-mapped ${added} field(s) based on identical values.`);
+        alert(`Auto-mapped ${stats.added} field(s).`);
       } else {
         alert("No obvious new mappings found.");
       }
@@ -282,7 +201,6 @@ export default function App() {
 
   return (
     <div style={styles.root}>
-      {/* Top bar */}
       <header style={styles.topbar}>
         <span style={styles.brand}>Mapping Studio</span>
         <div style={styles.resultPicker}>
@@ -314,7 +232,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* Status bar */}
       {(schemaState === "error" || outlineState === "error") && (
         <div style={styles.errBanner}>
           {schemaErr && <span>Schema: {schemaErr} </span>}
@@ -322,9 +239,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Main panels */}
       <div style={styles.panels}>
-        {/* Left: Specify schema outline */}
         <aside style={styles.sidePanel}>
           {schemaState === "loading" && <Spinner label="Loading schema…" />}
           {schemaState === "ready" && schema && (
@@ -339,7 +254,6 @@ export default function App() {
           {schemaState === "idle" && <Placeholder text="Specify Schema" />}
         </aside>
 
-        {/* Center: Mapping canvas */}
         <main style={styles.canvasPanel}>
           <MappingCanvas
             nodes={rfNodes}
@@ -352,7 +266,6 @@ export default function App() {
           />
         </main>
 
-        {/* Right: Oracle path explorer */}
         <aside style={styles.sidePanel}>
           {!resultId && <Placeholder text="Load a result ID to explore Oracle paths" />}
           {resultId && outlineState === "loading" && <Spinner label="Loading Oracle outline…" />}
@@ -368,7 +281,6 @@ export default function App() {
         </aside>
       </div>
 
-      {/* Bottom: Coverage matrix */}
       {schema && (
         <footer style={styles.footer}>
           <CoverageMatrix schema={schema} mappings={store.edges} />
@@ -390,9 +302,6 @@ function Placeholder({ text }: { text: string }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Inline styles (no CSS modules needed for a tool this size)
-// ---------------------------------------------------------------------------
 const styles = {
   root: {
     display: "flex",
