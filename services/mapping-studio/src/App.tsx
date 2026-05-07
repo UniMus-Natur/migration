@@ -34,6 +34,10 @@ export default function App() {
   const [schemaErr, setSchemaErr] = useState("");
   const [outlineErr, setOutlineErr] = useState("");
 
+  const [theme, setTheme] = useState<"light" | "dark">(() => 
+    (localStorage.getItem("theme") as "light" | "dark") || "dark"
+  );
+
   const [store, setStore] = useState<MappingStore>(() =>
     emptyStore(getResultIdFromUrl(), ""),
   );
@@ -42,6 +46,11 @@ export default function App() {
   const [rfEdges, setRfEdges] = useState<Edge[]>([]);
 
   const importRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("theme", theme);
+  }, [theme]);
 
   useEffect(() => {
     setSchemaState("loading");
@@ -172,18 +181,35 @@ export default function App() {
     e.target.value = "";
   };
 
+  const toggleTheme = () => setTheme(t => t === "dark" ? "light" : "dark");
+
   const handleAutoMap = async () => {
     if (!resultId) return;
-  const [theme, setTheme] = useState<"light" | "dark">(() => 
-    (localStorage.getItem("theme") as "light" | "dark") || "dark"
-  );
+    try {
+      if (!schema) {
+        alert("Specify schema is not loaded yet. Please wait a moment.");
+        return;
+      }
+      const bundle = await fetchValueIndexBundle(resultId);
+      const { newEdges, stats } = performAutoMap(bundle, schema, store.edges);
+      
+      console.log("Auto-map finished:", stats);
 
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("theme", theme);
-  }, [theme]);
-
-  const toggleTheme = () => setTheme(t => t === "dark" ? "light" : "dark");
+      if (stats.added > 0) {
+        let currentStore = store;
+        for (const edge of newEdges) {
+          currentStore = addEdge(currentStore, edge);
+          addMappingToCanvas(edge as MappingEdge);
+        }
+        setStore(currentStore);
+        alert(`Auto-mapped ${stats.added} field(s) and added them to the board.`);
+      } else {
+        alert("No obvious new mappings found.");
+      }
+    } catch (e) {
+      alert(`Auto-map failed: ${e}`);
+    }
+  };
 
   return (
     <div style={styles.root}>
@@ -233,7 +259,6 @@ export default function App() {
       )}
 
       <div style={styles.panels}>
-        {/* Left: Oracle path explorer */}
         <aside style={{ ...styles.sidePanel, borderRight: "1px solid var(--border)" }}>
           {!resultId && <Placeholder text="Load a result ID to explore Oracle paths" />}
           {resultId && outlineState === "loading" && <Spinner label="Loading Oracle outline…" />}

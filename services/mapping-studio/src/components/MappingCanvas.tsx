@@ -250,11 +250,19 @@ function CanvasHelp({ nodesCount }: { nodesCount: number }) {
   );
 }
 
-function transformColor(t: TransformKind): string {
-  const m: Record<TransformKind, string> = {
+function transformColor(t: string): string {
+  const m: Record<string, string> = {
     direct: "#22c55e",
     concat: "#f59e0b",
     lookup: "#818cf8",
+    derived: "#ec4899",
+    constant: "#94a3b8",
+    split: "#06b6d4",
+    custom: "#f97316",
+  };
+  return m[t] ?? "#94a3b8";
+}
+
 // ---------------------------------------------------------------------------
 // Styles for Nodes & Dialog
 // ---------------------------------------------------------------------------
@@ -374,3 +382,4 @@ const ds = {
     fontWeight: 600,
   },
 };
+
