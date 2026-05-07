@@ -1,4 +1,4 @@
-import type { MappingEdge, MappingStore, ValueIndexBundle, SpecifySchema } from "./types";
+import type { MappingEdge, ValueIndexBundle, SpecifySchema } from "./types";
 
 export interface AutoMapResult {
   newEdges: Omit<MappingEdge, "id" | "created_at">[];
@@ -24,7 +24,6 @@ export function performAutoMap(
   let skipped_schema = 0;
   const newEdges: Omit<MappingEdge, "id" | "created_at">[] = [];
 
-  // Create a normalized map for Specify values
   const specifyByNormalized = new Map<string, string[]>();
   for (const [val, paths] of Object.entries(bundle.specify.by_value)) {
     const norm = val.trim();
@@ -41,12 +40,15 @@ export function performAutoMap(
     const specifyPaths = specifyByNormalized.get(v);
     if (!specifyPaths || specifyPaths.length === 0) continue;
 
-    // Heuristic: unique targets
     const uniqueTargets = new Set(specifyPaths.map(p => {
       const parts = p.split(".");
       return parts.length >= 3 ? `${parts[1].replace(/\[.*\]$/, "")}.${parts[parts.length - 1]}` : p;
     }));
-    if (uniqueTargets.size > 5) { skipped_collision++; continue; }
+    
+    if (uniqueTargets.size > 5) {
+      skipped_collision++; 
+      continue; 
+    }
 
     for (const oPath of oraclePaths) {
       if (oPath.startsWith("_meta")) continue;
@@ -61,35 +63,34 @@ export function performAutoMap(
 
         if (IGNORE_COLUMNS.has(col.toLowerCase())) continue;
 
-        // Find table case-insensitively
         const tableLower = table.toLowerCase();
         const realTableName = Object.keys(schema.tables).find((t) => t.toLowerCase() === tableLower);
         if (!realTableName) {
-          console.log(`Auto-map: Table not found in schema: ${table}`);
+          if (added < 20) console.log(`Auto-map: Table '${table}' (from path ${sPath}) not found in schema`);
           skipped_schema++; 
           continue; 
         }
 
         const tableSchema = schema.tables[realTableName];
-        
-        // Match columns case-insensitively
         const colLower = col.toLowerCase();
         const matchedCol = tableSchema.columns.find((c) => c.name.toLowerCase() === colLower);
         if (!matchedCol) {
-          console.log(`Auto-map: Column ${col} not found in table ${realTableName}`);
+          if (added < 20) console.log(`Auto-map: Column '${col}' not found in table '${realTableName}' (path: ${sPath})`);
           skipped_schema++; 
           continue; 
         }
 
-        const targetCol = matchedCol.name; // Use the actual case from the schema for the mapping
+        const targetCol = matchedCol.name; 
         const genOraclePath = oPath.replace(/\[\d+\]/g, "[*]");
         const exists = existingEdges.some(
-          (e) => e.oracle_path === genOraclePath && e.specify_table === table && e.specify_column === targetCol,
+          (e) => e.oracle_path === genOraclePath && e.specify_table === realTableName && e.specify_column === targetCol,
         );
+        
         if (!exists) {
+          console.log(`Auto-map: SUCCESS! Found match: ${genOraclePath} -> ${realTableName}.${targetCol} (value: ${v})`);
           newEdges.push({
             oracle_path: genOraclePath,
-            specify_table: table,
+            specify_table: realTableName,
             specify_column: targetCol,
             transform: "direct",
             note: `Auto-mapped (matched value: ${v.slice(0, 30)}${v.length > 30 ? "…" : ""})`,
