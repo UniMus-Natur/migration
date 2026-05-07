@@ -108,6 +108,7 @@ function BucketGroup({
   mapped,
   onAddNode,
   onShowMapping,
+  onRemoveMapping,
 }: {
   bucket: string;
   paths: FlatPath[];
@@ -151,6 +152,7 @@ function PathRow({
   mappedEdges,
   onAdd,
   onShowMapping,
+  onRemoveMapping,
 }: {
   fp: FlatPath;
   mappedEdges: MappingEdge[];

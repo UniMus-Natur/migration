@@ -102,6 +102,7 @@ function TableRow({
   onToggle,
   onAddNode,
   onShowMapping,
+  onRemoveMapping,
 }: {
   tname: string;
   table: SpecifySchema["tables"][string];
@@ -164,6 +165,7 @@ function ColRow({
   mappedEdge,
   onAdd,
   onShowMapping,
+  onRemoveMapping,
 }: {
   tname: string;
   col: SpecifyColumn;
