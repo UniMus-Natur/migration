@@ -187,30 +187,41 @@ export default function App() {
     if (!resultId) return;
     try {
       const bundle = await fetchValueIndexBundle(resultId);
-      const IGNORE_VALUES = new Set(["<null>", "", "0", "1", "true", "false", "[]", "{}"]);
+      const IGNORE_VALUES = new Set(["<null>", "", "0", "1", "true", "false", "[]", "{}", "none", "null", "undefined"]);
+      const IGNORE_COLUMNS = new Set(["version", "ordinal", "timestampcreated", "timestampmodified", "id", "collectionmemberid"]);
       let added = 0;
 
       const newEdges: Omit<MappingEdge, "id" | "created_at">[] = [];
 
       for (const [val, oraclePaths] of Object.entries(bundle.oracle.by_value)) {
-        if (IGNORE_VALUES.has(val.toLowerCase())) continue;
+        const v = val.trim();
+        const vLower = v.toLowerCase();
+        if (IGNORE_VALUES.has(vLower)) continue;
+        if (v.length <= 2 && /^\d+$/.test(v)) continue; // Ignore small integers
+
         const specifyPaths = bundle.specify.by_value[val];
-        if (!specifyPaths) continue;
+        if (!specifyPaths || specifyPaths.length === 0) continue;
+
+        // Heuristic: if a value matches too many different Specify targets, it's likely "junk" (like a common year or flag)
+        const uniqueTargets = new Set(specifyPaths.map(p => {
+          const parts = p.split(".");
+          return parts.length >= 3 ? `${parts[1].replace(/\[.*\]$/, "")}.${parts[parts.length-1]}` : p;
+        }));
+        if (uniqueTargets.size > 3) continue;
 
         for (const oPath of oraclePaths) {
           if (oPath.startsWith("_meta")) continue;
           for (const sPath of specifyPaths) {
             if (sPath.startsWith("_meta")) continue;
-            // sPath format is usually "tables.tableName[0].columnName"
             const parts = sPath.split(".");
             if (parts.length < 3) continue;
 
-            const tablePart = parts[1]; // e.g. "collectionobject[0]"
+            const tablePart = parts[1];
             const table = tablePart.replace(/\[.*\]$/, "");
-            const col = parts[parts.length - 1]; // e.g. "lastmodifiedby"
+            const col = parts[parts.length - 1];
 
-            // Verify that this column actually exists in the schema.
-            // If it's a virtual/parsed field (like _text3_json.dataset), it won't be in the schema.
+            if (IGNORE_COLUMNS.has(col.toLowerCase())) continue;
+
             const tableSchema = schema?.tables[table];
             if (!tableSchema) continue;
             const columnExists = tableSchema.columns.some((c) => c.name === col);
@@ -225,7 +236,7 @@ export default function App() {
                 specify_table: table,
                 specify_column: col,
                 transform: "direct",
-                note: `Auto-mapped (matched value: ${val.slice(0, 20)}${val.length > 20 ? "…" : ""})`,
+                note: `Auto-mapped (matched value: ${v.slice(0, 30)}${v.length > 30 ? "…" : ""})`,
                 confirmed: false,
               });
               added++;
