@@ -188,9 +188,11 @@ export default function App() {
         let currentStore = store;
         for (const edge of newEdges) {
           currentStore = addEdge(currentStore, edge);
+          // Also spawn them on the canvas automatically
+          addMappingToCanvas(edge as MappingEdge);
         }
         setStore(currentStore);
-        alert(`Auto-mapped ${stats.added} field(s).`);
+        alert(`Auto-mapped ${stats.added} field(s) and added them to the board.`);
       } else {
         alert("No obvious new mappings found.");
       }
