@@ -209,6 +209,13 @@ export default function App() {
             const table = tablePart.replace(/\[.*\]$/, "");
             const col = parts[parts.length - 1]; // e.g. "lastmodifiedby"
 
+            // Verify that this column actually exists in the schema.
+            // If it's a virtual/parsed field (like _text3_json.dataset), it won't be in the schema.
+            const tableSchema = schema?.tables[table];
+            if (!tableSchema) continue;
+            const columnExists = tableSchema.columns.some((c) => c.name === col);
+            if (!columnExists) continue;
+
             const exists = store.edges.some(
               (e) => e.oracle_path === oPath && e.specify_table === table && e.specify_column === col,
             );
