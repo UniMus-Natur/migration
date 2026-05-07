@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { SpecifySchema, PathOutline, MappingStore, MappingEdge, OracleNodeData, SpecifyNodeData, ValueIndexBundle } from "./types";
 import { fetchSpecifySchema, fetchOraclePathOutline, fetchValueIndexBundle } from "./api";
+import { performAutoMap } from "./automap-logic";
 import { loadStore, saveStore, emptyStore, addEdge, removeEdge, exportJSON, importJSON } from "./store";
 import SchemaOutline from "./components/SchemaOutline";
 import OracleExplorer from "./components/OracleExplorer";
