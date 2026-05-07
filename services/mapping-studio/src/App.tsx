@@ -193,21 +193,29 @@ export default function App() {
 
       const newEdges: Omit<MappingEdge, "id" | "created_at">[] = [];
 
+      // Create a normalized map for Specify values
+      const specifyByNormalized = new Map<string, string[]>();
+      for (const [val, paths] of Object.entries(bundle.specify.by_value)) {
+        const norm = val.trim();
+        if (!specifyByNormalized.has(norm)) specifyByNormalized.set(norm, []);
+        specifyByNormalized.get(norm)!.push(...paths);
+      }
+
       for (const [val, oraclePaths] of Object.entries(bundle.oracle.by_value)) {
         const v = val.trim();
         const vLower = v.toLowerCase();
         if (IGNORE_VALUES.has(vLower)) continue;
-        if (v.length <= 2 && /^\d+$/.test(v)) continue; // Ignore small integers
+        if (v.length <= 2 && /^\d+$/.test(v)) continue;
 
-        const specifyPaths = bundle.specify.by_value[val];
+        const specifyPaths = specifyByNormalized.get(v);
         if (!specifyPaths || specifyPaths.length === 0) continue;
 
-        // Heuristic: if a value matches too many different Specify targets, it's likely "junk" (like a common year or flag)
+        // Heuristic: unique targets
         const uniqueTargets = new Set(specifyPaths.map(p => {
           const parts = p.split(".");
           return parts.length >= 3 ? `${parts[1].replace(/\[.*\]$/, "")}.${parts[parts.length-1]}` : p;
         }));
-        if (uniqueTargets.size > 3) continue;
+        if (uniqueTargets.size > 5) continue; // Slightly more relaxed threshold
 
         for (const oPath of oraclePaths) {
           if (oPath.startsWith("_meta")) continue;
