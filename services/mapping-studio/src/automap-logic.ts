@@ -63,18 +63,22 @@ export function performAutoMap(
 
         const tableSchema = schema.tables[table];
         if (!tableSchema) { skipped_schema++; continue; }
-        const columnExists = tableSchema.columns.some((c) => c.name === col);
-        if (!columnExists) { skipped_schema++; continue; }
+        
+        // Match columns case-insensitively
+        const colLower = col.toLowerCase();
+        const matchedCol = tableSchema.columns.find((c) => c.name.toLowerCase() === colLower);
+        if (!matchedCol) { skipped_schema++; continue; }
 
+        const targetCol = matchedCol.name; // Use the actual case from the schema for the mapping
         const genOraclePath = oPath.replace(/\[\d+\]/g, "[*]");
         const exists = existingEdges.some(
-          (e) => e.oracle_path === genOraclePath && e.specify_table === table && e.specify_column === col,
+          (e) => e.oracle_path === genOraclePath && e.specify_table === table && e.specify_column === targetCol,
         );
         if (!exists) {
           newEdges.push({
             oracle_path: genOraclePath,
             specify_table: table,
-            specify_column: col,
+            specify_column: targetCol,
             transform: "direct",
             note: `Auto-mapped (matched value: ${v.slice(0, 30)}${v.length > 30 ? "…" : ""})`,
             confirmed: false,
