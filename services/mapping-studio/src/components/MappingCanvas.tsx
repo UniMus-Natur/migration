@@ -4,7 +4,6 @@ import {
   Background,
   Controls,
   MiniMap,
-  addEdge,
   Handle,
   Position,
   type Node,
@@ -18,7 +17,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import type { MappingEdge, OracleNodeData, SpecifyNodeData, TransformKind } from "../types";
+import type { MappingEdge, OracleNodeData, SpecifyNodeData, TransformKind, MappingStore } from "../types";
 
 // ---------------------------------------------------------------------------
 // Custom node: Oracle source
@@ -50,65 +49,10 @@ function SpecifyNode({ data }: NodeProps) {
   );
 }
 
-const nodeTypes = { oracleNode: OracleNode, specifyNode: SpecifyNode };
-
-// ---------------------------------------------------------------------------
-// Transform label dialog
-// ---------------------------------------------------------------------------
-interface DialogState {
-  connection: Connection;
-}
-
-const TRANSFORMS: TransformKind[] = ["direct", "concat", "lookup", "derived", "constant", "split", "custom"];
-
-function TransformDialog({
-  state,
-  onConfirm,
-  onCancel,
-}: {
-  state: DialogState;
-  onConfirm: (transform: TransformKind, note: string) => void;
-  onCancel: () => void;
-}) {
-  const [transform, setTransform] = useState<TransformKind>("direct");
-  const [note, setNote] = useState("");
-
-  return (
-    <div style={ds.overlay}>
-      <div style={ds.dialog}>
-        <h3 style={ds.title}>Define mapping</h3>
-        <p style={ds.sub}>
-          <b>{state.connection.source?.replace("oracle::", "")}</b>
-          <br />→ <b>{state.connection.target?.replace("specify::", "")}</b>
-        </p>
-        <label style={ds.label}>Transform</label>
-        <select
-          style={ds.select}
-          value={transform}
-          onChange={(e) => setTransform(e.target.value as TransformKind)}
-        >
-          {TRANSFORMS.map((t) => (
-            <option key={t} value={t}>{t}</option>
-          ))}
-        </select>
-        <label style={ds.label}>Note (optional)</label>
-        <textarea
-          style={ds.textarea}
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder="Any migration note, rule, or transform expression…"
-          rows={3}
-        />
-        <div style={ds.btns}>
-          <button style={ds.cancel} onClick={onCancel}>Cancel</button>
-          <button style={ds.confirm} onClick={() => onConfirm(transform, note)}>
-            Save Mapping
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+const nodeTypes = {
+  oracleNode: OracleNode,
+  specifyNode: SpecifyNode,
+};
 
 // ---------------------------------------------------------------------------
 // Main canvas
@@ -116,7 +60,8 @@ function TransformDialog({
 interface Props {
   nodes: Node[];
   edges: Edge[];
-  store: { edges: MappingEdge[] };
+  store: MappingStore;
+  theme: "light" | "dark";
   onNodesChange: (nodes: Node[]) => void;
   onEdgesChange: (edges: Edge[]) => void;
   onMappingConfirmed: (edge: Omit<MappingEdge, "id" | "created_at">) => void;
@@ -126,12 +71,16 @@ interface Props {
 export default function MappingCanvas({
   nodes,
   edges,
+  store,
+  theme,
   onNodesChange,
   onEdgesChange,
   onMappingConfirmed,
   onRemoveEdge,
 }: Props) {
-  const [dialog, setDialog] = useState<DialogState | null>(null);
+  const [pendingEdge, setPendingEdge] = useState<Connection | null>(null);
+  const [transform, setTransform] = useState<TransformKind>("direct");
+  const [note, setNote] = useState("");
 
   const handleNodesChange: OnNodesChange = useCallback(
     (changes) => onNodesChange(applyNodeChanges(changes, nodes)),
@@ -141,7 +90,6 @@ export default function MappingCanvas({
   const handleEdgesChange: OnEdgesChange = useCallback(
     (changes) => {
       const next = applyEdgeChanges(changes, edges);
-      // Detect removed edges and notify store.
       const removedIds = new Set(edges.map((e) => e.id));
       next.forEach((e) => removedIds.delete(e.id));
       removedIds.forEach((id) => onRemoveEdge(id));
@@ -150,106 +98,101 @@ export default function MappingCanvas({
     [edges, onEdgesChange, onRemoveEdge],
   );
 
-  const onConnect = useCallback(
-    (connection: Connection) => {
-      // Only allow oracle → specify edges.
-      if (
-        !connection.source?.startsWith("oracle::") ||
-        !connection.target?.startsWith("specify::")
-      )
-        return;
-      setDialog({ connection });
-    },
-    [],
-  );
+  const onConnect = useCallback((connection: Connection) => {
+    setPendingEdge(connection);
+    setTransform("direct");
+    setNote("");
+  }, []);
 
-  const confirmMapping = useCallback(
-    (transform: TransformKind, note: string) => {
-      if (!dialog) return;
-      const { source, target } = dialog.connection;
-      const oraclePath = source!.replace("oracle::", "");
-      const specify = target!.replace("specify::", ""); // "table.column"
-      const [specify_table, specify_column] = specify.split(".");
+  const handleConfirm = () => {
+    if (!pendingEdge?.source || !pendingEdge?.target) return;
 
-      // Add RF edge.
-      const newEdge: Edge = {
-        id: `edge-${source}-${target}`,
-        source: source!,
-        target: target!,
-        label: transform,
-        animated: transform === "direct",
-        style: { stroke: transformColor(transform), strokeWidth: 2 },
-        labelStyle: { fill: "#e2e8f0", fontSize: 10 },
-        labelBgStyle: { fill: "#1e2530", fillOpacity: 0.9 },
-      };
-      onEdgesChange(addEdge(newEdge, edges));
+    const oracle_path = pendingEdge.source.replace("oracle::", "");
+    const specify_full = pendingEdge.target.replace("specify::", "");
+    const [specify_table, specify_column] = specify_full.split(".");
 
-      // Notify parent (store).
-      onMappingConfirmed({
-        oracle_path: oraclePath,
-        specify_table,
-        specify_column,
-        transform,
-        note,
-        confirmed: true,
-      });
-      setDialog(null);
-    },
-    [dialog, edges, onEdgesChange, onMappingConfirmed],
-  );
+    onMappingConfirmed({
+      oracle_path,
+      specify_table,
+      specify_column,
+      transform,
+      note,
+      confirmed: true,
+    });
+    setPendingEdge(null);
+  };
 
   return (
-    <div style={{ width: "100%", height: "100%", position: "relative" }}>
+    <div style={{ width: "100%", height: "100%" }}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        nodeTypes={nodeTypes}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
+        nodeTypes={nodeTypes}
+        colorMode={theme}
         fitView
-        fitViewOptions={{ padding: 0.2 }}
-        colorMode="dark"
-        defaultEdgeOptions={{ style: { strokeWidth: 2 } }}
       >
-        <Background color="#21262d" gap={16} />
-        <Controls style={{ background: "#161b22", borderColor: "#30363d" }} />
-        <MiniMap
-          style={{ background: "#161b22", border: "1px solid #21262d" }}
-          nodeColor={(n) => (n.type === "oracleNode" ? "#f59e0b" : "#3b82f6")}
+        <Background color="var(--border)" gap={20} />
+        <Controls />
+        <MiniMap 
+          style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }} 
+          nodeColor={(n) => n.type === "oracleNode" ? "var(--accent)" : "var(--success)"}
         />
-        <CanvasHelp nodesCount={nodes.length} />
       </ReactFlow>
-      {dialog && (
-        <TransformDialog
-          state={dialog}
-          onConfirm={confirmMapping}
-          onCancel={() => setDialog(null)}
-        />
+
+      {pendingEdge && (
+        <div style={ds.overlay}>
+          <div style={ds.dialog}>
+            <h3 style={ds.title}>Define Transform</h3>
+            <p style={ds.sub}>
+              {pendingEdge.source?.replace("oracle::", "")} →{" "}
+              {pendingEdge.target?.replace("specify::", "")}
+            </p>
+
+            <label style={ds.label}>Transform Kind</label>
+            <select
+              style={ds.select}
+              value={transform}
+              onChange={(e) => setTransform(e.target.value as TransformKind)}
+            >
+              <option value="direct">Direct Copy</option>
+              <option value="concat">Concatenate</option>
+              <option value="lookup">Vocabulary Lookup</option>
+              <option value="derived">Derived (Expression)</option>
+              <option value="constant">Fixed Constant</option>
+              <option value="split">Split Source</option>
+              <option value="custom">Custom Logic</option>
+            </select>
+
+            <label style={ds.label}>Note / Rationale</label>
+            <textarea
+              style={ds.textarea}
+              rows={3}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="e.g. why this mapping is correct..."
+            />
+
+            <div style={ds.btns}>
+              <button style={ds.cancel} onClick={() => setPendingEdge(null)}>
+                Cancel
+              </button>
+              <button style={ds.confirm} onClick={handleConfirm}>
+                Confirm Mapping
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
-function CanvasHelp({ nodesCount }: { nodesCount: number }) {
-  if (nodesCount > 0) return null;
-  return (
-    <div
-      style={{
-        position: "absolute", top: "50%", left: "50%",
-        transform: "translate(-50%,-50%)",
-        color: "#4b5563", textAlign: "center", pointerEvents: "none",
-        lineHeight: 1.8, fontSize: 13,
-      }}
-    >
-      <div style={{ fontSize: 32, marginBottom: 8 }}>⬡</div>
-      Click <span style={{ color: "#60a5fa" }}>+</span> on a Specify field (left)<br />
-      or an Oracle path (right)<br />
-      to add nodes, then draw edges to map them.
-    </div>
-  );
-}
-
+// ---------------------------------------------------------------------------
+// Helper: Transform Colors
+// ---------------------------------------------------------------------------
 function transformColor(t: string): string {
   const m: Record<string, string> = {
     direct: "#22c55e",
@@ -266,7 +209,6 @@ function transformColor(t: string): string {
 // ---------------------------------------------------------------------------
 // Styles for Nodes & Dialog
 // ---------------------------------------------------------------------------
-
 const ns = {
   oracle: {
     padding: "10px 14px",
@@ -382,4 +324,3 @@ const ds = {
     fontWeight: 600,
   },
 };
-
