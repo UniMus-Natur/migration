@@ -30,9 +30,11 @@ export default function OracleExplorer({ outline, mappings, onAddNode, onShowMap
   const mapped = useMemo(() => {
     const m = new Map<string, MappingEdge[]>();
     for (const edge of mappings) {
-      const list = m.get(edge.oracle_path) ?? [];
+      // Normalize path for display (replace indices with [*])
+      const normPath = edge.oracle_path.replace(/\[\d+\]/g, "[*]");
+      const list = m.get(normPath) ?? [];
       list.push(edge);
-      m.set(edge.oracle_path, list);
+      m.set(normPath, list);
     }
     return m;
   }, [mappings]);

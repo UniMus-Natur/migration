@@ -66,12 +66,13 @@ export function performAutoMap(
         const columnExists = tableSchema.columns.some((c) => c.name === col);
         if (!columnExists) { skipped_schema++; continue; }
 
+        const genOraclePath = oPath.replace(/\[\d+\]/g, "[*]");
         const exists = existingEdges.some(
-          (e) => e.oracle_path === oPath && e.specify_table === table && e.specify_column === col,
+          (e) => e.oracle_path === genOraclePath && e.specify_table === table && e.specify_column === col,
         );
         if (!exists) {
           newEdges.push({
-            oracle_path: oPath,
+            oracle_path: genOraclePath,
             specify_table: table,
             specify_column: col,
             transform: "direct",
