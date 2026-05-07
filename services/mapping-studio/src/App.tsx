@@ -186,10 +186,19 @@ export default function App() {
   const handleAutoMap = async () => {
     if (!resultId) return;
     try {
+      if (!schema) {
+        alert("Specify schema is not loaded yet. Please wait a moment.");
+        return;
+      }
       const bundle = await fetchValueIndexBundle(resultId);
+      console.log("Auto-map: Loaded bundle for", resultId, "with", Object.keys(bundle.oracle.by_value).length, "Oracle values");
+      
       const IGNORE_VALUES = new Set(["<null>", "", "0", "1", "true", "false", "[]", "{}", "none", "null", "undefined"]);
       const IGNORE_COLUMNS = new Set(["version", "ordinal", "timestampcreated", "timestampmodified", "id", "collectionmemberid"]);
       let added = 0;
+      let skipped_junk = 0;
+      let skipped_collision = 0;
+      let skipped_schema = 0;
 
       const newEdges: Omit<MappingEdge, "id" | "created_at">[] = [];
 
@@ -204,8 +213,8 @@ export default function App() {
       for (const [val, oraclePaths] of Object.entries(bundle.oracle.by_value)) {
         const v = val.trim();
         const vLower = v.toLowerCase();
-        if (IGNORE_VALUES.has(vLower)) continue;
-        if (v.length <= 2 && /^\d+$/.test(v)) continue;
+        if (IGNORE_VALUES.has(vLower)) { skipped_junk++; continue; }
+        if (v.length <= 2 && /^\d+$/.test(v)) { skipped_junk++; continue; }
 
         const specifyPaths = specifyByNormalized.get(v);
         if (!specifyPaths || specifyPaths.length === 0) continue;
@@ -215,7 +224,7 @@ export default function App() {
           const parts = p.split(".");
           return parts.length >= 3 ? `${parts[1].replace(/\[.*\]$/, "")}.${parts[parts.length-1]}` : p;
         }));
-        if (uniqueTargets.size > 5) continue; // Slightly more relaxed threshold
+        if (uniqueTargets.size > 5) { skipped_collision++; continue; }
 
         for (const oPath of oraclePaths) {
           if (oPath.startsWith("_meta")) continue;
@@ -230,10 +239,10 @@ export default function App() {
 
             if (IGNORE_COLUMNS.has(col.toLowerCase())) continue;
 
-            const tableSchema = schema?.tables[table];
-            if (!tableSchema) continue;
+            const tableSchema = schema.tables[table];
+            if (!tableSchema) { skipped_schema++; continue; }
             const columnExists = tableSchema.columns.some((c) => c.name === col);
-            if (!columnExists) continue;
+            if (!columnExists) { skipped_schema++; continue; }
 
             const exists = store.edges.some(
               (e) => e.oracle_path === oPath && e.specify_table === table && e.specify_column === col,
@@ -252,6 +261,8 @@ export default function App() {
           }
         }
       }
+
+      console.log(`Auto-map finished. Added: ${added}, Junk: ${skipped_junk}, Collisions: ${skipped_collision}, SchemaMismatch: ${skipped_schema}`);
 
       if (added > 0) {
         let currentStore = store;
