@@ -61,13 +61,25 @@ export function performAutoMap(
 
         if (IGNORE_COLUMNS.has(col.toLowerCase())) continue;
 
-        const tableSchema = schema.tables[table];
-        if (!tableSchema) { skipped_schema++; continue; }
+        // Find table case-insensitively
+        const tableLower = table.toLowerCase();
+        const realTableName = Object.keys(schema.tables).find((t) => t.toLowerCase() === tableLower);
+        if (!realTableName) {
+          console.log(`Auto-map: Table not found in schema: ${table}`);
+          skipped_schema++; 
+          continue; 
+        }
+
+        const tableSchema = schema.tables[realTableName];
         
         // Match columns case-insensitively
         const colLower = col.toLowerCase();
         const matchedCol = tableSchema.columns.find((c) => c.name.toLowerCase() === colLower);
-        if (!matchedCol) { skipped_schema++; continue; }
+        if (!matchedCol) {
+          console.log(`Auto-map: Column ${col} not found in table ${realTableName}`);
+          skipped_schema++; 
+          continue; 
+        }
 
         const targetCol = matchedCol.name; // Use the actual case from the schema for the mapping
         const genOraclePath = oPath.replace(/\[\d+\]/g, "[*]");
