@@ -553,7 +553,7 @@ def _fetch_taxonomy(con, class_term_id: int) -> dict:
     ctx_rows = _try_query(con, f"SELECT * FROM {S}.CLASSIFICATION_TAXON WHERE CLASS_TERM_ID = :ctid", {"ctid": class_term_id}, "CLASSIFICATION_TAXON")
     if ctx_rows:
         result["CLASSIFICATION_TAXON"] = ctx_rows
-        t_ids = [r["taxon_id"] for r in ctx_rows if r.get("taxon_id")]
+        t_ids = [r["tax_id"] for r in ctx_rows if r.get("tax_id")]
         if t_ids:
             t_rows = _try_query(con, f"SELECT * FROM {S}.TAXON WHERE TAXON_ID IN {_in_list(t_ids)}", label="TAXON")
             result["TAXON"] = t_rows
