@@ -113,8 +113,9 @@ export default function App() {
     // Enrich with values if missing
     let examples = data.examples;
     if (bundle && examples.length === 0) {
+      const normPath = data.oracle_path.replace(/\[\*\]/g, "");
       examples = Object.entries(bundle.oracle.by_value)
-        .filter(([_, paths]) => paths.includes(data.oracle_path))
+        .filter(([_, paths]) => paths.some(p => p.replace(/\[\d+\]/g, "") === normPath))
         .map(([val]) => val);
     }
 
@@ -140,7 +141,7 @@ export default function App() {
     if (bundle && examples.length === 0) {
       const path = `${data.specify_table}.${data.specify_column}`;
       examples = Object.entries(bundle.specify.by_value)
-        .filter(([_, paths]) => paths.includes(path))
+        .filter(([_, paths]) => paths.some(p => p.replace(/\[\d+\]/g, "") === path))
         .map(([val]) => val);
     }
 
@@ -171,13 +172,14 @@ export default function App() {
     const col = schema?.tables[mapping.specify_table]?.columns.find(c => c.name === mapping.specify_column);
     
     // Look up values from bundle if available
+    const normOraclePath = mapping.oracle_path.replace(/\[\*\]/g, "");
     const oracleValues = bundle ? Object.entries(bundle.oracle.by_value)
-      .filter(([_, paths]) => paths.includes(mapping.oracle_path))
+      .filter(([_, paths]) => paths.some(p => p.replace(/\[\d+\]/g, "") === normOraclePath))
       .map(([val]) => val) : [];
     
-    const specifyPath = `${mapping.specify_table}.${mapping.specify_column}`;
+    const path = `${mapping.specify_table}.${mapping.specify_column}`;
     const specifyValues = bundle ? Object.entries(bundle.specify.by_value)
-      .filter(([_, paths]) => paths.includes(specifyPath))
+      .filter(([_, paths]) => paths.some(p => p.replace(/\[\d+\]/g, "") === path))
       .map(([val]) => val) : [];
 
     addOracleNode({
