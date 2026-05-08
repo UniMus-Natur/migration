@@ -217,7 +217,9 @@ const ns = {
     border: "2px solid var(--accent)",
     color: "var(--text-main)",
     fontSize: 12,
-    width: 220,
+    minWidth: 220,
+    maxWidth: 800,
+    width: "max-content",
     boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
   },
   specify: {
@@ -227,7 +229,9 @@ const ns = {
     border: "2px solid var(--success)",
     color: "var(--text-main)",
     fontSize: 12,
-    width: 220,
+    minWidth: 220,
+    maxWidth: 800,
+    width: "max-content",
     boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
   },
   handle: {
@@ -239,8 +243,6 @@ const ns = {
   label: {
     fontWeight: 700,
     whiteSpace: "nowrap" as const,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
     marginBottom: 4,
   },
   example: {
