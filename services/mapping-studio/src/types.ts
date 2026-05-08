@@ -131,5 +131,6 @@ export interface SpecifyNodeData {
   specify_column: string;
   col_type: string;
   nullable: boolean;
+  examples: string[];
   [key: string]: unknown;
 }

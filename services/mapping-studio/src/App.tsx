@@ -33,6 +33,8 @@ export default function App() {
   const [outlineState, setOutlineState] = useState<LoadState>("idle");
   const [schemaErr, setSchemaErr] = useState("");
   const [outlineErr, setOutlineErr] = useState("");
+ 
+  const [bundle, setBundle] = useState<ValueIndexBundle | null>(null);
 
   const [theme, setTheme] = useState<"light" | "dark">(() => 
     (localStorage.getItem("theme") as "light" | "dark") || "dark"
@@ -68,6 +70,10 @@ export default function App() {
 
     const catalog = new URLSearchParams(window.location.search).get("catalog") ?? "";
     setStore(loadStore(resultId, catalog));
+ 
+    fetchValueIndexBundle(resultId)
+      .then(setBundle)
+      .catch(console.error);
   }, [resultId]);
 
   useEffect(() => {
@@ -104,6 +110,14 @@ export default function App() {
   );
 
   const addOracleNode = useCallback((data: OracleNodeData) => {
+    // Enrich with values if missing
+    let examples = data.examples;
+    if (bundle && examples.length === 0) {
+      examples = Object.entries(bundle.oracle.by_value)
+        .filter(([_, paths]) => paths.includes(data.oracle_path))
+        .map(([val]) => val);
+    }
+
     setRfNodes((prev) => {
       if (prev.some((n) => n.id === `oracle::${data.oracle_path}`)) return prev;
       const x = 50;
@@ -114,13 +128,22 @@ export default function App() {
           id: `oracle::${data.oracle_path}`,
           type: "oracleNode",
           position: { x, y },
-          data,
+          data: { ...data, examples },
         },
       ];
     });
-  }, []);
+  }, [bundle]);
 
   const addSpecifyNode = useCallback((data: SpecifyNodeData) => {
+    // Enrich with values if missing
+    let examples = data.examples || [];
+    if (bundle && examples.length === 0) {
+      const path = `${data.specify_table}.${data.specify_column}`;
+      examples = Object.entries(bundle.specify.by_value)
+        .filter(([_, paths]) => paths.includes(path))
+        .map(([val]) => val);
+    }
+
     setRfNodes((prev) => {
       if (prev.some((n) => n.id === `specify::${data.specify_table}.${data.specify_column}`)) return prev;
       const x = 620;
@@ -131,11 +154,11 @@ export default function App() {
           id: `specify::${data.specify_table}.${data.specify_column}`,
           type: "specifyNode",
           position: { x, y },
-          data,
+          data: { ...data, examples },
         },
       ];
     });
-  }, []);
+  }, [bundle]);
 
   const onMappingConfirmed = useCallback(
     (edge: Omit<MappingEdge, "id" | "created_at">) => {
@@ -144,22 +167,33 @@ export default function App() {
     [],
   );
 
-  const addMappingToCanvas = useCallback((mapping: MappingEdge) => {
+    const col = schema?.tables[mapping.specify_table]?.columns.find(c => c.name === mapping.specify_column);
+    
+    // Look up values from bundle if available
+    const oracleValues = bundle ? Object.entries(bundle.oracle.by_value)
+      .filter(([_, paths]) => paths.includes(mapping.oracle_path))
+      .map(([val]) => val) : [];
+    
+    const specifyPath = `${mapping.specify_table}.${mapping.specify_column}`;
+    const specifyValues = bundle ? Object.entries(bundle.specify.by_value)
+      .filter(([_, paths]) => paths.includes(specifyPath))
+      .map(([val]) => val) : [];
+
     addOracleNode({
       label: mapping.oracle_path,
       oracle_path: mapping.oracle_path,
-      examples: [], 
+      examples: oracleValues, 
       leaf_count: 0,
     });
-    const col = schema?.tables[mapping.specify_table]?.columns.find(c => c.name === mapping.specify_column);
     addSpecifyNode({
       label: `${mapping.specify_table}.${mapping.specify_column}`,
       specify_table: mapping.specify_table,
       specify_column: mapping.specify_column,
       col_type: col?.type ?? "unknown",
       nullable: col?.nullable ?? true,
+      examples: specifyValues,
     });
-  }, [addOracleNode, addSpecifyNode, schema]);
+  }, [addOracleNode, addSpecifyNode, schema, bundle]);
 
   const onRemoveEdge = useCallback((edgeId: string) => {
     setStore((s) => removeEdge(s, edgeId));

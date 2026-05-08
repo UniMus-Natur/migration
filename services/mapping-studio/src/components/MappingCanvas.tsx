@@ -29,15 +29,16 @@ function OracleNode({ data }: NodeProps) {
       <Handle type="source" position={Position.Right} style={ns.handle} />
       <div style={ns.label} title={d.oracle_path}>{d.label}</div>
       {d.examples.length > 0 && (
-        <div style={ns.example}>{d.examples[0]}</div>
+        <div style={ns.valueContainer}>
+          {d.examples.map((val, i) => (
+            <div key={i} style={ns.example}>{val}</div>
+          ))}
+        </div>
       )}
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Custom node: Specify target
-// ---------------------------------------------------------------------------
 function SpecifyNode({ data }: NodeProps) {
   const d = data as SpecifyNodeData;
   return (
@@ -45,6 +46,13 @@ function SpecifyNode({ data }: NodeProps) {
       <Handle type="target" position={Position.Left} style={ns.handle} />
       <div style={ns.label} title={`${d.specify_table}.${d.specify_column}`}>{d.label}</div>
       <div style={ns.meta}>{d.col_type.replace(/\(.*\)/, "")} {d.nullable ? "?" : ""}</div>
+      {d.examples && d.examples.length > 0 && (
+        <div style={ns.valueContainer}>
+          {d.examples.map((val, i) => (
+            <div key={i} style={ns.example}>{val}</div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -244,6 +252,13 @@ const ns = {
     fontWeight: 700,
     whiteSpace: "nowrap" as const,
     marginBottom: 4,
+  },
+  valueContainer: {
+    maxHeight: 100,
+    overflowY: "auto" as const,
+    marginTop: 6,
+    borderTop: "1px solid var(--border)",
+    paddingTop: 4,
   },
   example: {
     fontSize: 10,
