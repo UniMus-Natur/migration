@@ -141,7 +141,7 @@ export default function App() {
     if (bundle && examples.length === 0) {
       const path = `${data.specify_table}.${data.specify_column}`;
       examples = Object.entries(bundle.specify.by_value)
-        .filter(([_, paths]) => paths.some(p => p.replace(/\[\d+\]/g, "") === path))
+        .filter(([_, paths]) => paths.some(p => p.replace(/\[\d+\]/g, "").replace(/^tables\./, "") === path))
         .map(([val]) => val);
     }
 
@@ -179,7 +179,7 @@ export default function App() {
     
     const path = `${mapping.specify_table}.${mapping.specify_column}`;
     const specifyValues = bundle ? Object.entries(bundle.specify.by_value)
-      .filter(([_, paths]) => paths.some(p => p.replace(/\[\d+\]/g, "") === path))
+      .filter(([_, paths]) => paths.some(p => p.replace(/\[\d+\]/g, "").replace(/^tables\./, "") === path))
       .map(([val]) => val) : [];
 
     addOracleNode({
