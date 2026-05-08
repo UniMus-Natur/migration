@@ -483,13 +483,61 @@ def _fetch_taxonomy(con, class_term_id: int) -> dict:
     rows = _try_query(con, f"SELECT * FROM {S}.CLASSIFICATION_TERM WHERE CLASS_TERM_ID = :ctid", {"ctid": class_term_id}, "CLASSIFICATION_TERM")
     result["CLASSIFICATION_TERM"] = rows[0] if rows else None
 
+    # CLASSTERM_LATIN_NAME links terms to formal latin names.
+    # Try both 'classterm_id' and 'class_term_id' as different versions of MUSIT use different underscores.
     ctl_rows = _try_query(con, f"SELECT * FROM {S}.CLASSTERM_LATIN_NAME WHERE CLASSTERM_ID = :ctid", {"ctid": class_term_id}, "CLASSTERM_LATIN_NAME")
+    if not ctl_rows:
+        ctl_rows = _try_query(con, f"SELECT * FROM {S}.CLASSTERM_LATIN_NAME WHERE CLASS_TERM_ID = :ctid", {"ctid": class_term_id}, "CLASSTERM_LATIN_NAME (fallback)")
     result["CLASSTERM_LATIN_NAME"] = ctl_rows
-
+ 
     ln_ids = [r["latin_name_id"] for r in ctl_rows if r.get("latin_name_id")]
+
+    # Cross-links between latin names (synonyms, hybrids etc.)
+    if not ln_ids:
+        # Heuristic fallback: if no formal link, try to find by string match on valid_classterm
+        ct = result.get("CLASSIFICATION_TERM") or {}
+        vct = ct.get("valid_classterm")
+        if vct:
+            # Try exact match first
+            name_clean = vct.strip()
+            ln_fallback = _try_query(con, f"SELECT * FROM {S}.LATIN_NAMES WHERE FULL_NAME_AUTHOR = :name OR FULL_NAME = :name", {"name": name_clean}, "LATIN_NAMES (exact fallback)")
+            
+            if not ln_fallback:
+                # Try normalization fallback: strip spaces and dots
+                # Note: This is a bit slow on Oracle but fine for single-object dumps.
+                ln_fallback = _try_query(
+                    con, 
+                    f"SELECT * FROM {S}.LATIN_NAMES WHERE LOWER(REPLACE(REPLACE(FULL_NAME_AUTHOR, ' ', ''), '.', '')) = LOWER(REPLACE(REPLACE(:name, ' ', ''), '.', ''))", 
+                    {"name": name_clean}, 
+                    "LATIN_NAMES (fuzzy fallback)"
+                )
+            
+            if ln_fallback:
+                result["LATIN_NAMES"] = ln_fallback
+                ln_ids = [r["latin_name_id"] for r in ln_fallback]
+
     if ln_ids:
-        ln_rows = _try_query(con, f"SELECT * FROM {S}.LATIN_NAMES WHERE LATIN_NAME_ID IN {_in_list(ln_ids)}", label="LATIN_NAMES")
-        result["LATIN_NAMES"] = ln_rows
+        if "LATIN_NAMES" not in result:
+            ln_rows = _try_query(con, f"SELECT * FROM {S}.LATIN_NAMES WHERE LATIN_NAME_ID IN {_in_list(ln_ids)}", label="LATIN_NAMES")
+            result["LATIN_NAMES"] = ln_rows
+        else:
+            ln_rows = result["LATIN_NAMES"]
+
+        # Walk up the tree to get full hierarchy
+        all_ln_rows = list(ln_rows)
+        seen_ln_ids = set(ln_ids)
+        to_resolve = [r["parent_latin_name_id"] for r in ln_rows if r.get("parent_latin_name_id") and r["parent_latin_name_id"] not in seen_ln_ids]
+        
+        while to_resolve:
+            p_rows = _try_query(con, f"SELECT * FROM {S}.LATIN_NAMES WHERE LATIN_NAME_ID IN {_in_list(to_resolve)}", label="LATIN_NAMES (parent walk)")
+            for pr in p_rows:
+                all_ln_rows.append(pr)
+                seen_ln_ids.add(pr["latin_name_id"])
+            
+            to_resolve = [r["parent_latin_name_id"] for r in p_rows if r.get("parent_latin_name_id") and r["parent_latin_name_id"] not in seen_ln_ids]
+        
+        result["LATIN_NAMES"] = all_ln_rows
+        ln_rows = all_ln_rows
 
         # Resolve AUTHORSTRINGS for each latin name's author_id
         author_ids = list({r["author_id"] for r in ln_rows if r.get("author_id")})
@@ -991,25 +1039,29 @@ def _fetch_digir_dwc(con, object_id: int, uuid: str | None) -> dict:
 
     # Try via UUID first (most likely accessible path)
     if uuid:
-        rows = _try_query(
-            con,
-            "SELECT * FROM DIGIR_MUSIT.DC_VASCULAR_FELLES WHERE LOWER(TRIM(UUID)) = LOWER(TRIM(:uuid))",
-            {"uuid": uuid},
-            "DIGIR_MUSIT.DC_VASCULAR_FELLES (by UUID)",
-        )
-        if rows:
-            result["DC_VASCULAR_FELLES"] = rows[0]
-
-    # Try via OBJECT_ID if UUID path didn't work
-    if "DC_VASCULAR_FELLES" not in result:
-        rows = _try_query(
-            con,
-            "SELECT * FROM DIGIR_MUSIT.DC_VASCULAR_FELLES WHERE OBJECT_ID = :oid",
-            {"oid": object_id},
-            "DIGIR_MUSIT.DC_VASCULAR_FELLES (by OBJECT_ID)",
-        )
-        if rows:
-            result["DC_VASCULAR_FELLES"] = rows[0]
+        # Attempt to find the record in collection-specific Darwin Core views (e.g. V_DC_O_VASCULAR)
+        # Get institution/collection codes from MUSEUM_OBJECT if possible, or try common patterns.
+        prefixes = ["V_DC_O_VASCULAR", "V_DC_TRH_VASCULAR", "V_DC_BG_VASCULAR", "V_DC_TROM_VASCULAR", "DC_VASCULAR_FELLES"]
+        for view_name in prefixes:
+            rows = _try_query(
+                con,
+                f"SELECT * FROM DIGIR_MUSIT.{view_name} WHERE LOWER(TRIM(UUID)) = LOWER(TRIM(:uuid))",
+                {"uuid": uuid},
+                f"DIGIR_MUSIT.{view_name} (by UUID)",
+            )
+            if rows:
+                result[view_name] = rows[0]
+                break
+            
+            rows = _try_query(
+                con,
+                f"SELECT * FROM DIGIR_MUSIT.{view_name} WHERE OBJECT_ID = :oid",
+                {"oid": object_id},
+                f"DIGIR_MUSIT.{view_name} (by OBJECT_ID)",
+            )
+            if rows:
+                result[view_name] = rows[0]
+                break
 
     return result
 
@@ -1161,7 +1213,7 @@ def main() -> None:
                 "catalog_number_input": catalog_input,
                 "object_id": oid,
                 "schema": S,
-                "extracted_at_utc": datetime.datetime.now(datetime.UTC).isoformat(),
+                "extracted_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 "env": args.env,
             },
             **obj_core,
