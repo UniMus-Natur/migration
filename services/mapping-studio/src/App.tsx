@@ -167,6 +167,7 @@ export default function App() {
     [],
   );
 
+  const addMappingToCanvas = useCallback((mapping: MappingEdge) => {
     const col = schema?.tables[mapping.specify_table]?.columns.find(c => c.name === mapping.specify_column);
     
     // Look up values from bundle if available

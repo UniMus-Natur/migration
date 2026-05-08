@@ -149,6 +149,7 @@ function TableRow({
                 specify_column: col.name,
                 col_type: col.type,
                 nullable: col.nullable,
+                examples: [],
               })
             }
             onShowMapping={onShowMapping}
