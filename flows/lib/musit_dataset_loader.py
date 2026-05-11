@@ -132,6 +132,12 @@ _SPECIMEN_SQL = """
       oa.same_sheet_as,
       oa.dublettes,
       oa.analysis_request,
+      oa.number_of_sheets,
+      oa.ex_herb,
+      oa.voucher,
+      oa.artsobs_nr,
+      mon.object_notes,
+      en.event_notes,
       ce.event_id,
       ce.collectiontype_id,
       ce.legname_orig,
@@ -183,18 +189,32 @@ _SPECIMEN_SQL = """
          JOIN {schema}.person_name pn
            ON pn.person_name_id = erpn.person_name_id
         WHERE erpn.event_id = cte.event_id
-      ) AS classification_person_name_actor_id
+      ) AS classification_person_name_actor_id,
+      cte.detname_orig,
+      cte.agg_personnames  AS det_agg_personnames
     FROM {schema}.v_object_attributes voa
     JOIN {schema}.object_attributes oa
       ON oa.object_id = voa.object_id
     JOIN {schema}.museum_object mo
       ON mo.object_id = voa.object_id
+    LEFT JOIN (
+      SELECT mon_in.object_id, LISTAGG(n_in.note_text, '; ') WITHIN GROUP (ORDER BY mon_in.museum_object_note_id) AS object_notes
+        FROM {schema}.museum_object_note mon_in
+        JOIN {schema}.note n_in ON n_in.note_id = mon_in.note_id
+       GROUP BY mon_in.object_id
+    ) mon ON mon.object_id = voa.object_id
     LEFT JOIN {schema}.event_museum_object emo
       ON emo.object_id = voa.object_id
     LEFT JOIN {schema}.event ev
       ON ev.event_id = emo.event_id
     LEFT JOIN {schema}.collecting_event ce
       ON ce.event_id = emo.event_id
+    LEFT JOIN (
+      SELECT en_in.event_id, LISTAGG(n_in.note_text, '; ') WITHIN GROUP (ORDER BY en_in.event_note_id) AS event_notes
+        FROM {schema}.event_note en_in
+        JOIN {schema}.note n_in ON n_in.note_id = en_in.note_id
+       GROUP BY en_in.event_id
+    ) en ON en.event_id = emo.event_id
     LEFT JOIN {schema}.timespan ts
       ON ts.timespan_id = ev.timespan_id
     LEFT JOIN {schema}.place_event_role por
@@ -1329,6 +1349,7 @@ def _write_one_object(
         verbatim_date = _trunc(first.get("time_as_text"), 50)
         verbatim_locality = _trunc(first.get("locality_text"), 255)
         collector_str = _trunc(first.get("agg_personnames") or first.get("legname_orig"), 255)
+        event_notes = first.get("event_notes")
 
         ce_guid = f"urn:oracle:{owner.lower()}:event:{first.get('event_id') or object_id}"[:128]
 
@@ -1346,8 +1367,15 @@ def _write_one_object(
             ce_kwargs["verbatimdate"] = verbatim_date
         if verbatim_locality:
             ce_kwargs["verbatimlocality"] = verbatim_locality
+
+        # Append event notes to remarks
+        ce_remarks_parts = []
         if collector_str:
-            ce_kwargs["remarks"] = collector_str
+            ce_remarks_parts.append(f"Collector: {collector_str}")
+        if event_notes:
+            ce_remarks_parts.append(f"Notes: {event_notes}")
+        if ce_remarks_parts:
+            ce_kwargs["remarks"] = _trunc("; ".join(ce_remarks_parts), 4000)
 
         if dry_run:
             stats.ce_created += 1
@@ -1386,16 +1414,44 @@ def _write_one_object(
                 stats.agent_unresolved += 1
 
         # 4. CollectionObject
+        # Build remarks from notes and audit info
+        co_remarks_parts = []
+        object_notes = first.get("object_notes")
+        if object_notes:
+            co_remarks_parts.append(f"Notes: {object_notes}")
+
+        audit_parts = []
+        if first.get("reg_user"):
+            audit_parts.append(f"Reg: {first.get('reg_user')}")
+        if first.get("korr_user"):
+            audit_parts.append(f"Korr: {first.get('korr_user')}")
+        if first.get("approve_user"):
+            audit_parts.append(f"Approve: {first.get('approve_user')}")
+        if audit_parts:
+            co_remarks_parts.append(f"Audit: {', '.join(audit_parts)}")
+
+        if first.get("uuid"):
+            co_remarks_parts.append(f"MUSIT UUID: {first.get('uuid')}")
+
         co = Collectionobject(
             catalognumber=_trunc(first.get("identifier_string"), 32),
             guid=f"urn:oracle:{owner.lower()}:object:{object_id}"[:128],
             collectingevent=ce,
             collection=collection,
             collectionmemberid=int(collection.id),
-            remarks=_trunc(first.get("uuid"), 128),
+            remarks=_trunc("; ".join(co_remarks_parts), 4000) if co_remarks_parts else None,
+            text1=_trunc(first.get("object_state"), 255),  # Phenology
+            text2=_trunc(first.get("project_name"), 255),  # Project
             text3=json_payload,
+            text4=_trunc(first.get("ex_herb"), 255),       # Ex Herbarium
+            text5=_trunc(first.get("voucher"), 255),       # Voucher
+            text6=_trunc(first.get("same_sheet_as"), 255), # Same sheet as
+            text7=_trunc(first.get("analysis_request"), 255), # Analysis request
             fieldnumber=_trunc(first.get("identifier_num"), 50),
+            altcatalognumber=_trunc(first.get("artsobs_nr"), 32),
+            countamt=first.get("number_of_sheets"),
         )
+
         # Object withheld → visibility flag (1=private, 0=public)
         withheld = first.get("object_withheld")
         if withheld is not None and str(withheld).strip().upper() in ("Y", "1", "TRUE"):
@@ -1541,6 +1597,10 @@ def _write_one_object(
                     determineddate=det_datetime,
                     determineddateprecision=(1 if det_datetime is not None else None),
                 )
+                if not determiner:
+                    det_verbatim = dr.get("det_agg_personnames") or dr.get("detname_orig")
+                    if det_verbatim:
+                        det.remarks = _trunc(f"Determiner (verbatim): {det_verbatim}", 4000)
                 det.save()
                 if det.iscurrent:
                     has_current = True
