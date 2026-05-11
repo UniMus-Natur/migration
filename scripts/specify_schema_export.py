@@ -196,16 +196,30 @@ _BLOCK_TRAVERSE = frozenset(
 )
 
 
+# Tables from which we follow INCOMING FKs (parent -> child) during the crawl.
+# This ensures that children like 'determination' and 'preparation' are included
+# even though they are not reachable via outgoing FKs from 'collectionobject'.
+_ALLOW_REVERSE = frozenset(
+    {
+        "collectionobject",
+        "collectingevent",
+        "determination",
+    }
+)
+
+
 def _reachable_tables(
     root: str,
     all_fks: list[dict[str, str]],
     *,
     max_hops: int = 5,
 ) -> set[str]:
-    """BFS over outgoing FKs from root, bounded by max_hops and block list."""
+    """BFS over FK graph from root, bounded by max_hops and block list."""
     outgoing: dict[str, set[str]] = defaultdict(set)
+    incoming: dict[str, set[str]] = defaultdict(set)
     for fk in all_fks:
         outgoing[fk["from_table"]].add(fk["to_table"])
+        incoming[fk["to_table"]].add(fk["from_table"])
 
     visited: set[str] = {root}
     q: deque[tuple[str, int]] = deque([(root, 0)])
@@ -215,10 +229,19 @@ def _reachable_tables(
             continue
         if table in _BLOCK_TRAVERSE:
             continue
+
+        # 1) Outgoing (child -> parent)
         for neighbour in outgoing.get(table, set()):
             if neighbour not in visited:
                 visited.add(neighbour)
                 q.append((neighbour, depth + 1))
+
+        # 2) Incoming (parent -> child) - only for specific tables to avoid blowing up.
+        if table in _ALLOW_REVERSE:
+            for neighbour in incoming.get(table, set()):
+                if neighbour not in visited:
+                    visited.add(neighbour)
+                    q.append((neighbour, depth + 1))
     return visited
 
 

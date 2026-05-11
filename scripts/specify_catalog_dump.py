@@ -256,6 +256,8 @@ _ALLOW_REVERSE_FROM = {
     "collectionobject",
     "collectingevent",
     "determination",
+    "preparation",
+    "collectionobjectattachment",
 }
 
 # Never reverse-follow these high-fanout/shared roots.
