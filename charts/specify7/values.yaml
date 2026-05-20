@@ -33,7 +33,7 @@ service:
 
 ingress:
   enabled: false
-  className: ""
+  className: "nginx"
   annotations: {}
     # kubernetes.io/ingress.class: nginx
     # cert-manager.io/cluster-issuer: "letsencrypt-prod"
@@ -93,6 +93,8 @@ specify:
   secretKey: "change-me-in-production"
   attachmentKey: "change-me"
   debug: true
+  # When ingress.enabled=true, ALLOWED_HOSTS and CSRF_TRUSTED_ORIGINS are
+  # derived from ingress.hosts (plus any extras listed here).
   allowedHosts:
     - "*"
   csrfTrustedOrigins:

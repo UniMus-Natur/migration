@@ -15,6 +15,8 @@ spec:
       labels:
         {{- include "specify7.selectorLabels" . | nindent 8 }}
         component: static
+      annotations:
+        {{- include "specify7.configChecksumAnnotation" . | nindent 8 }}
     spec:
       initContainers:
         - name: volume-permissions

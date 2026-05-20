@@ -49,3 +49,52 @@ Selector labels
 app.kubernetes.io/name: {{ include "specify7.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+Django ALLOWED_HOSTS: when ingress is enabled, always include ingress host(s)
+so URL changes only need updating ingress.hosts.
+*/}}
+{{- define "specify7.allowedHosts" -}}
+{{- if .Values.ingress.enabled -}}
+{{- $hosts := list -}}
+{{- range .Values.ingress.hosts -}}
+{{- $hosts = append $hosts .host -}}
+{{- end -}}
+{{- range .Values.specify.allowedHosts -}}
+{{- if and (ne . "*") (not (has . $hosts)) -}}
+{{- $hosts = append $hosts . -}}
+{{- end -}}
+{{- end -}}
+{{- toJson $hosts -}}
+{{- else -}}
+{{- toJson .Values.specify.allowedHosts -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Django CSRF_TRUSTED_ORIGINS: when ingress is enabled, always include https://<ingress-host>.
+*/}}
+{{- define "specify7.csrfTrustedOrigins" -}}
+{{- if .Values.ingress.enabled -}}
+{{- $origins := list -}}
+{{- range .Values.ingress.hosts -}}
+{{- $origin := printf "https://%s" .host -}}
+{{- $origins = append $origins $origin -}}
+{{- end -}}
+{{- range .Values.specify.csrfTrustedOrigins -}}
+{{- if and (ne . "https://*") (ne . "http://*") (not (has . $origins)) -}}
+{{- $origins = append $origins . -}}
+{{- end -}}
+{{- end -}}
+{{- toJson $origins -}}
+{{- else -}}
+{{- toJson .Values.specify.csrfTrustedOrigins -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Checksum annotation to roll pods when generated Specify settings change.
+*/}}
+{{- define "specify7.configChecksumAnnotation" -}}
+checksum/config: {{ include (print $.Template.BasePath "/secret-config.yaml") . | sha256sum }}
+{{- end -}}

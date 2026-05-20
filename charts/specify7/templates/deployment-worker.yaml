@@ -18,6 +18,8 @@ spec:
       labels:
         {{- include "specify7.selectorLabels" . | nindent 8 }}
         component: worker
+      annotations:
+        {{- include "specify7.configChecksumAnnotation" . | nindent 8 }}
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
       securityContext:
