@@ -64,7 +64,7 @@ class MusitDatasetConfig:
     oracle_schema: str           # e.g. "MUSIT_BOTANIKK_FELLES"
     institutioncode: str         # e.g. "O"
     collectioncode: str          # e.g. "V"
-    specify_collection_code: str # e.g. "NHM-karplanter"
+    specify_collection_code: str # e.g. "O-V"
     specify_discipline_name: str # e.g. "Karplanter Moser"
     dataset_label: str           # e.g. "oslo-vascular-v1" (written into JSON payload)
 

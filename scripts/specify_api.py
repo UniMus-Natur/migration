@@ -6,13 +6,13 @@ Requires: source scripts/port-forward.sh backend  first (or 'all').
 
 Usage:
   specify_api "/context/login/"                               # list available collections
-  specify_api --collection NHM "/api/specify/taxon/?limit=5"  # GET any path, pretty JSON
-  specify_api --collection NHM --text-fields                  # CollectionObject text-field labels
-  specify_api --collection NHM --geography-tree               # GeographyTreeDef + Discipline link
-  specify_api --collection NHM --purge-geography-treedef 2 --dry-run   # count API purge impact
-  specify_api --collection NHM --purge-geography-all --yes            # DELETE all geography (REST)
-  specify_api --collection NHM --json "/api/specify/collectionobject/?limit=2"  # raw JSON
-  specify_api --collection NHM --table "/api/specify/agent/?limit=10"           # ASCII table
+  specify_api --collection O-V "/api/specify/taxon/?limit=5"  # GET any path, pretty JSON
+  specify_api --collection O-V --text-fields                  # CollectionObject text-field labels
+  specify_api --collection O-V --geography-tree               # GeographyTreeDef + Discipline link
+  specify_api --collection O-V --purge-geography-treedef 2 --dry-run   # count API purge impact
+  specify_api --collection O-V --purge-geography-all --yes            # DELETE all geography (REST)
+  specify_api --collection O-V --json "/api/specify/collectionobject/?limit=2"  # raw JSON
+  specify_api --collection O-V --table "/api/specify/agent/?limit=10"           # ASCII table
 
 Env vars (read from .env if not already exported):
   SPECIFY7_URL         Base URL (default: http://localhost:8000)
@@ -111,7 +111,7 @@ def _login(collection_name: str | None) -> tuple[requests.Session, str]:
         chosen = next(k for k, v in collections.items() if v == col_id)
     else:
         needle = collection_name.lower()
-        # 1) exact name match, 2) prefix match (e.g. "NHM" → "NHM-karplanter")
+        # 1) exact name match, 2) prefix match (e.g. "O" → "O-V")
         by_name = {k.lower(): (k, v) for k, v in collections.items()}
         if needle in by_name:
             chosen, col_id = by_name[needle]

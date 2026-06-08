@@ -164,10 +164,10 @@ oracle_catalog_dump() {
 
 #
 # Dump ALL Specify7 rows linked to a catalog number in a migrated collection
-# (default: NHM-karplanter).
+# (default: O-V).
 #
 #   specify_catalog_dump --catalog "O-V-123456"
-#   specify_catalog_dump --catalog "O-V-123456" --collection-code NHM-karplanter
+#   specify_catalog_dump --catalog "O-V-123456" --collection-code O-V
 #   specify_catalog_dump --catalog "O-V-123456" --output specify.json
 #
 specify_catalog_dump() {
@@ -179,7 +179,7 @@ specify_catalog_dump() {
 # Runs both dump scripts under the hood and outputs a terminal summary, JSON
 # report, and/or a Markdown evidence card suitable for LLM judgement.
 #
-#   migration_compare --catalog "O-V-123456" --collection-code NHM-karplanter
+#   migration_compare --catalog "O-V-123456" --collection-code O-V
 #   migration_compare --fixture scripts/test_fixtures.yaml
 #   migration_compare --fixture scripts/test_fixtures.yaml --format all --output-dir /tmp/reports
 #
@@ -232,9 +232,9 @@ echo "Oracle SQL helper:      oracle_sql [--env prod|test] [--csv] \"<SQL>\""
 echo "  PROD needs Oracle Instant Client (thick mode) on this machine — see scripts/oracle_sql.py"
 echo "Oracle catalog dump:    oracle_catalog_dump --catalog \"O-V-123456\" [--env prod|test] [--output file.json]"
 echo "  Dumps ALL connected Oracle data for a catalog number as JSON — see scripts/oracle_catalog_dump.py"
-echo "Specify catalog dump:   specify_catalog_dump --catalog \"O-V-123456\" [--collection-code NHM-karplanter] [--output file.json]"
+echo "Specify catalog dump:   specify_catalog_dump --catalog \"O-V-123456\" [--collection-code O-V] [--output file.json]"
 echo "  Dumps ALL connected Specify rows for a catalog number as JSON — see scripts/specify_catalog_dump.py"
-echo "Migration compare:      migration_compare --catalog \"O-V-123456\" [--collection-code NHM-karplanter] [--format terminal|json|md|all]"
+echo "Migration compare:      migration_compare --catalog \"O-V-123456\" [--collection-code O-V] [--format terminal|json|md|all]"
 echo "  Compare Oracle vs Specify data; use --fixture scripts/test_fixtures.yaml for batch runs — see scripts/migration_compare.py"
-echo "Specify API helper:     specify_api [--collection NHM] [--text-fields|--geography-tree] [<path>]"
+echo "Specify API helper:     specify_api [--collection O-V] [--text-fields|--geography-tree] [<path>]"
 echo "  Requires 'backend' forward (localhost:8000) — see scripts/specify_api.py"

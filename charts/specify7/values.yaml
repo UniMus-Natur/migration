@@ -214,7 +214,7 @@ migrationHarness:
   service:
     port: 8088
   basePath: /migration-harness
-  defaultCollection: NHM-karplanter
+  defaultCollection: O-V
   defaultOracleEnv: prod
   # Set HARNESS_TOKEN via secrets.existingSecret.
   # Example key in secret: HARNESS_TOKEN=your-shared-token

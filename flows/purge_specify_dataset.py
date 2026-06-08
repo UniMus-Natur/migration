@@ -344,7 +344,7 @@ def _purge_dataset(
     ),
 )
 def purge_specify_dataset_flow(
-    collection_code: str = "NHM-karplanter",
+    collection_code: str = "O-V",
     dry_run: bool = True,
     clear_objectmap_rows: bool = True,
     clear_placemap_rows: bool = False,
@@ -352,7 +352,7 @@ def purge_specify_dataset_flow(
     """Purge all specimen records for a Specify collection.
 
     Args:
-        collection_code:       Specify ``Collection.code`` to purge (e.g. ``NHM-karplanter``).
+        collection_code:       Specify ``Collection.code`` to purge (e.g. ``O-V``).
         dry_run:               When True, report counts but delete nothing.
         clear_objectmap_rows:  Also delete ``migration_oracle_objectmap`` rows for this collection.
         clear_placemap_rows:   Also delete ``migration_oracle_placemap`` rows for the discipline.

@@ -6,13 +6,13 @@ Invokes oracle_catalog_dump.py and specify_catalog_dump.py as subprocesses, runs
 a battery of checks, and emits results in terminal, JSON, and/or Markdown formats.
 
 Usage (standalone):
-    python scripts/migration_compare.py --catalog "O-V-14399" --collection-code NHM-karplanter
+    python scripts/migration_compare.py --catalog "O-V-14399" --collection-code O-V
     python scripts/migration_compare.py --fixture scripts/test_fixtures.yaml
     python scripts/migration_compare.py --fixture scripts/test_fixtures.yaml --format all
     python scripts/migration_compare.py --fixture scripts/test_fixtures.yaml --output-dir /tmp/reports
 
 After sourcing port-forward.sh the shell alias also works:
-    migration_compare --catalog "O-V-14399" --collection-code NHM-karplanter
+    migration_compare --catalog "O-V-14399" --collection-code O-V
 
 Credentials for Oracle and MariaDB are read from environment variables or the .env
 file in the project root (same as the individual dump scripts).
@@ -912,8 +912,8 @@ def main() -> None:
     src_grp.add_argument("--catalog", "-c", metavar="CAT",
                          help="Single catalog number to compare")
 
-    parser.add_argument("--collection-code", "-C", metavar="CODE", default="NHM-karplanter",
-                        help="Specify collection code (used with --catalog; default: NHM-karplanter)")
+    parser.add_argument("--collection-code", "-C", metavar="CODE", default="O-V",
+                        help="Specify collection code (used with --catalog; default: O-V)")
     parser.add_argument("--oracle-env", default="prod", choices=["prod", "test"],
                         help="Oracle environment (default: prod)")
     parser.add_argument("--format", default="terminal",

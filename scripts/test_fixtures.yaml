@@ -11,10 +11,10 @@
 
 fixtures:
   - catalog: "O-V-14399"
-    collection_code: "NHM-karplanter"
+    collection_code: "O-V"
     description: "Well-known karplanter specimen (used during dev)"
 
   # Add more specimens below, e.g.:
   # - catalog: "O-V-12345"
-  #   collection_code: "NHM-karplanter"
+  #   collection_code: "O-V"
   #   description: "..."

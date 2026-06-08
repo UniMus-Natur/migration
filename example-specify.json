@@ -1,7 +1,7 @@
 {
   "_meta": {
     "catalog_number_input": "O-V-2000001",
-    "collection_code": "NHM-karplanter",
+    "collection_code": "O-V",
     "collection_id": null,
     "collection_member_id": 5,
     "db_name": "specify",
@@ -350,10 +350,10 @@
         "version": 2,
         "createdbyagentid": null,
         "modifiedbyagentid": 1,
-        "catalogformatnumname": "NHM-karplanter",
+        "catalogformatnumname": "O-V",
         "code": "O-V",
         "collectionid": null,
-        "collectionname": "NHM-karplanter",
+        "collectionname": "O-V",,
         "collectiontype": null,
         "dbcontentversion": null,
         "description": null,
@@ -381,7 +381,7 @@
         "usergroupscopeid": 5,
         "collectionid": null,
         "code": "O-V",
-        "collectionname": "NHM-karplanter"
+        "collectionname": "O-V",
       }
     ],
     "collectionobject": [

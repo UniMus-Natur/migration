@@ -3,7 +3,7 @@
 
 This script connects directly to the Specify MariaDB (typically via
 `source scripts/port-forward.sh db`) and starts from matching
-`collectionobject` rows in a collection (default: NHM-karplanter).
+`collectionobject` rows in a collection (default: O-V).
 
 It then walks related rows through foreign keys (both directions where safe)
 and emits one large JSON document.
@@ -14,7 +14,7 @@ SPECIFY_CATALOG_INCLUDE_BLOBS=1 to pull full binary values.
 
 Examples:
   python scripts/specify_catalog_dump.py --catalog O-V-14399
-  python scripts/specify_catalog_dump.py --catalog O-V-14399 --collection-code NHM-karplanter
+  python scripts/specify_catalog_dump.py --catalog O-V-14399 --collection-code O-V
   python scripts/specify_catalog_dump.py --catalog O-V-14399 --output /tmp/specify-O-V-14399.json
 """
 
@@ -437,8 +437,8 @@ def main() -> None:
     parser.add_argument("--catalog", "-c", required=True, help="Catalog number in Specify collectionobject.catalognumber")
     parser.add_argument(
         "--collection-code",
-        default="NHM-karplanter",
-        help="Specify collection selector (matches collection.code or collection.collectionname; default: NHM-karplanter)",
+        default="O-V",
+        help="Specify collection selector (matches collection.code or collection.collectionname; default: O-V)",
     )
     parser.add_argument("--output", "-o", help="Write JSON to file instead of stdout")
     parser.add_argument("--compact", action="store_true", help="Compact JSON output")

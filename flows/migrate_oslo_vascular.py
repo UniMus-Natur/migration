@@ -8,7 +8,7 @@ Source
 
 Target
 ------
-    Specify 7 collection ``NHM-karplanter`` (discipline ``Karplanter Moser``).
+    Specify 7 collection ``O-V`` (discipline ``Karplanter Moser``).
     Writes: ``CollectingEvent``, ``Locality`` (on-the-fly), ``CollectionObject``,
     ``Determination``.  Never creates or modifies ``Agent``, ``Geography``,
     ``Taxon``, or ``SpecifyUser``.
@@ -156,7 +156,7 @@ def migrate_oslo_vascular_task(
     name="Migrate Oslo Vascular Plants",
     description=(
         "Phase 2: Migrate Oslo vascular herbarium (institutioncode=O, collectioncode=V) "
-        "from MUSIT_BOTANIKK_FELLES into Specify 7 collection NHM-karplanter. "
+        "from MUSIT_BOTANIKK_FELLES into Specify 7 collection O-V. "
         "Set limit=100 for a timed test run with throughput estimate."
     ),
 )
@@ -187,7 +187,7 @@ def migrate_oslo_vascular_flow(
     purge_result: dict[str, Any] | None = None
     if purge_before_run and not dry_run:
         logger.warning(
-            "purge_before_run=true: deleting previous NHM dataset records before migration "
+            "purge_before_run=true: deleting previous O-V dataset records before migration "
             "(CollectionObject/CollectingEvent/Locality + objectmap/placemap rows)."
         )
         purge_result = _purge_dataset(
