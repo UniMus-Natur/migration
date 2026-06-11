@@ -138,6 +138,10 @@ _SPECIMEN_SQL = """
       oa.artsobs_nr,
       mon.object_notes,
       en.event_notes,
+      emo.sequence_number,
+      emo.prev_event_for_objekt,
+      ev.event_type,
+      ev.eventname,
       ce.event_id,
       ce.collectiontype_id,
       ce.legname_orig,
@@ -174,12 +178,6 @@ _SPECIMEN_SQL = """
       ln.is_valid          AS taxon_is_valid,
       erp.actor_id,
       erp.role_id,
-      (SELECT MIN(pn.actor_id)
-         FROM {schema}.event_role_person_name erpn
-         JOIN {schema}.person_name pn
-           ON pn.person_name_id = erpn.person_name_id
-        WHERE erpn.event_id = ce.event_id
-      ) AS person_name_actor_id,
       (SELECT MIN(era.actor_id)
          FROM {schema}.event_role_actor era
         WHERE era.event_id = cte.event_id
@@ -258,6 +256,7 @@ _SPECIMEN_SQL = """
     LEFT JOIN {schema}.event_role_actor erp
       ON erp.event_id = ce.event_id
     WHERE voa.object_id IN ({placeholders})
+    ORDER BY voa.object_id, emo.sequence_number NULLS LAST
 """
 
 
@@ -582,23 +581,6 @@ def _resolve_agent(schema: str, actor_id: Any) -> Any:
     sch = str(schema).strip().upper()
     marker = f"MUSIT-migration: ACTOR; schema={sch}; ACTOR_ID={int(actor_id)}"
     return Agent.objects.filter(remarks__startswith=marker).first()
-
-
-def _first_non_null_collector_actor_id(rows: list[dict]) -> Any:
-    """Prefer ``EVENT_ROLE_ACTOR``; fall back to ``EVENT_ROLE_PERSON_NAME`` → ``PERSON_NAME``.
-
-    Oracle row order is undefined and the join envelope can put null ``actor_id`` on the
-    first row even when another row for the same object has a value.
-    """
-    for r in rows:
-        aid = r.get("actor_id")
-        if aid is not None:
-            return aid
-    for r in rows:
-        aid = r.get("person_name_actor_id")
-        if aid is not None:
-            return aid
-    return None
 
 
 def _determination_dedupe_key(r: dict[str, Any]) -> tuple:
@@ -1209,6 +1191,150 @@ def _trunc(s: Any, max_len: int) -> str | None:
     return (t[:max_len] if len(t) > max_len else t) or None
 
 
+def _is_collecting_row(row: dict[str, Any]) -> bool:
+    """True when this join row carries a MUSIT ``COLLECTING_EVENT`` (``ce.event_id``)."""
+    return row.get("event_id") is not None
+
+
+def _select_primary_collecting_row(rows: list[dict]) -> dict | None:
+    """Pick the terminal collecting event for this object.
+
+    Uses highest ``EVENT_MUSEUM_OBJECT.SEQUENCE_NUMBER`` among collecting rows,
+    tie-breaking toward rows that have a linked ``place_id``.
+    """
+    collecting = [r for r in rows if _is_collecting_row(r)]
+    if not collecting:
+        return None
+    return max(
+        collecting,
+        key=lambda r: (
+            int(r.get("sequence_number") or 0),
+            1 if r.get("place_id") is not None else 0,
+        ),
+    )
+
+
+def _object_scalar_row(rows: list[dict]) -> dict:
+    """Museum-object scalar fields are identical on every join row."""
+    return rows[0]
+
+
+def _collecting_event_candidates(rows: list[dict]) -> list[dict[str, Any]]:
+    """All collecting-event row variants, deduped by ``event_id``."""
+    seen: set[Any] = set()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        if not _is_collecting_row(row):
+            continue
+        eid = row.get("event_id")
+        if eid in seen:
+            continue
+        seen.add(eid)
+        out.append(
+            {
+                "event_id": eid,
+                "sequence_number": row.get("sequence_number"),
+                "prev_event_for_objekt": row.get("prev_event_for_objekt"),
+                "event_type": row.get("event_type"),
+                "eventname": row.get("eventname"),
+                "place_id": row.get("place_id"),
+                "locality_text": row.get("locality_text"),
+                "from_date": str(row["from_date"]) if row.get("from_date") is not None else None,
+                "to_date": str(row["to_date"]) if row.get("to_date") is not None else None,
+                "time_as_text": row.get("time_as_text"),
+            }
+        )
+    return out
+
+
+def _fetch_collector_actor_ids_for_event(
+    oracle_cursor: Any,
+    schema: str,
+    event_id: int,
+) -> list[int]:
+    """Return ordered unique collector ``actor_id`` values for one collecting event."""
+    sch = str(schema).strip().upper()
+    ordered: list[int] = []
+    seen: set[int] = set()
+
+    oracle_cursor.execute(
+        f"""
+        SELECT pn.actor_id
+          FROM {sch}.event_role_person_name erpn
+          JOIN {sch}.person_name pn
+            ON pn.person_name_id = erpn.person_name_id
+         WHERE erpn.event_id = :eid
+           AND pn.actor_id IS NOT NULL
+         ORDER BY erpn.sorting_sequence NULLS LAST, erpn.event_person_name_role_id
+        """,
+        {"eid": int(event_id)},
+    )
+    for (actor_id,) in oracle_cursor.fetchall():
+        aid = int(actor_id)
+        if aid not in seen:
+            seen.add(aid)
+            ordered.append(aid)
+
+    oracle_cursor.execute(
+        f"""
+        SELECT era.actor_id
+          FROM {sch}.event_role_actor era
+         WHERE era.event_id = :eid
+           AND era.actor_id IS NOT NULL
+         ORDER BY era.event_actor_role_id
+        """,
+        {"eid": int(event_id)},
+    )
+    for (actor_id,) in oracle_cursor.fetchall():
+        aid = int(actor_id)
+        if aid not in seen:
+            seen.add(aid)
+            ordered.append(aid)
+
+    return ordered
+
+
+def _attach_collectors_to_collecting_event(
+    *,
+    owner: str,
+    collecting_event_id: int,
+    ce: Any,
+    oracle_cursor: Any,
+    object_id: int,
+    stats: DatasetLoadStats,
+) -> int:
+    """Create ``Collector`` rows for all resolved agents on a collecting event."""
+    from specifyweb.specify.models import Collector
+
+    actor_ids = _fetch_collector_actor_ids_for_event(
+        oracle_cursor, owner, collecting_event_id
+    )
+    created = 0
+    for idx, actor_id in enumerate(actor_ids):
+        agent = _resolve_agent(owner, actor_id)
+        if agent is None:
+            stats.agent_unresolved += 1
+            continue
+        stats.agent_matched += 1
+        try:
+            Collector.objects.create(
+                agent=agent,
+                collectingevent=ce,
+                isprimary=(idx == 0),
+                ordernumber=idx + 1,
+            )
+            created += 1
+        except Exception as exc:  # noqa: BLE001
+            _log(
+                "warning",
+                "object_id=%s: collector link failed actor_id=%s: %s",
+                object_id,
+                actor_id,
+                exc,
+            )
+    return created
+
+
 # ---------------------------------------------------------------------------
 # Per-object Specify write
 # ---------------------------------------------------------------------------
@@ -1233,15 +1359,14 @@ def _write_one_object(
     """
     from specifyweb.specify.models import (
         Collectingevent,
-        Collector,
         Collectionobject,
         Determination,
     )
 
     from flows.lib.migration_oracle_objectmap import upsert_objectmap_row
 
-    # Use the first row for scalar object/event fields; collect all determination rows.
-    first = rows[0]
+    obj_row = _object_scalar_row(rows)
+    collecting_row = _select_primary_collecting_row(rows)
     owner = config.oracle_schema
 
     # ---- Unmapped payload for JSON archival ----
@@ -1251,18 +1376,22 @@ def _write_one_object(
         "is_reg", "is_approved", "is_corrected", "object_withheld", "object_state",
         "reg_user", "korr_user", "approve_user", "dataset", "project_name",
         "same_sheet_as", "dublettes", "analysis_request",
-        "collectiontype_id", "date_uncertain",
-        "coordinate_string", "datum",
     ):
-        v = first.get(key)
+        v = obj_row.get(key)
+        if v is not None:
+            unmapped[key] = v if not isinstance(v, (date, datetime)) else str(v)
+    ce_unmapped_source = collecting_row or obj_row
+    for key in ("collectiontype_id", "date_uncertain", "coordinate_string", "datum"):
+        v = ce_unmapped_source.get(key)
         if v is not None:
             unmapped[key] = v if not isinstance(v, (date, datetime)) else str(v)
 
-    # Keep all locality-related row variants so we do not lose source context when
-    # a specimen has multiple place/event rows in MUSIT.
+    # Collecting-event locality variants for audit (collecting rows only).
     locality_candidates: list[dict[str, Any]] = []
     seen_locality_keys: set[tuple[Any, ...]] = set()
     for idx, row in enumerate(rows):
+        if not _is_collecting_row(row):
+            continue
         place_id = row.get("place_id")
         locality_text = row.get("locality_text")
         if place_id is None and not locality_text:
@@ -1270,7 +1399,7 @@ def _write_one_object(
         entry: dict[str, Any] = {
             "row_index": idx,
             "event_id": row.get("event_id"),
-            "class_event_id": row.get("class_event_id"),
+            "sequence_number": row.get("sequence_number"),
             "place_id": place_id,
             "locality_text": locality_text,
             "from_date": str(row["from_date"]) if row.get("from_date") is not None else None,
@@ -1282,7 +1411,6 @@ def _write_one_object(
         }
         dedupe_key = (
             entry.get("event_id"),
-            entry.get("class_event_id"),
             entry.get("place_id"),
             entry.get("locality_text"),
             entry.get("from_date"),
@@ -1296,6 +1424,27 @@ def _write_one_object(
         seen_locality_keys.add(dedupe_key)
         locality_candidates.append(entry)
 
+    selected_source: dict[str, Any] = {
+        "selection_rule": "primary_collecting_event_highest_sequence",
+        "event_id": None,
+        "place_id": None,
+        "locality_text": None,
+        "sequence_number": None,
+        "event_type": None,
+        "eventname": None,
+    }
+    if collecting_row is not None:
+        selected_source.update(
+            {
+                "event_id": collecting_row.get("event_id"),
+                "place_id": collecting_row.get("place_id"),
+                "locality_text": collecting_row.get("locality_text"),
+                "sequence_number": collecting_row.get("sequence_number"),
+                "event_type": collecting_row.get("event_type"),
+                "eventname": collecting_row.get("eventname"),
+            }
+        )
+
     json_payload = json.dumps(
         {
             "source": {
@@ -1304,13 +1453,9 @@ def _write_one_object(
                 "dataset": config.dataset_label,
             },
             "unmapped": unmapped,
+            "collecting_event_candidates": _collecting_event_candidates(rows),
             "locality_candidates": locality_candidates,
-            "selected_locality_source": {
-                "selection_rule": "first_row_current_loader_behavior",
-                "event_id": first.get("event_id"),
-                "place_id": first.get("place_id"),
-                "locality_text": first.get("locality_text"),
-            },
+            "selected_locality_source": selected_source,
             "migration_meta": {
                 "exported_at_utc": run_ts,
                 "mapping_version": config.dataset_label,
@@ -1323,7 +1468,7 @@ def _write_one_object(
     with transaction.atomic():
         # 1. Locality (resolve or create on-the-fly) — failures abort the whole object write.
         locality = None
-        place_id_raw = first.get("place_id")
+        place_id_raw = collecting_row.get("place_id") if collecting_row else None
         if place_id_raw is not None:
             place_id = int(place_id_raw)
             if discipline.geographytreedef_id is None:
@@ -1344,14 +1489,26 @@ def _write_one_object(
             )
 
         # 2. CollectingEvent
-        start_date = _coerce_date(first.get("from_date"))
-        end_date = _coerce_date(first.get("to_date"))
-        verbatim_date = _trunc(first.get("time_as_text"), 50)
-        verbatim_locality = _trunc(first.get("locality_text"), 255)
-        collector_str = _trunc(first.get("agg_personnames") or first.get("legname_orig"), 255)
-        event_notes = first.get("event_notes")
+        start_date = _coerce_date(collecting_row.get("from_date")) if collecting_row else None
+        end_date = _coerce_date(collecting_row.get("to_date")) if collecting_row else None
+        verbatim_date = (
+            _trunc(collecting_row.get("time_as_text"), 50) if collecting_row else None
+        )
+        verbatim_locality = None
+        if collecting_row:
+            verbatim_locality = _trunc(
+                collecting_row.get("locality_text") or collecting_row.get("legname_orig"),
+                255,
+            )
+        collector_str = (
+            _trunc(collecting_row.get("agg_personnames"), 255) if collecting_row else None
+        )
+        event_notes = collecting_row.get("event_notes") if collecting_row else None
+        collecting_event_id = collecting_row.get("event_id") if collecting_row else None
 
-        ce_guid = f"urn:oracle:{owner.lower()}:event:{first.get('event_id') or object_id}"[:128]
+        ce_guid = (
+            f"urn:oracle:{owner.lower()}:event:{collecting_event_id or object_id}"[:128]
+        )
 
         ce_kwargs: dict[str, Any] = {
             "discipline": discipline,
@@ -1368,10 +1525,7 @@ def _write_one_object(
         if verbatim_locality:
             ce_kwargs["verbatimlocality"] = verbatim_locality
 
-        # Append event notes to remarks
         ce_remarks_parts = []
-        if collector_str:
-            ce_remarks_parts.append(f"Collector: {collector_str}")
         if event_notes:
             ce_remarks_parts.append(f"Notes: {event_notes}")
         if ce_remarks_parts:
@@ -1380,13 +1534,17 @@ def _write_one_object(
         if dry_run:
             stats.ce_created += 1
             stats.co_created += 1
-            # Count determinations
             det_rows = [
                 r
                 for r in rows
-                if r.get("adb_taxon_id") is not None
-                or r.get("adb_latin_name_id") is not None
-                or r.get("latin_name")
+                if r.get("class_event_id") is not None
+                and (
+                    r.get("adb_taxon_id") is not None
+                    or r.get("adb_latin_name_id") is not None
+                    or r.get("latin_name")
+                    or r.get("valid_classterm")
+                    or r.get("classterm")
+                )
             ]
             stats.determination_created += max(1, len(det_rows))
             return
@@ -1395,72 +1553,74 @@ def _write_one_object(
         ce.save()
         stats.ce_created += 1
 
-        # 3. Collector link (primary agent on the collecting event)
-        actor_id = _first_non_null_collector_actor_id(rows)
-        agent = _resolve_agent(owner, actor_id)
-        if agent is not None:
-            stats.agent_matched += 1
-            try:
-                Collector.objects.create(
-                    agent=agent,
-                    collectingevent=ce,
-                    isprimary=True,
-                    ordernumber=1,
-                )
-            except Exception as exc:  # noqa: BLE001
-                _log("warning", "object_id=%s: collector link failed: %s", object_id, exc)
-        else:
-            if actor_id is not None:
-                stats.agent_unresolved += 1
+        # 3. Collector links (all resolved agents on the collecting event)
+        collectors_created = 0
+        if collecting_event_id is not None:
+            collectors_created = _attach_collectors_to_collecting_event(
+                owner=owner,
+                collecting_event_id=int(collecting_event_id),
+                ce=ce,
+                oracle_cursor=oracle_cursor,
+                object_id=object_id,
+                stats=stats,
+            )
+        if collectors_created == 0 and collector_str:
+            fallback_remarks = ce_kwargs.get("remarks") or ""
+            collector_remark = f"Collector: {collector_str}"
+            ce.remarks = _trunc(
+                "; ".join(p for p in (fallback_remarks, collector_remark) if p),
+                4000,
+            )
+            ce.save(update_fields=["remarks"])
 
         # 4. CollectionObject
         # Build remarks from notes and audit info
         co_remarks_parts = []
-        object_notes = first.get("object_notes")
+        object_notes = obj_row.get("object_notes")
         if object_notes:
             co_remarks_parts.append(f"Notes: {object_notes}")
 
         audit_parts = []
-        if first.get("reg_user"):
-            audit_parts.append(f"Reg: {first.get('reg_user')}")
-        if first.get("korr_user"):
-            audit_parts.append(f"Korr: {first.get('korr_user')}")
-        if first.get("approve_user"):
-            audit_parts.append(f"Approve: {first.get('approve_user')}")
+        if obj_row.get("reg_user"):
+            audit_parts.append(f"Reg: {obj_row.get('reg_user')}")
+        if obj_row.get("korr_user"):
+            audit_parts.append(f"Korr: {obj_row.get('korr_user')}")
+        if obj_row.get("approve_user"):
+            audit_parts.append(f"Approve: {obj_row.get('approve_user')}")
         if audit_parts:
             co_remarks_parts.append(f"Audit: {', '.join(audit_parts)}")
 
-        if first.get("uuid"):
-            co_remarks_parts.append(f"MUSIT UUID: {first.get('uuid')}")
+        if obj_row.get("uuid"):
+            co_remarks_parts.append(f"MUSIT UUID: {obj_row.get('uuid')}")
 
         co = Collectionobject(
-            catalognumber=_trunc(first.get("identifier_string"), 32),
+            catalognumber=_trunc(obj_row.get("identifier_string"), 32),
             guid=f"urn:oracle:{owner.lower()}:object:{object_id}"[:128],
             collectingevent=ce,
             collection=collection,
             collectionmemberid=int(collection.id),
             remarks=_trunc("; ".join(co_remarks_parts), 4000) if co_remarks_parts else None,
-            text1=_trunc(first.get("object_state"), 255),  # Phenology
-            text2=_trunc(first.get("project_name"), 255),  # Project
+            text1=_trunc(obj_row.get("object_state"), 255),  # Phenology
+            text2=_trunc(obj_row.get("project_name"), 255),  # Project
             text3=json_payload,
-            text4=_trunc(first.get("ex_herb"), 255),       # Ex Herbarium
-            text5=_trunc(first.get("voucher"), 255),       # Voucher
-            text6=_trunc(first.get("same_sheet_as"), 255), # Same sheet as
-            text7=_trunc(first.get("analysis_request"), 255), # Analysis request
-            fieldnumber=_trunc(first.get("identifier_num"), 50),
-            altcatalognumber=_trunc(first.get("artsobs_nr"), 32),
-            countamt=first.get("number_of_sheets"),
+            text4=_trunc(obj_row.get("ex_herb"), 255),       # Ex Herbarium
+            text5=_trunc(obj_row.get("voucher"), 255),       # Voucher
+            text6=_trunc(obj_row.get("same_sheet_as"), 255), # Same sheet as
+            text7=_trunc(obj_row.get("analysis_request"), 255), # Analysis request
+            fieldnumber=_trunc(obj_row.get("identifier_num"), 50),
+            altcatalognumber=_trunc(obj_row.get("artsobs_nr"), 32),
+            countamt=obj_row.get("number_of_sheets"),
         )
 
         # Object withheld → visibility flag (1=private, 0=public)
-        withheld = first.get("object_withheld")
+        withheld = obj_row.get("object_withheld")
         if withheld is not None and str(withheld).strip().upper() in ("Y", "1", "TRUE"):
             co.visibility = 1
         co.save()
         stats.co_created += 1
 
         # 4b. URL-only image attachments from USD_FELLES MEDIA tables (all rows per group).
-        mgid_raw = first.get("mediagruppe_enhets_id")
+        mgid_raw = obj_row.get("mediagruppe_enhets_id")
         if mgid_raw is not None:
             try:
                 _attach_media_urls_to_collection_object(
@@ -1482,7 +1642,8 @@ def _write_one_object(
         det_rows_all = [
             r
             for r in rows
-            if (
+            if r.get("class_event_id") is not None
+            and (
                 r.get("latin_name_id") is not None
                 or r.get("adb_taxon_id") is not None
                 or r.get("adb_latin_name_id") is not None
@@ -1534,10 +1695,10 @@ def _write_one_object(
                     lineage_cache=latin_name_lineage_cache,
                     rank_item_cache=rank_item_cache,
                     object_id=object_id,
-                    catalog_number=_trunc(first.get("identifier_string"), 32),
+                    catalog_number=_trunc(obj_row.get("identifier_string"), 32),
                 )
                 if created_nodes:
-                    _log("debug", "object_id=%s catalog=%s fallback_debug=%s", object_id, first.get("identifier_string"), created_nodes[0])
+                    _log("debug", "object_id=%s catalog=%s fallback_debug=%s", object_id, obj_row.get("identifier_string"), created_nodes[0])
                 if taxon is not None:
                     stats.taxon_matched += 1
                     if adb_taxon_id is None:
@@ -1550,7 +1711,7 @@ def _write_one_object(
                         "debug",
                         "object_id=%s catalog=%s unresolved taxon det_class_term_id=%r det_latin_name_id=%r det_latin_name=%r probe=%r top_candidates=%s adb_taxon_id=%r adb_latin_name_id=%r nhm_taxon_id=%r",
                         object_id,
-                        first.get("identifier_string"),
+                        obj_row.get("identifier_string"),
                         dr.get("class_term_id"),
                         dr.get("latin_name_id"),
                         dr.get("latin_name") or dr.get("valid_classterm") or dr.get("classterm"),
