@@ -37,6 +37,11 @@ from typing import Any
 
 from django.db import close_old_connections, transaction
 
+from flows.lib.musit_taxon_match import (
+    binomial_prefix_from_valid_classterm as _binomial_prefix_from_valid_classterm,
+    taxon_matches_valid_classterm as _taxon_matches_valid_classterm,
+)
+
 logger = logging.getLogger(__name__)
 
 # How often to emit a progress line (number of objects processed).
@@ -319,61 +324,72 @@ def _find_taxon_by_valid_classterm(
     taxontreedef_id: int,
     valid_classterm: str | None,
 ) -> tuple[Any, list[dict[str, Any]]]:
-    """Strict fallback: case-insensitive exact match on valid_classterm."""
+    """Fallback match on ``valid_classterm`` against Specify ``Taxon`` rows.
+
+    1. Case-insensitive exact match on ``Taxon.name``.
+    2. When that fails and the probe looks like a name with authorship, match the
+       leading binomial (genus + epithet) and require ``_taxon_matches_valid_classterm``.
+    """
     from specifyweb.specify.models import Taxon
 
     probe = " ".join((valid_classterm or "").strip().split())
     if not probe:
         return None, []
 
-    candidates_qs = Taxon.objects.filter(
-        definition_id=taxontreedef_id,
-        name__iexact=probe,
-    ).only("id", "name", "source")
+    taxon_fields = ("id", "name", "author", "source", "fullname", "fullnamewithauthor")
 
-    rows = [
-        {
-            "id": int(c.id),
-            "name": c.name,
-            "source": c.source,
+    def _row_dict(taxon: Any, *, match_mode: str) -> dict[str, Any]:
+        return {
+            "id": int(taxon.id),
+            "name": taxon.name,
+            "author": getattr(taxon, "author", None),
+            "source": getattr(taxon, "source", None),
             "probe": probe,
+            "match_mode": match_mode,
         }
-        for c in candidates_qs
-    ]
-    if len(rows) == 1:
-        return Taxon.objects.filter(pk=rows[0]["id"]).first(), rows
-    return None, rows
 
+    def _single_or_none(
+        matches: list[Any],
+        *,
+        match_mode: str,
+    ) -> tuple[Any, list[dict[str, Any]]]:
+        rows = [_row_dict(t, match_mode=match_mode) for t in matches]
+        if len(matches) == 1:
+            return matches[0], rows
+        return None, rows
 
-def _norm_taxon_label(s: Any) -> str:
-    if s is None:
-        return ""
-    v = re.sub(r"[^0-9A-Za-z]+", " ", str(s).strip().lower())
-    return " ".join(v.split())
+    exact = list(
+        Taxon.objects.filter(
+            definition_id=taxontreedef_id,
+            name__iexact=probe,
+        ).only(*taxon_fields)
+    )
+    if len(exact) == 1:
+        return exact[0], [_row_dict(exact[0], match_mode="name_iexact")]
+    if len(exact) > 1:
+        guarded = [t for t in exact if _taxon_matches_valid_classterm(t, valid_classterm)]
+        found, rows = _single_or_none(guarded, match_mode="name_iexact+guardrail")
+        if found is not None or guarded:
+            return found, rows
 
+    binomial = _binomial_prefix_from_valid_classterm(probe)
+    if binomial:
+        binomial_hits = list(
+            Taxon.objects.filter(
+                definition_id=taxontreedef_id,
+                name__iexact=binomial,
+            ).only(*taxon_fields)
+        )
+        guarded = [t for t in binomial_hits if _taxon_matches_valid_classterm(t, valid_classterm)]
+        found, rows = _single_or_none(guarded, match_mode="binomial+guardrail")
+        if found is not None:
+            return found, rows
+        if guarded or binomial_hits:
+            return None, rows
 
-def _taxon_matches_valid_classterm(taxon: Any, valid_classterm: str | None) -> bool:
-    """Guardrail: ID matches must not contradict the determination text."""
-    probe = _norm_taxon_label(valid_classterm)
-    if not probe:
-        return True
-
-    names = [
-        _norm_taxon_label(getattr(taxon, "name", None)),
-        _norm_taxon_label(getattr(taxon, "fullname", None)),
-        _norm_taxon_label(getattr(taxon, "fullnamewithauthor", None)),
-    ]
-    names = [n for n in names if n]
-    if not names:
-        return True
-
-    probe_tokens = probe.split()
-    for cand in names:
-        if cand == probe:
-            return True
-        if len(probe_tokens) >= 2 and (probe.startswith(cand) or cand.startswith(probe)):
-            return True
-    return False
+    if exact:
+        return None, [_row_dict(t, match_mode="name_iexact") for t in exact]
+    return None, []
 
 
 def _fetch_latin_name_lineage(
