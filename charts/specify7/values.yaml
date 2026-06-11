@@ -117,6 +117,8 @@ reportRunner:
     repository: specifyconsortium/report-runner
     pullPolicy: IfNotPresent
     tag: ""
+  service:
+    port: 80
   resources: {}
 
 # Redis Sub-chart Configuration (Bitnami)
