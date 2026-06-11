@@ -23,7 +23,6 @@ def taxon_label_candidates(taxon: Any) -> list[str]:
     for raw in (
         name,
         getattr(taxon, "fullname", None),
-        getattr(taxon, "fullnamewithauthor", None),
         combined or None,
     ):
         label = norm_taxon_label(raw)

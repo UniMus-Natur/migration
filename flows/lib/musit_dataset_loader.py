@@ -336,7 +336,7 @@ def _find_taxon_by_valid_classterm(
     if not probe:
         return None, []
 
-    taxon_fields = ("id", "name", "author", "source", "fullname", "fullnamewithauthor")
+    taxon_fields = ("id", "name", "author", "source", "fullname")
 
     def _row_dict(taxon: Any, *, match_mode: str) -> dict[str, Any]:
         return {
