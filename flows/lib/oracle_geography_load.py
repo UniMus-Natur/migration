@@ -870,10 +870,40 @@ def locality_spatial_kwargs_from_musit_koordinate(coord: dict[str, Any]) -> dict
         ca = str(ca_alt).strip()
         if ca:
             bits.append(f"MUSIT CA_ALTITUDE={ca[:40]}")
+
+    # UTM grid reference (MUSIT "Zone & Band" + grid square), e.g. "32 V".
+    zone = coord.get("zone")
+    belt = coord.get("belt")
+    zone_str = str(zone).strip() if zone is not None else ""
+    belt_str = str(belt).strip() if belt is not None else ""
+    utm_zone = f"{zone_str}{belt_str}".strip()
+    if utm_zone:
+        bits.append(f"MUSIT UTM ZONE={utm_zone[:20]}")
+
+    map_sheet = coord.get("map_sheet")
+    if map_sheet:
+        ms = str(map_sheet).strip()
+        if ms:
+            bits.append(f"MUSIT MAP_SHEET={ms[:40]}")
+
+    # MUSIT coordinate-quality flags: "Ca coord" (approximate) and
+    # "Coordinate added later" (georeferenced after collection).
+    if _musit_flag_is_set(coord.get("ca_utm")):
+        bits.append("MUSIT CA_COORD=1")
+    if _musit_flag_is_set(coord.get("utm_senere")):
+        bits.append("MUSIT COORD_ADDED_LATER=1")
+
     if bits:
         out["remarks"] = " ".join(bits)
 
     return out
+
+
+def _musit_flag_is_set(value: Any) -> bool:
+    """True for MUSIT boolean-ish flag columns stored as '1'/'Y'/'TRUE'."""
+    if value is None:
+        return False
+    return str(value).strip().upper() in ("1", "Y", "TRUE")
 
 
 def _fetch_place_text(oracle_cursor: Any, owner: str, place_id: int) -> tuple[str, str | None]:
@@ -898,6 +928,60 @@ def _fetch_place_text(oracle_cursor: Any, owner: str, place_id: int) -> tuple[st
     return agg, loc
 
 
+def _fetch_place_ecology_and_region(
+    oracle_cursor: Any, owner: str, place_id: int
+) -> tuple[str | None, str | None]:
+    """Return ``(ecology_text, biogeographic_region_name)`` for a MUSIT ``PLACE_ID``.
+
+    Ecology lives in the collection schema. The biogeographic region *name* lives in
+    the shared ``MUSIT_NATHIST_FELLES`` schema, which the migration role may not have
+    SELECT on — that lookup degrades to ``None`` instead of failing the object.
+    """
+    o = owner.upper()
+
+    ecology: str | None = None
+    oracle_cursor.execute(
+        f"""
+        SELECT ecology FROM (
+          SELECT e.ecology
+            FROM {o}.place_ecology_place pep
+            JOIN {o}.ecology_place e ON e.ecology_place_id = pep.ecology_place_id
+           WHERE pep.place_id = :pid
+             AND e.ecology IS NOT NULL
+           ORDER BY e.ecology_place_id
+        ) WHERE ROWNUM = 1
+        """,
+        {"pid": place_id},
+    )
+    row = oracle_cursor.fetchone()
+    if row and row[0]:
+        ecology = str(row[0]).strip() or None
+
+    region: str | None = None
+    try:
+        oracle_cursor.execute(
+            f"""
+            SELECT bio_geo_region FROM (
+              SELECT r.bio_geo_region
+                FROM {o}.place_bio_geografisk_region pbr
+                JOIN MUSIT_NATHIST_FELLES.bio_geografisk_region r
+                  ON r.bio_geo_reg_id = pbr.bio_geografisk_region_id
+               WHERE pbr.place_id = :pid
+                 AND r.bio_geo_region IS NOT NULL
+               ORDER BY r.bio_geo_reg_id
+            ) WHERE ROWNUM = 1
+            """,
+            {"pid": place_id},
+        )
+        r2 = oracle_cursor.fetchone()
+        if r2 and r2[0]:
+            region = str(r2[0]).strip() or None
+    except Exception:  # noqa: BLE001 — cross-schema lookup is a system boundary (grants/availability)
+        region = None
+
+    return ecology, region
+
+
 def _fetch_first_coordinate(oracle_cursor: Any, owner: str, place_id: int) -> dict[str, Any | None]:
     """Pick the best ``KOORDINATE_PLACE`` row for a ``PLACE_ID`` (prefer numeric lat/long, then newest id)."""
     o = owner.upper()
@@ -918,6 +1002,11 @@ def _fetch_first_coordinate(oracle_cursor: Any, owner: str, place_id: int) -> di
                 kp.CA_ALTITUDE,
                 kp.LATITUDE_H,
                 kp.LONGITUDE_H,
+                kp.MAP_SHEET,
+                kp.ZONE,
+                kp.BELT,
+                kp.CA_UTM,
+                kp.UTM_SENERE,
                 kp.KOORDINATE_PLACE_ID
               FROM {o}.koordinate_place kp
               JOIN {o}.koordinate_place_place kpp
@@ -947,6 +1036,11 @@ def _fetch_first_coordinate(oracle_cursor: Any, owner: str, place_id: int) -> di
             "ca_altitude": None,
             "latitude_h": None,
             "longitude_h": None,
+            "map_sheet": None,
+            "zone": None,
+            "belt": None,
+            "ca_utm": None,
+            "utm_senere": None,
             "koordinate_place_id": None,
         }
     return {
@@ -963,7 +1057,12 @@ def _fetch_first_coordinate(oracle_cursor: Any, owner: str, place_id: int) -> di
         "ca_altitude": r[10],
         "latitude_h": r[11],
         "longitude_h": r[12],
-        "koordinate_place_id": r[13],
+        "map_sheet": r[13],
+        "zone": r[14],
+        "belt": r[15],
+        "ca_utm": r[16],
+        "utm_senere": r[17],
+        "koordinate_place_id": r[18],
     }
 
 

@@ -132,6 +132,11 @@ _SPECIMEN_SQL = """
       oa.reg_user,
       oa.korr_user,
       oa.approve_user,
+      oa.reg_date,
+      oa.approved_date,
+      oa.korr_date,
+      oa.last_modified,
+      oa.last_modified_by,
       oa.dataset,
       oa.project_name,
       oa.same_sheet_as,
@@ -143,6 +148,18 @@ _SPECIMEN_SQL = """
       oa.artsobs_nr,
       mon.object_notes,
       en.event_notes,
+      (SELECT MIN(mlp.legnr)
+         FROM {schema}.museum_object_legnr_person mlp
+        WHERE mlp.object_id = voa.object_id
+          AND mlp.legnr IS NOT NULL
+      ) AS legnr,
+      (SELECT MIN(tye.type_status)
+         FROM {schema}.event_museum_object emo2
+         JOIN {schema}.typification_event tye
+           ON tye.event_id = emo2.event_id
+        WHERE emo2.object_id = voa.object_id
+          AND tye.type_status IS NOT NULL
+      ) AS type_status,
       emo.sequence_number,
       emo.prev_event_for_objekt,
       ev.event_type,
@@ -170,6 +187,9 @@ _SPECIMEN_SQL = """
       ct.classterm,
       ct.entered_classterm,
       ct.valid_classterm,
+      ct.infraspes_name,
+      ct.sensu_term,
+      tcat.tax_cath_name   AS infraspes_rank_name,
       ln.latin_name_id,
       ln.latin_name,
       ln.full_name,
@@ -245,6 +265,8 @@ _SPECIMEN_SQL = """
       ON cts.timespan_id = cev.timespan_id
     LEFT JOIN {schema}.classification_term ct
       ON ct.class_term_id = cte.class_term_id
+    LEFT JOIN {schema}.taxon_cathegory tcat
+      ON tcat.tax_cath_id = ct.infraspes_rank
     LEFT JOIN {schema}.classterm_latin_name ctl
       ON ctl.classterm_id = ct.class_term_id
     LEFT JOIN {schema}.latin_names ln
@@ -939,6 +961,7 @@ def _get_or_create_locality(
     dry_run: bool,
     locality_cache: dict[tuple[int, int], int],  # (discipline_id, place_id) → locality pk
     stats: DatasetLoadStats,
+    biogeo_region: str | None = None,
 ) -> Any:
     """Return an existing or newly created Specify ``Locality`` for this Oracle PLACE_ID.
 
@@ -1044,6 +1067,8 @@ def _get_or_create_locality(
         loc_kwargs.update(locality_spatial_kwargs_from_musit_koordinate(coord))
         if verbatim:
             loc_kwargs["text1"] = verbatim
+        if biogeo_region:
+            loc_kwargs["text2"] = _trunc(biogeo_region, 65535)  # Biogeographic region
 
         loc = Locality(**loc_kwargs)
         loc.save()
@@ -1205,6 +1230,28 @@ def _trunc(s: Any, max_len: int) -> str | None:
         return None
     t = str(s).strip()
     return (t[:max_len] if len(t) > max_len else t) or None
+
+
+def _musit_bool(val: Any) -> bool | None:
+    """Map a MUSIT flag column ('1'/'Y'/'TRUE' vs '0'/'N'/null) to a tri-state bool."""
+    if val is None:
+        return None
+    s = str(val).strip().upper()
+    if s == "":
+        return None
+    if s in ("1", "Y", "TRUE", "T"):
+        return True
+    if s in ("0", "N", "FALSE", "F"):
+        return False
+    return None
+
+
+def _short_date(val: Any) -> str | None:
+    """Format a MUSIT date value as ``YYYY-MM-DD`` for display-only audit text."""
+    d = _coerce_date(val)
+    if d is not None:
+        return d.isoformat()
+    return _trunc(val, 32)
 
 
 def _is_collecting_row(row: dict[str, Any]) -> bool:
@@ -1483,7 +1530,10 @@ def _write_one_object(
 
     with transaction.atomic():
         # 1. Locality (resolve or create on-the-fly) — failures abort the whole object write.
+        from flows.lib.oracle_geography_load import _fetch_place_ecology_and_region
+
         locality = None
+        habitat_text: str | None = None  # MUSIT ECOLOGY_PLACE → CollectingEvent habitat
         place_id_raw = collecting_row.get("place_id") if collecting_row else None
         if place_id_raw is not None:
             place_id = int(place_id_raw)
@@ -1492,6 +1542,9 @@ def _write_one_object(
                     f"Discipline id={discipline.id!r} has no geographytreedef_id — "
                     "initialize geography in Specify before migrating localities."
                 )
+            habitat_text, biogeo_region = _fetch_place_ecology_and_region(
+                oracle_cursor, owner, place_id
+            )
             locality = _get_or_create_locality(
                 place_id=place_id,
                 oracle_cursor=oracle_cursor,
@@ -1502,6 +1555,7 @@ def _write_one_object(
                 dry_run=dry_run,
                 locality_cache=locality_cache,
                 stats=stats,
+                biogeo_region=biogeo_region,
             )
 
         # 2. CollectingEvent
@@ -1540,6 +1594,15 @@ def _write_one_object(
             ce_kwargs["verbatimdate"] = verbatim_date
         if verbatim_locality:
             ce_kwargs["verbatimlocality"] = verbatim_locality
+
+        # Collector number (MUSIT "Leg no") → stationFieldNumber.
+        legnr = _trunc(obj_row.get("legnr"), 50)
+        if legnr:
+            ce_kwargs["stationfieldnumber"] = legnr
+
+        # Habitat / ecology (MUSIT ECOLOGY_PLACE) → text1.
+        if habitat_text:
+            ce_kwargs["text1"] = _trunc(habitat_text, 65535)
 
         ce_remarks_parts = []
         if event_notes:
@@ -1609,6 +1672,26 @@ def _write_one_object(
         if obj_row.get("uuid"):
             co_remarks_parts.append(f"MUSIT UUID: {obj_row.get('uuid')}")
 
+        # Administrative / audit block (MUSIT "Adm" tab) → readonly text8.
+        admin_bits: list[str] = []
+        reg_user = obj_row.get("reg_user")
+        reg_date_txt = _short_date(obj_row.get("reg_date"))
+        if reg_user or reg_date_txt:
+            admin_bits.append(f"Reg: {' '.join(p for p in (reg_user, reg_date_txt) if p)}")
+        korr_user = obj_row.get("korr_user")
+        korr_date_txt = _short_date(obj_row.get("korr_date"))
+        if korr_user or korr_date_txt:
+            admin_bits.append(f"Corr: {' '.join(p for p in (korr_user, korr_date_txt) if p)}")
+        approve_user = obj_row.get("approve_user")
+        approved_date_txt = _short_date(obj_row.get("approved_date"))
+        if approve_user or approved_date_txt:
+            admin_bits.append(f"Approved: {' '.join(p for p in (approve_user, approved_date_txt) if p)}")
+        modified_by = obj_row.get("last_modified_by")
+        modified_date_txt = _short_date(obj_row.get("last_modified"))
+        if modified_by or modified_date_txt:
+            admin_bits.append(f"Modified: {' '.join(p for p in (modified_by, modified_date_txt) if p)}")
+        admin_text = _trunc("; ".join(admin_bits), 4000) if admin_bits else None
+
         co = Collectionobject(
             catalognumber=_trunc(obj_row.get("identifier_string"), 32),
             guid=f"urn:oracle:{owner.lower()}:object:{object_id}"[:128],
@@ -1616,17 +1699,33 @@ def _write_one_object(
             collection=collection,
             collectionmemberid=int(collection.id),
             remarks=_trunc("; ".join(co_remarks_parts), 4000) if co_remarks_parts else None,
-            text1=_trunc(obj_row.get("object_state"), 255),  # Phenology
+            text1=_trunc(obj_row.get("object_state"), 255),  # Object origin/state
             text2=_trunc(obj_row.get("project_name"), 255),  # Project
             text3=json_payload,
             text4=_trunc(obj_row.get("ex_herb"), 255),       # Ex Herbarium
             text5=_trunc(obj_row.get("voucher"), 255),       # Voucher
             text6=_trunc(obj_row.get("same_sheet_as"), 255), # Same sheet as
             text7=_trunc(obj_row.get("analysis_request"), 255), # Analysis request
+            text8=admin_text,                                # Administrative (MUSIT) audit
             fieldnumber=_trunc(obj_row.get("identifier_num"), 50),
             altcatalognumber=_trunc(obj_row.get("artsobs_nr"), 32),
             countamt=obj_row.get("number_of_sheets"),
         )
+
+        # MUSIT registration workflow flags → yesNo1/2/3 (Registered / Corrected / Approved).
+        co.yesno1 = _musit_bool(obj_row.get("is_reg"))
+        co.yesno2 = _musit_bool(obj_row.get("is_corrected"))
+        co.yesno3 = _musit_bool(obj_row.get("is_approved"))
+
+        # Registration date → catalogedDate; approval date → date1.
+        reg_date = _coerce_date(obj_row.get("reg_date"))
+        if reg_date is not None:
+            co.catalogeddate = reg_date
+            co.catalogeddateprecision = 1
+        approved_date = _coerce_date(obj_row.get("approved_date"))
+        if approved_date is not None:
+            co.date1 = approved_date
+            co.date1precision = 1
 
         # Object withheld → visibility flag (1=private, 0=public)
         withheld = obj_row.get("object_withheld")
@@ -1763,13 +1862,29 @@ def _write_one_object(
                     det_date, dr.get("class_time_as_text")
                 )
 
+                is_current = not has_current
+                # Infraspecific rank + name (MUSIT CLASSIFICATION_TERM) → text3.
+                infraspes_parts = [
+                    p
+                    for p in (
+                        _trunc(dr.get("infraspes_rank_name"), 64),
+                        _trunc(dr.get("infraspes_name"), 128),
+                    )
+                    if p
+                ]
+                infraspes_text = " ".join(infraspes_parts) if infraspes_parts else None
+                # MUSIT object-level type status applies to the current determination only.
+                type_status = _trunc(obj_row.get("type_status"), 50) if is_current else None
+
                 det = Determination(
                     collectionobject=co,
                     taxon=taxon,
-                    iscurrent=(not has_current),
-                    typestatusname=None,
+                    iscurrent=is_current,
+                    typestatusname=type_status,
                     text1=_trunc(dr.get("classterm"), 255),
                     text2=_trunc(dr.get("valid_classterm"), 255),
+                    text3=infraspes_text,
+                    text4=_trunc(dr.get("sensu_term"), 128),  # Sensu
                     determiner=determiner,
                     determineddate=det_datetime,
                     determineddateprecision=(1 if det_datetime is not None else None),
