@@ -55,6 +55,43 @@ resources: {}
   #   cpu: 100m
   #   memory: 128Mi
 
+# Backend probes: entrypoint runs DB setup + run_key_migration_functions before
+# gunicorn binds :8000, which can take several minutes after MariaDB restarts.
+backend:
+  startupProbe:
+    tcpSocket:
+      port: http
+    periodSeconds: 10
+    failureThreshold: 36
+  readinessProbe:
+    tcpSocket:
+      port: http
+    periodSeconds: 10
+    failureThreshold: 3
+  livenessProbe:
+    tcpSocket:
+      port: http
+    periodSeconds: 30
+    failureThreshold: 3
+
+# Infrastructure image defaults.
+# Bitnami removed all images from public.ecr.aws/bitnami on 2026-06-10. The
+# bitnamilegacy/* repos on Docker Hub are drop-in replacements for the Bitnami
+# Helm subcharts and preserve the on-disk layout under existing PVCs.
+# Mirror to your own registry with scripts/mirror-infra-images.sh for long-term
+# availability, then set global.imageRegistry and update repositories below.
+global:
+  imageRegistry: docker.io
+
+# Init container image for chown on shared volumes.
+volumePermissions:
+  image: docker.io/library/debian:bookworm-slim
+
+# Static file server (nginx sidecar)
+static:
+  nginx:
+    image: docker.io/library/nginx:1.27-alpine
+
 # Persistence for Shared Assets (Static files, Webpack output)
 persistence:
   enabled: true
@@ -132,6 +169,16 @@ redis:
       enabled: false
       # Redis is used as a broker/cache here, persistence might not be strictly needed for this use case
       # or should be enabled for reliability. Keeping false for simplicity/dev.
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/redis
+    tag: 7.2.4-debian-12-r9
+  volumePermissions:
+    enabled: true
+    image:
+      registry: docker.io
+      repository: library/debian
+      tag: bookworm-slim
 
 # MariaDB Sub-chart (Bitnami)
 #
@@ -147,6 +194,16 @@ mariadb:
     password: "password"
     rootPassword: "root-password"
     existingSecret: ""
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/mariadb
+    tag: 10.6.12-debian-11-r16
+  volumePermissions:
+    enabled: true
+    image:
+      registry: docker.io
+      repository: library/debian
+      tag: bookworm-slim
   primary:
     persistence:
       enabled: true

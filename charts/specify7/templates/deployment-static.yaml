@@ -20,7 +20,7 @@ spec:
     spec:
       initContainers:
         - name: volume-permissions
-          image: public.ecr.aws/bitnami/bitnami-shell:11-debian-11-r102
+          image: {{ include "specify7.volumePermissionsImage" . | quote }}
           command: ["/bin/bash", "-c"]
           args:
             - |
@@ -36,7 +36,7 @@ spec:
               {{- end }}
       containers:
         - name: nginx
-          image: nginx:alpine
+          image: {{ .Values.static.nginx.image | default "docker.io/library/nginx:1.27-alpine" | quote }}
           ports:
             - name: http
               containerPort: 80

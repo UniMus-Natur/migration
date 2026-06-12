@@ -20,7 +20,7 @@ spec:
     spec:
       initContainers:
         - name: volume-permissions
-          image: public.ecr.aws/bitnami/bitnami-shell:11-debian-11-r102
+          image: {{ include "specify7.volumePermissionsImage" . | quote }}
           command: ["/bin/bash", "-c"]
           args:
             - |

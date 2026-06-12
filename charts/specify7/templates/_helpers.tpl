@@ -93,6 +93,13 @@ Django CSRF_TRUSTED_ORIGINS: when ingress is enabled, always include https://<in
 {{- end -}}
 
 {{/*
+Image for volume-permissions init containers (chown on shared PVCs).
+*/}}
+{{- define "specify7.volumePermissionsImage" -}}
+{{- .Values.volumePermissions.image | default "docker.io/library/debian:bookworm-slim" }}
+{{- end -}}
+
+{{/*
 Checksum annotation to roll pods when generated Specify settings change.
 */}}
 {{- define "specify7.configChecksumAnnotation" -}}

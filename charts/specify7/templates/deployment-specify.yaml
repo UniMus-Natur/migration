@@ -26,7 +26,7 @@ spec:
       
       initContainers:
         - name: volume-permissions
-          image: public.ecr.aws/bitnami/bitnami-shell:11-debian-11-r102
+          image: {{ include "specify7.volumePermissionsImage" . | quote }}
           command: ["/bin/bash", "-c"]
           args:
             - |
@@ -86,6 +86,12 @@ spec:
             - name: http
               containerPort: 8000
               protocol: TCP
+          startupProbe:
+            {{- toYaml .Values.backend.startupProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.backend.readinessProbe | nindent 12 }}
+          livenessProbe:
+            {{- toYaml .Values.backend.livenessProbe | nindent 12 }}
           env:
             - name: DJANGO_SETTINGS_MODULE
               value: "specifyweb.settings"
