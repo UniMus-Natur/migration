@@ -137,6 +137,17 @@ specify:
   csrfTrustedOrigins:
     - "https://*"
     - "http://*"
+  # OpenID Connect SSO (Feide, Google, etc.). Specify uses OAUTH_LOGIN_PROVIDERS;
+  # credentials are read from env vars named below and injected via secrets.existingSecret.
+  oauth:
+    providers:
+      feide:
+        enabled: false
+        title: Feide
+        config: https://auth.dataporten.no
+        scope: openid profile email
+        clientIdEnv: FEIDE_OIDC_CLIENT_ID
+        clientSecretEnv: FEIDE_OIDC_CLIENT_SECRET
 
 # Asset Server Configuration
 assetServer:

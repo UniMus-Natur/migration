@@ -26,23 +26,30 @@ The login flow also supports invite-link association for external identities.
 
 ## 3) Feide OIDC technical inputs
 
-Feide documentation states:
+Feide customer portal values (verified against live discovery document):
 
-- OIDC discovery endpoint: `https://auth.dataporten.no/.well-known/openid-configuration`
-- Issuer: `https://auth.dataporten.no`
-- Client credentials and redirect URIs are managed in Feide customer portal.
+| Setting | Value |
+| :--- | :--- |
+| Issuer | `https://auth.dataporten.no` |
+| Auto configuration | `https://auth.dataporten.no/.well-known/openid-configuration` |
+| Authorization endpoint | `https://auth.dataporten.no/oauth/authorization` |
+| Token endpoint | `https://auth.dataporten.no/oauth/token` |
 
-For Specify's `config` field, use:
+For Specify's `config` field, use only the issuer base URL:
 
 - `https://auth.dataporten.no`
 
-Because Specify resolves discovery using `config + '/.well-known/openid-configuration'`.
+Specify fetches the discovery document at `config + '/.well-known/openid-configuration'` and reads the authorization/token endpoints from there — you do **not** need to paste the individual endpoint URLs into Helm values.
+
+The `openid` scope must be authorized on the Feide client (already included in our `scope: openid profile email`).
 
 ## 4) Minimum configuration values for this deployment
 
-For host `https://specify.gbif-no.sigma2.no`, expected redirect URI in Feide portal:
+**Staging** (`specify-stg.natur.unimus.no`) — redirect URI in Feide portal:
 
-- `https://specify.gbif-no.sigma2.no/accounts/oic_callback/`
+- `https://specify-stg.natur.unimus.no/accounts/oic_callback/`
+
+(Legacy doc reference: `https://specify.gbif-no.sigma2.no/accounts/oic_callback/`)
 
 Suggested initial provider config (to be injected into Specify settings):
 
@@ -82,15 +89,40 @@ Use chart-managed settings overrides (mounted files) and keep secrets in Kuberne
 
 Do not hardcode OIDC credentials in the image.
 
-## 7) Known gap in current chart
+## 7) Helm chart integration (prepared, not yet deployed)
 
-Current chart templates configure Django/Specify core settings, but do not yet expose a first-class Helm value for `OAUTH_LOGIN_PROVIDERS`.
+The chart now exposes `specify.oauth.providers` in `values.yaml` / `staging.values.yaml` and renders `OAUTH_LOGIN_PROVIDERS` into `local_specify_settings.py`. Credentials are **not** stored in values — they are read from env vars in `specify-secret`:
 
-Next implementation step should be:
+| Env var | Purpose |
+| :--- | :--- |
+| `FEIDE_OIDC_CLIENT_ID` | Feide OIDC client id |
+| `FEIDE_OIDC_CLIENT_SECRET` | Feide OIDC client secret |
 
-- add `specify.oauthLoginProviders` values key
-- render it into `local_specify_settings.py` safely
-- optionally split secrets and non-secrets (`ConfigMap` + `Secret`)
+Non-secret provider settings (title, issuer, scopes) live under `specify.oauth.providers.feide` in Helm values.
+
+### Rollout checklist (do not skip steps)
+
+1. **Feide customer portal** — create OIDC configuration for the service:
+   - Redirect URI: `https://specify-stg.natur.unimus.no/accounts/oic_callback/`
+   - Scopes: `openid`, `profile`, `email` (add `userid` if your attribute groups require it)
+   - Enable Feide test users while validating in staging
+2. **Kubernetes secret** — add credentials to `specify-secret` (see `example.env`):
+   ```bash
+   kubectl patch secret specify-secret -n <namespace> --type merge -p \
+     '{"stringData":{"FEIDE_OIDC_CLIENT_ID":"<from-portal>","FEIDE_OIDC_CLIENT_SECRET":"<from-portal>"}}'
+   ```
+3. **Helm upgrade** — staging values already have `specify.oauth.providers.feide.enabled: true`:
+   ```bash
+   cd migration/charts/specify7
+   helm dependency build
+   helm upgrade staging . -f staging.values.yaml -n <namespace>
+   ```
+4. **Verify** — visit `/accounts/login/` and confirm the Feide button appears; test with a Feide test user and an invite link for account linking.
+
+### Troubleshooting: redirect URI uses `http://` instead of `https://`
+
+If Feide reports a mismatch like `http://…/accounts/oic_callback/` vs the configured `https://…`, TLS is terminating at ingress but Django was building URLs from the plain HTTP request to the pod. The chart sets `SECURE_PROXY_SSL_HEADER` when `ingress.enabled` and `ingress.tls` are both true (requires a Helm upgrade / pod restart to pick up the new config Secret).
+5. **User onboarding** — generate invite links for pilot users or bulk-create `spuserexternalid` rows before wider rollout.
 
 ## 8) Open questions to resolve with Feide admins
 
@@ -120,7 +152,7 @@ Feide OIDC uses the normal discovery/issuer endpoints, and testing is handled pe
 Current practical workflow:
 
 1. Create OIDC configuration for the service in Feide customer portal.
-2. Set redirect URI to `https://specify.gbif-no.sigma2.no/accounts/oic_callback/` for this environment.
+2. Set redirect URI to `https://specify-stg.natur.unimus.no/accounts/oic_callback/` for staging.
 3. Enable Feide test users on the configuration while testing.
 4. Validate login in staging.
 5. Disable test users when not needed and before production usage.
