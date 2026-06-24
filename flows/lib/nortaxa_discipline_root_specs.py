@@ -1,7 +1,7 @@
-"""Hard-coded NorTaxa (Artsnavnebase) root ``taxonID`` values per Specify ``Discipline.name``.
+"""Hard-coded NorTaxa root ``scientificNameId`` values per Specify ``Discipline.name``.
 
-IDs were taken from ``data/dwca-artsnavnebase-v1.270/taxon.txt`` (export v1.270). If Artsdatabanken
-reparents taxa, re-verify these rows after refreshing the DwC-A.
+IDs match NorTaxa API / DwC ``taxonID`` (scientific name id). Re-verify after major NorTaxa
+revisions if discipline coverage looks wrong.
 
 Matching is **exact** on ``Discipline.name`` as stored in Specify (same strings as used when
 creating disciplines). Unknown names are skipped by the flow with a log line.

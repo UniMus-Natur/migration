@@ -1,42 +1,19 @@
-"""Merge NorTaxa DwC ``taxon`` slice TSVs into Specify ``Taxon`` trees (second phase of the flow).
+"""Merge NorTaxa API export TSVs into Specify ``Taxon`` trees.
 
 **Provenance (NorTaxa-managed rows)**
 
 - ``source`` = ``"NorTaxa"``
-- ``taxonomicserialnumber`` = DwC ``taxonID`` (Artsdatabanken taxon id in the export)
-- ``text1`` = last export stamp (UTC ISO date from the flow run)
-- ``yesno1`` = ``True`` if the taxon appears in the **current** export slice; ``False`` if it was
-  NorTaxa-managed but is **missing** from the current slice (treat as orphaned / authority drift).
-  User-created taxa: leave ``source`` unset or not ``NorTaxa`` — they are not touched by orphan logic.
+- ``taxonomicserialnumber`` = NorTaxa ``scientificNameId`` (DwC ``taxonID`` / Oracle ``ADB_TAXON_ID``)
+- ``text2`` = NorTaxa ``taxonId`` (taxon concept id for changelog correlation)
+- ``text1`` = last sync stamp (UTC ISO date from the flow run)
+- ``yesno1`` = ``True`` if the taxon appears in the **current** export slice; ``False`` if orphaned
 
 **Behaviour**
 
-- Rows with ``taxonomicStatus`` synonym (and other non-valid statuses) are **not** inserted in
-  this version; only ``valid`` (or blank) rows are merged. Synonyms can be added in a follow-up.
-- Inserts run in dependency order. The DwC slice TSV includes **all ancestors** up to the root of
-  the full NorTaxa file (see ``expand_keep_with_ancestors``), so parents resolve under **Life**
-  without attaching phyla directly to the discipline root. If a ``parentNameUsageID`` is missing
-  from the slice TSV entirely, the row is inserted under **Life** as a last resort (counted in
-  ``reparented_out_of_slice_to_root``).
-- If a DwC ``taxonRank`` has no matching :class:`~specifyweb.specify.models.Taxontreedefitem`
-  ``Name`` for that discipline tree, the row is skipped and counted.
-- The same ``TaxonTreeDef`` is only merged **once** per flow run (first discipline wins); a second
-  discipline sharing the same tree is skipped with a note in the merge summary.
-
-**Living / pre-imported taxa**
-
-- Any ``Taxon`` in the tree with ``taxonomicserialnumber`` matching the DwC id is linked into the
-  merge map regardless of ``source`` (re-import safe).
-- If no serial match but a row exists with the same ``parent``, ``name``, and ``rankid`` and a
-  **blank** ``taxonomicserialnumber``, it is **adopted**: NorTaxa provenance fields are set without
-  creating a duplicate (covers taxa created by earlier migrations).
-
-**Tree bootstrap**
-
-If a discipline has no ``taxontreedef``, or the tree has no rank-0 :class:`Taxontreedefitem`, or no
-root :class:`Taxon`, :func:`ensure_discipline_taxon_tree` creates them (mirrors Specify's tree API
-pattern: root named **Life**, ``rankid`` 0). Skipped when the flow runs with ``dry_run=True`` and
-bootstrap would be required — run with ``dry_run=False`` to create the tree and merge.
+- ``Taxon.name`` uses rank-local epithets from API ``NameString`` (not full binomial).
+- ``fullname`` is computed by Specify via ``set_fullnames`` after each merge batch.
+- Accepted taxa are inserted first; synonym rows are linked via ``acceptedtaxon``.
+- Parent changes on re-run update ``Taxon.parent`` when the API parent id drifts.
 """
 
 from __future__ import annotations
@@ -46,15 +23,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from flows.lib.nortaxa_api_client import (
+    normalize_taxonomic_status,
+    row_accepted_scientific_name_id,
+    row_parent_scientific_name_id,
+    row_scientific_name_id,
+)
+
 NORTAXA_SOURCE = "NorTaxa"
 
 
 def ensure_discipline_taxon_tree(discipline_id: int, *, dry_run: bool) -> dict[str, Any]:
-    """Ensure the discipline has a taxon tree def, rank-0 item, and root ``Taxon`` (``Life``).
-
-    When ``dry_run`` is True, performs no writes. If anything would need to be created, returns
-    ``dry_run_blocked: True`` so the caller can skip the merge phase for that discipline.
-    """
+    """Ensure the discipline has a taxon tree def, rank-0 item, and root ``Taxon`` (``Life``)."""
     from django.db import connection
 
     from specifyweb.specify.models import Discipline, Taxon, Taxontreedef, Taxontreedefitem
@@ -137,8 +117,24 @@ def _trunc(s: str | None, n: int) -> str:
     return s[:n] if len(s) > n else s
 
 
-def _dwc_status(row: dict[str, str]) -> str:
-    return (row.get("taxonomicStatus") or "").strip().lower()
+def _row_status(row: dict[str, str]) -> str:
+    return normalize_taxonomic_status(row.get("taxonomicStatus") or "")
+
+
+def _row_name(row: dict[str, str]) -> str:
+    return _trunc(row.get("scientificName") or row.get("NameString"), 256)
+
+
+def _row_author(row: dict[str, str]) -> str:
+    return _trunc(row.get("scientificNameAuthorship") or row.get("Author"), 128)
+
+
+def _row_taxon_id(row: dict[str, str]) -> str:
+    return _trunc(row.get("taxonId"), 32)
+
+
+def _row_vernacular(row: dict[str, str]) -> str:
+    return _trunc(row.get("vernacularNameBokmaal"), 128)
 
 
 def read_taxon_tsv_rows(tsv_path: Path) -> tuple[list[str], list[dict[str, str]]]:
@@ -150,7 +146,6 @@ def read_taxon_tsv_rows(tsv_path: Path) -> tuple[list[str], list[dict[str, str]]
 
 
 def build_rank_name_to_item(treedef_id: int) -> dict[str, Any]:
-    """Map lowercased tree-def rank ``Name`` → :class:`Taxontreedefitem` (first/lowest rankid wins)."""
     from specifyweb.specify.models import Taxontreedefitem
 
     rank_map: dict[str, Any] = {}
@@ -161,6 +156,13 @@ def build_rank_name_to_item(treedef_id: int) -> dict[str, Any]:
     return rank_map
 
 
+def rank_item_for_row(row: dict[str, str], rank_map: dict[str, Any]) -> Any | None:
+    raw = (row.get("taxonRank") or row.get("Rank") or "").strip().lower()
+    if not raw:
+        return None
+    return rank_map.get(raw)
+
+
 def _try_adopt_existing_taxon(
     *,
     treedef_id: int,
@@ -168,13 +170,10 @@ def _try_adopt_existing_taxon(
     name: str,
     rankid: int,
     tid: str,
+    taxon_id: str,
     export_stamp: str,
     dry_run: bool,
 ) -> tuple[Any | None, bool]:
-    """If a pre-existing child matches parent+name+rank with no NorTaxa serial, adopt it.
-
-    Returns ``(taxon_or_none, adopted)``.
-    """
     from django.db.models import Q
 
     from specifyweb.specify.models import Taxon
@@ -198,19 +197,39 @@ def _try_adopt_existing_taxon(
     cand.source = NORTAXA_SOURCE
     cand.taxonomicserialnumber = serial
     cand.text1 = export_stamp
+    cand.text2 = taxon_id or cand.text2
     cand.yesno1 = True
-    cand.save(update_fields=["source", "taxonomicserialnumber", "text1", "yesno1", "version"])
+    cand.save(update_fields=["source", "taxonomicserialnumber", "text1", "text2", "yesno1", "version"])
     return cand, True
 
 
-def rank_item_for_dwc_row(row: dict[str, str], rank_map: dict[str, Any]) -> Any | None:
-    raw = (row.get("taxonRank") or "").strip().lower()
-    if not raw:
-        return None
-    if raw in rank_map:
-        return rank_map[raw]
-    # DwC sometimes uses ranks not in a given Specify tree (skip).
-    return None
+def _link_synonym_to_accepted(synonym: Any, accepted: Any, *, dry_run: bool) -> bool:
+    """Point ``synonym`` at ``accepted`` (Specify synonymy semantics)."""
+    if synonym.id == accepted.id:
+        return False
+    if dry_run:
+        return True
+    from specifyweb.specify.models import Determination
+
+    synonym.acceptedtaxon_id = accepted.id
+    synonym.isaccepted = False
+    synonym.save(update_fields=["acceptedtaxon", "isaccepted", "version"])
+    Determination.objects.filter(taxon=synonym).update(preferredtaxon=accepted)
+    Determination.objects.filter(preferredtaxon=synonym).update(preferredtaxon=accepted)
+    return True
+
+
+def _rebuild_fullnames(treedef_id: int, *, dry_run: bool) -> bool:
+    if dry_run:
+        return False
+    from specifyweb.backend.trees.extras import set_fullnames
+    from specifyweb.specify.models import Taxontreedef
+
+    td = Taxontreedef.objects.filter(pk=treedef_id).first()
+    if td is None:
+        return False
+    set_fullnames(td, null_only=False, node_number_range=None)
+    return True
 
 
 @dataclass
@@ -222,13 +241,133 @@ class MergeStats:
     orphans_marked: int = 0
     present_refreshed: int = 0
     inserted: int = 0
+    synonyms_inserted: int = 0
+    synonyms_linked: int = 0
+    parents_updated: int = 0
     skipped_non_valid_status: int = 0
     skipped_unknown_rank: int = 0
     skipped_missing_parent: int = 0
     skipped_no_tree_root: int = 0
+    skipped_missing_accepted: int = 0
     reparented_out_of_slice_to_root: int = 0
     adopted_pre_existing: int = 0
+    fullnames_rebuilt: bool = False
     errors: list[str] = field(default_factory=list)
+
+
+def _resolve_parent(
+    *,
+    row: dict[str, str],
+    root: Any,
+    nortaxa_to_taxon: dict[str, Any],
+    current_ids: set[str],
+) -> tuple[Any | None, bool]:
+    pid = row_parent_scientific_name_id(row)
+    if not pid:
+        return root, False
+    parent = nortaxa_to_taxon.get(pid)
+    if parent is not None:
+        return parent, False
+    if pid not in current_ids:
+        return root, True
+    return None, False
+
+
+def _insert_taxon_row(
+    *,
+    row: dict[str, str],
+    treedef_id: int,
+    tid: str,
+    parent: Any,
+    di: Any,
+    export_stamp: str,
+    dry_run: bool,
+    is_accepted: bool,
+) -> Any | None:
+    from django.db import transaction
+
+    from specifyweb.specify.models import Taxon
+
+    name = _row_name(row)
+    if not name:
+        return None
+    author = _row_author(row)
+    taxon_id = _row_taxon_id(row)
+    common = _row_vernacular(row)
+
+    if dry_run:
+        return object()
+
+    with transaction.atomic():
+        obj = Taxon(
+            name=name,
+            fullname=None,
+            author=author or None,
+            commonname=common or None,
+            definition_id=treedef_id,
+            definitionitem=di,
+            parent=parent,
+            rankid=di.rankid,
+            isaccepted=is_accepted,
+            source=NORTAXA_SOURCE,
+            taxonomicserialnumber=_trunc(tid, 50),
+            text1=export_stamp,
+            text2=taxon_id or None,
+            yesno1=True,
+        )
+        obj.save()
+    return obj
+
+
+def _update_existing_taxon(
+    taxon_obj: Any,
+    row: dict[str, str],
+    *,
+    nortaxa_to_taxon: dict[str, Any],
+    root: Any,
+    current_ids: set[str],
+    export_stamp: str,
+    dry_run: bool,
+    stats: MergeStats,
+) -> None:
+    name = _row_name(row) or taxon_obj.name
+    author = _row_author(row)
+    taxon_id = _row_taxon_id(row)
+    common = _row_vernacular(row)
+    parent, reparented = _resolve_parent(
+        row=row,
+        root=root,
+        nortaxa_to_taxon=nortaxa_to_taxon,
+        current_ids=current_ids,
+    )
+    if reparented:
+        stats.reparented_out_of_slice_to_root += 1
+
+    if dry_run:
+        return
+
+    changed = False
+    if name and taxon_obj.name != name:
+        taxon_obj.name = name
+        changed = True
+    if author != (taxon_obj.author or ""):
+        taxon_obj.author = author or None
+        changed = True
+    if common and (taxon_obj.commonname or "") != common:
+        taxon_obj.commonname = common
+        changed = True
+    if taxon_id and (taxon_obj.text2 or "") != taxon_id:
+        taxon_obj.text2 = taxon_id
+        changed = True
+    if taxon_obj.text1 != export_stamp:
+        taxon_obj.text1 = export_stamp
+        changed = True
+    if parent is not None and taxon_obj.parent_id != parent.id:
+        taxon_obj.parent_id = parent.id
+        changed = True
+        stats.parents_updated += 1
+    if changed:
+        taxon_obj.save()
 
 
 def merge_nortaxa_tsv_into_discipline_tree(
@@ -242,8 +381,6 @@ def merge_nortaxa_tsv_into_discipline_tree(
     logger: Any,
 ) -> MergeStats:
     """Apply one discipline taxon slice TSV to ``treedef_id``."""
-    from django.db import transaction
-
     from specifyweb.specify.models import Taxon
 
     stats = MergeStats(
@@ -257,7 +394,7 @@ def merge_nortaxa_tsv_into_discipline_tree(
         return stats
 
     _, rows = read_taxon_tsv_rows(tsv_path)
-    current_ids = {(r.get("taxonID") or "").strip() for r in rows if (r.get("taxonID") or "").strip()}
+    current_ids = {row_scientific_name_id(r) for r in rows if row_scientific_name_id(r)}
     if not current_ids:
         logger.info("Merge skip discipline_id=%s: empty taxon slice", discipline_id)
         return stats
@@ -272,7 +409,6 @@ def merge_nortaxa_tsv_into_discipline_tree(
         )
         return stats
 
-    # --- Taxa already in Specify keyed by DwC taxon id (any source — safe re-runs on live DB)
     existing = (
         Taxon.objects.filter(definition_id=treedef_id, taxonomicserialnumber__in=list(current_ids))
         .exclude(taxonomicserialnumber__isnull=True)
@@ -290,7 +426,6 @@ def merge_nortaxa_tsv_into_discipline_tree(
             source=NORTAXA_SOURCE,
         ).exclude(taxonomicserialnumber__isnull=True).exclude(taxonomicserialnumber__exact="")
         orphan_qs = orphan_qs.exclude(taxonomicserialnumber__in=current_ids)
-        # Any row with this DwC id in the slice (any source) gets refreshed — safe on re-runs.
         present_qs = Taxon.objects.filter(
             definition_id=treedef_id,
             taxonomicserialnumber__in=list(current_ids),
@@ -317,48 +452,33 @@ def merge_nortaxa_tsv_into_discipline_tree(
             Taxon.objects.bulk_update(present, ["yesno1", "text1"])
             stats.present_refreshed = len(present)
 
-    def _update_body_from_dwc(taxon_obj: Any, row: dict[str, str]) -> None:
-        name = _trunc(row.get("scientificName"), 256) or taxon_obj.name
-        fullname = _trunc(row.get("scientificName"), 512) or name
-        author = _trunc(row.get("scientificNameAuthorship"), 128)
-        if dry_run:
-            return
-        changed = False
-        if name and taxon_obj.name != name:
-            taxon_obj.name = name
-            changed = True
-        if fullname and taxon_obj.fullname != fullname:
-            taxon_obj.fullname = fullname
-            changed = True
-        if author != (taxon_obj.author or ""):
-            taxon_obj.author = author or None
-            changed = True
-        if changed:
-            taxon_obj.save(update_fields=["name", "fullname", "author", "version"])
-
-    # Refresh metadata for taxa still in export; mark NorTaxa-only missing ids as orphaned.
     _flush_orphans_and_present()
 
-    # Update scientific fields for rows we already have.
-    for row in rows:
-        tid = (row.get("taxonID") or "").strip()
-        if not tid or _dwc_status(row) not in ("", "valid"):
-            if tid and _dwc_status(row) not in ("", "valid"):
-                stats.skipped_non_valid_status += 1
+    accepted_rows = [r for r in rows if _row_status(r) == "accepted"]
+    synonym_rows = [r for r in rows if _row_status(r) == "synonym"]
+
+    for row in accepted_rows:
+        tid = row_scientific_name_id(row)
+        if not tid:
             continue
         t = nortaxa_to_taxon.get(tid)
         if t is not None and hasattr(t, "save"):
-            _update_body_from_dwc(t, row)
+            _update_existing_taxon(
+                t,
+                row,
+                nortaxa_to_taxon=nortaxa_to_taxon,
+                root=root,
+                current_ids=current_ids,
+                export_stamp=export_stamp,
+                dry_run=dry_run,
+                stats=stats,
+            )
 
-    # --- Inserts: only valid / blank status, in parent-before-child order
     pending = [
         r
-        for r in rows
-        if (r.get("taxonID") or "").strip()
-        and _dwc_status(r) in ("", "valid")
-        and (r.get("taxonID") or "").strip() not in nortaxa_to_taxon
+        for r in accepted_rows
+        if row_scientific_name_id(r) and row_scientific_name_id(r) not in nortaxa_to_taxon
     ]
-
     max_passes = len(pending) + 3
     for _ in range(max_passes):
         if not pending:
@@ -366,44 +486,30 @@ def merge_nortaxa_tsv_into_discipline_tree(
         progressed = 0
         still: list[dict[str, str]] = []
         for row in pending:
-            tid = (row.get("taxonID") or "").strip()
-            pid = (row.get("parentNameUsageID") or "").strip()
-            if not pid:
-                parent = root
-                reparent_missing_dwc_parent = False
-            elif pid not in nortaxa_to_taxon:
-                if pid not in current_ids:
-                    # Parent id not in this slice TSV (broken DwC / edge) — attach to Life.
-                    parent = root
-                    reparent_missing_dwc_parent = True
-                else:
-                    still.append(row)
-                    continue
-            else:
-                parent = nortaxa_to_taxon[pid]
-                reparent_missing_dwc_parent = False
+            tid = row_scientific_name_id(row)
+            parent, reparented = _resolve_parent(
+                row=row,
+                root=root,
+                nortaxa_to_taxon=nortaxa_to_taxon,
+                current_ids=current_ids,
+            )
             if parent is None:
                 still.append(row)
                 continue
-            di = rank_item_for_dwc_row(row, rank_map)
+            di = rank_item_for_row(row, rank_map)
             if di is None:
                 stats.skipped_unknown_rank += 1
                 continue
-            name = _trunc(row.get("scientificName"), 256)
-            if not name:
-                stats.skipped_unknown_rank += 1
-                continue
-            if reparent_missing_dwc_parent:
+            if reparented:
                 stats.reparented_out_of_slice_to_root += 1
-            fullname = _trunc(row.get("scientificName"), 512) or name
-            author = _trunc(row.get("scientificNameAuthorship"), 128)
 
             adopted_obj, adopted = _try_adopt_existing_taxon(
                 treedef_id=treedef_id,
                 parent=parent,
-                name=name,
+                name=_row_name(row),
                 rankid=di.rankid,
                 tid=tid,
+                taxon_id=_row_taxon_id(row),
                 export_stamp=export_stamp,
                 dry_run=dry_run,
             )
@@ -413,33 +519,24 @@ def merge_nortaxa_tsv_into_discipline_tree(
                 progressed += 1
                 continue
 
-            if dry_run:
-                stats.inserted += 1
-                progressed += 1
-                nortaxa_to_taxon[tid] = object()  # placeholder so children resolve in dry-run
-                continue
-
             try:
-                with transaction.atomic():
-                    obj = Taxon(
-                        name=name,
-                        fullname=fullname,
-                        author=author or None,
-                        definition_id=treedef_id,
-                        definitionitem=di,
-                        parent=parent,
-                        rankid=di.rankid,
-                        isaccepted=True,
-                        source=NORTAXA_SOURCE,
-                        taxonomicserialnumber=_trunc(tid, 50),
-                        text1=export_stamp,
-                        yesno1=True,
-                    )
-                    obj.save()
-            except Exception as exc:  # noqa: BLE001 — surface to manifest
+                obj = _insert_taxon_row(
+                    row=row,
+                    treedef_id=treedef_id,
+                    tid=tid,
+                    parent=parent,
+                    di=di,
+                    export_stamp=export_stamp,
+                    dry_run=dry_run,
+                    is_accepted=True,
+                )
+            except Exception as exc:  # noqa: BLE001
                 if len(stats.errors) < 40:
-                    stats.errors.append(f"taxonID={tid} name={name!r}: {exc}")
+                    stats.errors.append(f"taxonID={tid} name={_row_name(row)!r}: {exc}")
                 still.append(row)
+                continue
+            if obj is None:
+                stats.skipped_unknown_rank += 1
                 continue
             nortaxa_to_taxon[tid] = obj
             stats.inserted += 1
@@ -451,10 +548,89 @@ def merge_nortaxa_tsv_into_discipline_tree(
     if pending:
         stats.skipped_missing_parent = len(pending)
         if len(stats.errors) < 40:
-            stats.errors.append(
-                f"{len(pending)} row(s) not inserted (missing parent in slice, unknown rank, or DB error)"
-            )
+            stats.errors.append(f"{len(pending)} accepted row(s) not inserted (missing parent or error)")
 
+    # --- Synonyms: insert if missing, then link to accepted
+    syn_pending = [
+        r
+        for r in synonym_rows
+        if row_scientific_name_id(r) and row_scientific_name_id(r) not in nortaxa_to_taxon
+    ]
+    for _ in range(len(syn_pending) + 3):
+        if not syn_pending:
+            break
+        progressed = 0
+        still_syn: list[dict[str, str]] = []
+        for row in syn_pending:
+            tid = row_scientific_name_id(row)
+            aid = row_accepted_scientific_name_id(row) or tid
+            accepted = nortaxa_to_taxon.get(aid)
+            if accepted is None:
+                still_syn.append(row)
+                continue
+            parent, reparented = _resolve_parent(
+                row=row,
+                root=root,
+                nortaxa_to_taxon=nortaxa_to_taxon,
+                current_ids=current_ids,
+            )
+            if parent is None:
+                still_syn.append(row)
+                continue
+            di = rank_item_for_row(row, rank_map)
+            if di is None:
+                stats.skipped_unknown_rank += 1
+                continue
+            if reparented:
+                stats.reparented_out_of_slice_to_root += 1
+            try:
+                obj = _insert_taxon_row(
+                    row=row,
+                    treedef_id=treedef_id,
+                    tid=tid,
+                    parent=parent,
+                    di=di,
+                    export_stamp=export_stamp,
+                    dry_run=dry_run,
+                    is_accepted=False,
+                )
+            except Exception as exc:  # noqa: BLE001
+                if len(stats.errors) < 40:
+                    stats.errors.append(f"synonym taxonID={tid}: {exc}")
+                still_syn.append(row)
+                continue
+            if obj is None:
+                still_syn.append(row)
+                continue
+            nortaxa_to_taxon[tid] = obj
+            stats.synonyms_inserted += 1
+            progressed += 1
+        syn_pending = still_syn
+        if progressed == 0:
+            break
+
+    for row in synonym_rows:
+        tid = row_scientific_name_id(row)
+        aid = row_accepted_scientific_name_id(row)
+        if not tid or not aid:
+            stats.skipped_missing_accepted += 1
+            continue
+        synonym = nortaxa_to_taxon.get(tid)
+        accepted = nortaxa_to_taxon.get(aid)
+        if synonym is None or accepted is None:
+            stats.skipped_missing_accepted += 1
+            continue
+        if not hasattr(synonym, "save"):
+            continue
+        if synonym.acceptedtaxon_id == getattr(accepted, "id", None) and not synonym.isaccepted:
+            continue
+        if _link_synonym_to_accepted(synonym, accepted, dry_run=dry_run):
+            stats.synonyms_linked += 1
+
+    stats.skipped_non_valid_status = len(
+        [r for r in rows if _row_status(r) not in ("accepted", "synonym")]
+    )
+    stats.fullnames_rebuilt = _rebuild_fullnames(treedef_id, dry_run=dry_run)
     return stats
 
 
@@ -467,11 +643,16 @@ def merge_stats_to_dict(s: MergeStats) -> dict[str, Any]:
         "orphans_marked": s.orphans_marked,
         "present_refreshed": s.present_refreshed,
         "inserted": s.inserted,
+        "synonyms_inserted": s.synonyms_inserted,
+        "synonyms_linked": s.synonyms_linked,
+        "parents_updated": s.parents_updated,
         "skipped_non_valid_status": s.skipped_non_valid_status,
         "skipped_unknown_rank": s.skipped_unknown_rank,
         "skipped_missing_parent": s.skipped_missing_parent,
+        "skipped_missing_accepted": s.skipped_missing_accepted,
         "skipped_no_tree_root": s.skipped_no_tree_root,
         "reparented_out_of_slice_to_root": s.reparented_out_of_slice_to_root,
         "adopted_pre_existing": s.adopted_pre_existing,
+        "fullnames_rebuilt": s.fullnames_rebuilt,
         "errors": s.errors,
     }

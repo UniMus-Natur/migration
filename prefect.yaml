@@ -88,12 +88,38 @@ deployments:
 
   - name: nortaxa-discipline-trees-dev
     version: 1.0.0
-    tags: ["nortaxa", "taxonomy", "dwca", "dev"]
-    description: "Download Artsnavnebase NorTaxa DwC-A; slice taxon.txt per Specify Discipline (ORM + hard-coded roots)"
+    tags: ["nortaxa", "taxonomy", "api", "dev"]
+    description: "NorTaxa API export per Specify Discipline; merge taxon trees; changelog incremental sync"
     entrypoint: flows/nortaxa_discipline_trees.py:nortaxa_discipline_trees_flow
     parameters:
-      download: true
-      keep_unpack_dir: false
+      run_changelog_sync: true
+      dry_run: true
+    work_pool:
+      name: dev-process
+      work_queue_name: default
+
+  - name: purge-specify-staging-reset-dev
+    version: 1.0.0
+    tags: ["specify", "purge", "staging", "maintenance", "dev"]
+    description: "Destructive: wipe specimens, geography, taxon trees; keep users and agents"
+    entrypoint: flows/purge_specify_staging_reset.py:purge_specify_staging_reset_flow
+    parameters:
+      dry_run: true
+      clear_objectmap_rows: true
+      clear_placemap_rows: true
+      purge_taxon_trees: true
+      purge_geography_locality: true
+      purge_all_collection_data: true
+    work_pool:
+      name: dev-process
+      work_queue_name: default
+
+  - name: purge-specify-taxon-trees-dev
+    version: 1.0.0
+    tags: ["specify", "taxonomy", "purge", "maintenance", "dev"]
+    description: "Destructive: delete all Taxon trees (all disciplines)"
+    entrypoint: flows/purge_specify_taxon_trees.py:purge_specify_taxon_trees_flow
+    parameters:
       dry_run: true
     work_pool:
       name: dev-process
