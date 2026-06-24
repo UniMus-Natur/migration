@@ -20,6 +20,7 @@ This documentation covers the planning, architecture, and execution of migrating
 - [**Oracle Schema Overview**](oracle_schema_overview.md): Deep analysis and grouping of the legacy source schemas and tables.
 - [**Oracle botany datasets**](oracle_botany_datasets.md): MUSIT `DATASET` / `PROJECT_NAME`, legacy USD botany schemas, extractable dimensions, and SQL.
 - [**Migration Strategy (Phased)**](migration_strategy.md): Strategy for merging shared data and iteratively migrating datasets to Specify 7.
+- [**NorTaxa taxon trees**](nortaxa_taxon_trees.md): NorTaxa API → Specify taxon tree sync (Phase 1.3): bulk merge, changelog, discipline slices, future scenarios.
 - [**User migration report**](user_migration_report.md): `migration_report.json` from the Migrate Users Prefect flow (Phase 1.4).
 - [**MUSIT collection agents migration**](migrate_musit_agents.md): `ACTOR` / `PERSON_NAME` → Specify `Agent` (Phase 1.1; Prefect flow `migrate_musit_agents_flow`).
 - [**Specify structure sync**](sync_specify_structure.md): `sync_specify_structure_flow` — create divisions, disciplines, and collections from YAML (post-bootstrap, idempotent).

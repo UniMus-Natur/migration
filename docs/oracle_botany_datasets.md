@@ -830,7 +830,7 @@ https://www.unimus.no/felles/bilder/web_hent_bilde.php?id=<MEDIAGRUPPE_ENHETS_ID
 
 | Oracle | Tables | Role |
 |--------|--------|------|
-| Current ID event | **`CLASSIFICATION_EVENT`** → **`CLASSIFICATION_TERM`**, **`CLASSIFICATION_TAXON`** → **`TAXON`** → **`LATIN_NAMES`** | Determination + scientific name; **`ADB_TAXON_ID`** links Artsdatabanken (NorTaxa strategy in [migration_strategy](migration_strategy.md)). |
+| Current ID event | **`CLASSIFICATION_EVENT`** → **`CLASSIFICATION_TERM`**, **`CLASSIFICATION_TAXON`** → **`TAXON`** → **`LATIN_NAMES`** | Determination + scientific name; **`ADB_TAXON_ID`** links Artsdatabanken (operational sync: [NorTaxa taxon trees](nortaxa_taxon_trees.md)). |
 | Type status | **`TYPIFICATION_EVENT`**, **`TYPE_SPECIMEN`** | Type specimen / typification. |
 | DwC-style ranks on export | **`V_DC_*`**: kingdom … species, `SCIENTIFICNAMEAUTHOR`, `IDENTIFICATION*` columns, Norwegisk taxon ids (`NRIKEID` … `NARTID`) | IPT parity + bridge to NorTaxa. |
 

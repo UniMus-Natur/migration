@@ -172,23 +172,36 @@ Geography and locality loading now run as part of per-dataset migration, not as 
 
 #### Step 1.3 — Taxonomy
 
-**Source:** NorTaxa (Artsdatabanken) as primary tree + Oracle `LATIN_NAMES` for unmatched species  
-**Target:** Specify `Taxon` trees (one per Discipline: Botany, Zoology/Entomology)
+**Source:** NorTaxa (Artsdatabanken) via REST API + Oracle `LATIN_NAMES` for unmatched species (Phase 2 / future)  
+**Target:** Specify `Taxon` trees (**one `TaxonTreeDef` per `Discipline`**)
 
-**Approach: NorTaxa-first**
+**Approach: NorTaxa-first (API sync)**
 
-Rather than migrating and merging the Oracle taxonomy trees, we use **NorTaxa as the canonical tree** and add anything missing from it. This works cleanly here because:
-- `LATIN_NAMES.ADB_TAXON_ID` already links Oracle names to Artsdatabanken IDs — matching is a lookup, not a fuzzy merge.
-- `USD_NAT_TAXAREG` was built as a synchronised copy of Artsdatabanken data — NorTaxa *is* the authority the old system was tracking.
+Rather than migrating Oracle taxonomy trees wholesale, we use **NorTaxa as the canonical authority** and load curated slices per Specify discipline. Matching legacy data uses `LATIN_NAMES.ADB_TAXON_ID` (= NorTaxa `scientificNameId` = Specify `taxonomicserialnumber`).
 
-**Migration steps:**
+**Operational documentation:** see [**NorTaxa taxon trees**](nortaxa_taxon_trees.md) for the full sync design, field mapping, changelog behaviour, purge flows, and expected future scenarios.
 
-1. **Import NorTaxa** into Specify as the base taxon tree (via Artsdatabanken export/API). This happens before any specimens.
-2. **Match**: for each Oracle `LATIN_NAMES` record, look up `ADB_TAXON_ID` → find existing Specify `Taxon` node.
-3. **No match** (taxon absent from NorTaxa): insert the taxon at the correct position in the tree and mark it with a flag (see below).
-4. **Synonyms**: NorTaxa already encodes accepted name ↔ synonym relationships; link `Determination.IsCurrent` accordingly.
+**Summary of the implemented flow (`nortaxa-discipline-trees-dev`):**
 
-**Flagging non-NorTaxa taxa:**
+1. **Extract** — NorTaxa `DataTransfer/Export` per discipline root `scientificNameId` (see `flows/lib/nortaxa_discipline_root_specs.py`).
+2. **Bootstrap** — create `TaxonTreeDef`, full rank ladder (Life → Species …), and root `Taxon` per discipline if missing.
+3. **Merge** — insert/update accepted taxa and synonyms; mark orphans (`yesno1=false`) when a name drops out of the slice.
+4. **Changelog** — incremental `TaxonName/ChangeLog` sync: auto-apply safe changes; queue Merge/Split/Delete for curator review.
+
+**Key field mapping (NorTaxa → Specify):**
+
+| NorTaxa / Oracle | Specify |
+|---|---|
+| `scientificNameId` / `ADB_TAXON_ID` | `Taxon.taxonomicserialnumber` |
+| `taxonId` (concept) | `Taxon.text2` |
+| `NameString` / rank-local epithet | `Taxon.name` |
+| _(computed)_ | `Taxon.fullname` via `set_fullnames` |
+| `scientificNameAuthorship` | `Taxon.author` |
+| `vernacularNameBokmaal` | `Taxon.commonname` |
+| `taxonRank` | `Taxon.definitionitem` |
+| — | `Taxon.source` = `"NorTaxa"` for managed rows |
+
+**Flagging non-NorTaxa taxa (planned for Oracle-only inserts):**
 
 Add a custom boolean field `IsExtraNorTaxa` (or `NorTaxaStatus` varchar) to the Specify `Taxon` table. Set it on insert for any taxon added outside the base NorTaxa import.
 
@@ -200,17 +213,17 @@ Two sub-categories worth distinguishing:
 | Genuinely foreign / extra-limital species | Tropical holotypes, Arctic borderline spp. | `EXTRA_LIMITAL` |
 | NorTaxa match | Any species found in ADB | _(null / unset)_ |
 
-**Key Oracle fields:**
+**Legacy Oracle fields (for unmatched taxa during specimen migration):**
 
 | Oracle | Specify |
 |---|---|
-| `LATIN_NAMES.LATIN_NAME` | `Taxon.Name` |
-| `TAXON_CATHEGORY.TAX_CATH_CODE` | `Taxon.RankID` (map rank codes to Specify rank IDs) |
-| `LATIN_NAMES.PARENT_LATIN_NAME_ID` | `Taxon.Parent` (used only for non-NorTaxa inserts) |
+| `LATIN_NAMES.LATIN_NAME` | epithet / name (rank-dependent) |
+| `TAXON_CATHEGORY.TAX_CATH_CODE` | `Taxon.RankID` |
+| `LATIN_NAMES.PARENT_LATIN_NAME_ID` | `Taxon.Parent` (non-NorTaxa inserts only) |
 | `LATIN_NAMES.IS_VALID` | `Taxon.IsAccepted` |
 | `AUTHORSTRINGS.AUTHORSTRING` | `Taxon.Author` |
-| `LATIN_NAMES.ADB_TAXON_ID` | Primary match key against NorTaxa; store in `Taxon.GUID` |
-| `LATIN_NAMES.NHM_TAXON_ID` | Secondary match key; store in custom field |
+| `LATIN_NAMES.ADB_TAXON_ID` | match key → `taxonomicserialnumber` |
+| `LATIN_NAMES.NHM_TAXON_ID` | secondary key; custom field |
 
 > ⚠️ NorTaxa covers Norwegian-relevant taxa. For marine and entomology collections there will be a long tail of foreign species (holotypes, Arctic material, imported specimens). Budget time for reviewing the `EXTRA_LIMITAL` tail before going live.
 
