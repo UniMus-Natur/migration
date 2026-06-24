@@ -83,8 +83,8 @@ backend:
 global:
   imageRegistry: docker.io
 
-# Init container image for chown on shared volumes.
-volumePermissions:
+# Init container image for chown on shared volumes (Specify7 pods only; not MariaDB/Redis).
+specifyVolumePermissions:
   image: docker.io/library/debian:bookworm-slim
 
 # Static file server (nginx sidecar)
