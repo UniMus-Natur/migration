@@ -19,9 +19,20 @@
 from __future__ import annotations
 
 import csv
+import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+_NORTAXA_RANK_CONFIG_PATH = Path(__file__).with_name("nortaxa_taxon_tree_ranks.json")
+
+# NorTaxa rank labels that differ from Specify treedef item names.
+_RANK_ALIASES: dict[str, str] = {
+    "form": "forma",
+}
 
 from flows.lib.nortaxa_api_client import (
     normalize_taxonomic_status,
@@ -31,6 +42,88 @@ from flows.lib.nortaxa_api_client import (
 )
 
 NORTAXA_SOURCE = "NorTaxa"
+
+
+def load_nortaxa_rank_levels() -> list[dict[str, Any]]:
+    """Rank template covering NorTaxa export ``Rank`` / ``taxonRank`` values."""
+    with _NORTAXA_RANK_CONFIG_PATH.open(encoding="utf-8") as fh:
+        payload = json.load(fh)
+    levels = payload.get("levels") or []
+    return sorted(levels, key=lambda x: int(x.get("rank", 0)))
+
+
+def ensure_taxon_tree_rank_items(treedef_id: int, *, dry_run: bool) -> dict[str, Any]:
+    """Ensure ``Taxontreedefitem`` rows exist for all NorTaxa ranks (not just Life)."""
+    from specifyweb.specify.models import Taxontreedefitem
+
+    out: dict[str, Any] = {
+        "treedef_id": treedef_id,
+        "created_rank_items": [],
+        "would_create_rank_items": [],
+        "dry_run": dry_run,
+    }
+    levels = load_nortaxa_rank_levels()
+    if not levels:
+        out["error"] = "empty_rank_config"
+        return out
+
+    existing_by_name: dict[str, Any] = {}
+    for item in Taxontreedefitem.objects.filter(treedef_id=treedef_id):
+        key = (item.name or "").strip().lower()
+        if key:
+            existing_by_name[key] = item
+
+    missing = [lvl for lvl in levels if (lvl.get("name") or "").strip().lower() not in existing_by_name]
+    if not missing:
+        _rechain_taxon_tree_rank_parents(treedef_id)
+        return out
+
+    if dry_run:
+        out["would_create_rank_items"] = [str(lvl.get("name") or "") for lvl in missing]
+        return out
+
+    for lvl in missing:
+        name = str(lvl.get("name") or "").strip()
+        if not name:
+            continue
+        item = Taxontreedefitem.objects.create(
+            treedef_id=treedef_id,
+            rankid=int(lvl.get("rank", 0)),
+            name=name,
+            title=name,
+            isenforced=bool(lvl.get("enforced", True)),
+            isinfullname=bool(lvl.get("infullname", False)),
+            parent_id=None,
+        )
+        existing_by_name[name.lower()] = item
+        out["created_rank_items"].append(name)
+
+    _rechain_taxon_tree_rank_parents(treedef_id)
+    if out["created_rank_items"]:
+        logger.info(
+            "Created %s taxon rank items on TaxonTreeDefID=%s: %s",
+            len(out["created_rank_items"]),
+            treedef_id,
+            ", ".join(out["created_rank_items"][:8])
+            + ("..." if len(out["created_rank_items"]) > 8 else ""),
+        )
+    return out
+
+
+def _rechain_taxon_tree_rank_parents(treedef_id: int) -> None:
+    from specifyweb.specify.models import Taxontreedefitem
+
+    items = list(Taxontreedefitem.objects.filter(treedef_id=treedef_id).order_by("rankid", "id"))
+    parent = None
+    changed: list[Any] = []
+    for item in items:
+        desired_parent_id = parent.id if parent is not None else None
+        if item.parent_id != desired_parent_id:
+            item.parent_id = desired_parent_id
+            changed.append(item)
+        parent = item
+    if changed:
+        Taxontreedefitem.objects.bulk_update(changed, ["parent_id"])
 
 
 def ensure_discipline_taxon_tree(discipline_id: int, *, dry_run: bool) -> dict[str, Any]:
@@ -107,6 +200,14 @@ def ensure_discipline_taxon_tree(discipline_id: int, *, dry_run: bool) -> dict[s
             cur.execute("UPDATE taxon SET NodeNumber = 1 WHERE taxonid = %s", [root.id])
         out["created_root"] = True
 
+    rank_items = ensure_taxon_tree_rank_items(td_id, dry_run=dry_run)
+    out["rank_items"] = rank_items
+    if rank_items.get("would_create_rank_items"):
+        out["dry_run_blocked"] = True
+        out["message"] = (
+            "dry_run: would create taxon rank items: "
+            + ", ".join(rank_items["would_create_rank_items"][:12])
+        )
     return out
 
 
@@ -160,6 +261,7 @@ def rank_item_for_row(row: dict[str, str], rank_map: dict[str, Any]) -> Any | No
     raw = (row.get("taxonRank") or row.get("Rank") or "").strip().lower()
     if not raw:
         return None
+    raw = _RANK_ALIASES.get(raw, raw)
     return rank_map.get(raw)
 
 

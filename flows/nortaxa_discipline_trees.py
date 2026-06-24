@@ -212,14 +212,20 @@ def nortaxa_discipline_trees_flow(
         }
         merge_summaries.append(entry)
         logger.info(
-            "Merge treedef=%s discipline=%r dry_run=%s inserted=%s synonyms_linked=%s orphans=%s",
+            "Merge treedef=%s discipline=%r dry_run=%s inserted=%s synonyms_linked=%s "
+            "orphans=%s skipped_unknown_rank=%s skipped_missing_parent=%s present_refreshed=%s",
             td_int,
             disc.name,
             dry_run,
             st.inserted,
             st.synonyms_linked,
             st.orphans_marked,
+            st.skipped_unknown_rank,
+            st.skipped_missing_parent,
+            st.present_refreshed,
         )
+        if st.errors:
+            logger.warning("Merge treedef=%s errors: %s", td_int, "; ".join(st.errors))
     manifest["merge"] = merge_summaries
 
     changelog_summary: dict | None = None
