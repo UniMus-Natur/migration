@@ -24,6 +24,10 @@ spec:
         matchLabels:
           app.kubernetes.io/instance: specify7
           component: prefect-dev-worker
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/instance: specify7
+          component: migration-harness
     ports:
     - protocol: TCP
       port: 3306

@@ -12,83 +12,26 @@ divisions:
       - name: Karplanter Moser
         type: botany
         collections:
-          - { code: NHM, name: NHM }
-          - { code: UM, name: UM }
-          - { code: UTM, name: UTM }
-          - { code: VM, name: VM }
-          - { code: NBH, name: NBH }
+          - { code: O-V, name: O-V }
       - name: Alger
         type: botany
-        collections:
-          - { code: NHM, name: NHM }
-          - { code: UM, name: UM }
-          - { code: UTM, name: UTM }
-          - { code: VM, name: VM }
-          - { code: NBH, name: NBH }
       - name: Lav Sopp
         type: botany
-        collections:
-          - { code: NHM, name: NHM }
-          - { code: UM, name: UM }
-          - { code: UTM, name: UTM }
-          - { code: VM, name: VM }
-          - { code: NBH, name: NBH }
       - name: Insekter
         type: entomology
-        collections:
-          - { code: NHM, name: NHM }
-          - { code: UM, name: UM }
-          - { code: UTM, name: UTM }
-          - { code: VM, name: VM }
-          - { code: NBH, name: NBH }
       - name: Marine invertebrater
         type: invertebrate zoology
-        collections:
-          - { code: NHM, name: NHM }
-          - { code: UM, name: UM }
-          - { code: UTM, name: UTM }
-          - { code: VM, name: VM }
-          - { code: NBH, name: NBH }
       - name: Pattedyr
         type: vertebrate zoology
-        collections:
-          - { code: NHM, name: NHM }
-          - { code: UM, name: UM }
-          - { code: UTM, name: UTM }
-          - { code: VM, name: VM }
-          - { code: NBH, name: NBH }
       - name: Fugl
         type: vertebrate zoology
-        collections:
-          - { code: NHM, name: NHM }
-          - { code: UM, name: UM }
-          - { code: UTM, name: UTM }
-          - { code: VM, name: VM }
-          - { code: NBH, name: NBH }
       - name: Fisk og herptiler
         type: vertebrate zoology
-        collections:
-          - { code: NHM, name: NHM }
-          - { code: UM, name: UM }
-          - { code: UTM, name: UTM }
-          - { code: VM, name: VM }
-          - { code: NBH, name: NBH }
 
   - name: Geology/paleontology
     disciplines:
       - name: Geologi
         type: geology
-        collections:
-          - { code: NHM, name: NHM }
-          - { code: UM, name: UM }
-          - { code: UTM, name: UTM }
-          - { code: VM, name: VM }
-          - { code: NBH, name: NBH }
+
       - name: Paleontologi
         type: invertpaleo
-        collections:
-          - { code: NHM, name: NHM }
-          - { code: UM, name: UM }
-          - { code: UTM, name: UTM }
-          - { code: VM, name: VM }
-          - { code: NBH, name: NBH }

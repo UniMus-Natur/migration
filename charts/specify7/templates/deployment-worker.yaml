@@ -1,3 +1,4 @@
+{{- if not (eq .Values.worker.enabled false) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,13 +18,15 @@ spec:
       labels:
         {{- include "specify7.selectorLabels" . | nindent 8 }}
         component: worker
+      annotations:
+        {{- include "specify7.configChecksumAnnotation" . | nindent 8 }}
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       initContainers:
         - name: volume-permissions
-          image: public.ecr.aws/bitnami/bitnami-shell:11-debian-11-r102
+          image: {{ include "specify7.volumePermissionsImage" . | quote }}
           command: ["/bin/bash", "-c"]
           args:
             - |
@@ -138,3 +141,4 @@ spec:
         - name: shared-assets
           persistentVolumeClaim:
             claimName: {{ if .Values.persistence.existingClaim }}{{ .Values.persistence.existingClaim }}{{ else }}{{ include "specify7.fullname" . }}-shared-assets{{ end }}
+{{- end }}

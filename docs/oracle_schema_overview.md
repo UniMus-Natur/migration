@@ -139,7 +139,7 @@ PLACE → INDEXED_LOCALITY (named locality)
 | Table | Purpose |
 |---|---|
 | `MUSEUM_OBJECT` | Central specimen/object entity |
-| `OBJECT_ATTRIBUTES` | Metadata, UUID, workflow status |
+| `OBJECT_ATTRIBUTES` | Metadata, UUID, workflow status; optional **`DATASET`** and **`PROJECT_NAME`** strings (see [Oracle botany datasets](oracle_botany_datasets.md)) |
 | `EVENT` | Abstract base for all events, with a `TIMESPAN_ID` |
 | `TIMESPAN` | Date ranges (from/to dates, text representation, uncertainty flag) |
 | `CLASSIFICATION_EVENT` | Determination/ID event |

@@ -9,17 +9,25 @@
 #   pf_stop                                     # tear down when done
 #
 # Safe to source again: skips any localhost port that already has a listener
-# (avoids duplicate kubectl/socat and keeps pf_stop tracking intact).
+# (avoids duplicate kubectl port-forwards and keeps pf_stop tracking intact).
 #
 # Targets:
 #   mariadb    MariaDB         localhost:3306
 #   prefect    Prefect UI/API  localhost:4200  (+ sets PREFECT_API_URL)
 #   backend    Specify7 API    localhost:8000
-#   oracle     Oracle prod+test via socat  localhost:1553 / localhost:1554
+#   oracle     Oracle prod+test  localhost:1553 / :1554  (socat inside cluster pod + kubectl port-forward)
 #   db         shorthand for mariadb + oracle
 #   all        everything (default)
 #
-# Requires: kubectl. For Oracle tunnels: socat (install: brew install socat | apt install socat)
+# Requires: kubectl. Oracle DB hosts are only reachable from the cluster; this script starts socat in
+# the Prefect dev-worker pod (migration image), then port-forwards those pod ports to localhost.
+#
+# Optional env:
+#   PF_ORACLE_PROXY_POD         pod name (default: first pod with label component=prefect-dev-worker)
+#   PF_ORACLE_PROXY_CONTAINER   container name (default: dev-worker)
+
+# Capture scripts directory at source time so oracle_sql() can find oracle_sql.py
+_PF_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 # Guard: warn if not sourced
 _pf_sourced=false
@@ -89,28 +97,36 @@ _pf_forward_backend() {
 }
 
 _pf_forward_oracle() {
-    if ! command -v socat &>/dev/null; then
-        echo "  ⚠ socat not found – skipping Oracle proxies (localhost:1553 / :1554)"
-        echo "     Oracle DBs live outside the cluster; this script uses socat to tunnel them."
-        echo "     Install:  macOS: brew install socat    Debian/Ubuntu: sudo apt install socat"
-        echo "     Alternative: run flows on the cluster worker, or VPN + point ORACLE_*_HOST at the DB."
+    local pod ct phase
+    ct="${PF_ORACLE_PROXY_CONTAINER:-dev-worker}"
+    pod="${PF_ORACLE_PROXY_POD:-}"
+    if [[ -z "$pod" ]]; then
+        pod=$(kubectl get pods -l component=prefect-dev-worker -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+    fi
+    if [[ -z "$pod" ]]; then
+        echo "  ⚠ Oracle: no proxy pod (label component=prefect-dev-worker)."
+        echo "     Enable chart values prefect.devWorker.enabled, or: export PF_ORACLE_PROXY_POD=<pod>"
         return
     fi
-    if _pf_tcp_port_listening 1553; then
-        echo "  Oracle PROD    dbora-musit-prod03.uio.no:1553  → localhost:1553 (already in use – skip)"
-    else
-        echo "  Oracle PROD    dbora-musit-prod03.uio.no:1553  → localhost:1553"
-        socat TCP-LISTEN:1553,fork,reuseaddr TCP:dbora-musit-prod03.uio.no:1553 &
-        _PF_PIDS+=($!)
+    phase=$(kubectl get pod "$pod" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+    if [[ "$phase" != "Running" ]]; then
+        echo "  ⚠ Oracle: pod $pod is not Running (status.phase=${phase:-unknown})"
+        return
     fi
 
-    if _pf_tcp_port_listening 1554; then
-        echo "  Oracle TEST    dbora-musit-utv03.uio.no:1553   → localhost:1554 (already in use – skip)"
-    else
-        echo "  Oracle TEST    dbora-musit-utv03.uio.no:1553   → localhost:1554"
-        socat TCP-LISTEN:1554,fork,reuseaddr TCP:dbora-musit-utv03.uio.no:1553 &
-        _PF_PIDS+=($!)
+    if _pf_tcp_port_listening 1553 || _pf_tcp_port_listening 1554; then
+        echo "  Oracle PROD+TEST  localhost:1553 / :1554 (already in use – skip)"
+        return
     fi
+
+    echo "  Oracle PROD+TEST  pod/$pod ($ct) → localhost:1553 / :1554"
+    kubectl exec "$pod" -c "$ct" -- bash -c \
+        'socat TCP-LISTEN:1553,fork,reuseaddr TCP:dbora-musit-prod03.uio.no:1553 & socat TCP-LISTEN:1554,fork,reuseaddr TCP:dbora-musit-utv03.uio.no:1553 & wait' \
+        </dev/null &
+    _PF_PIDS+=($!)
+    sleep 1
+    kubectl port-forward "pod/$pod" 1553:1553 1554:1554 >/dev/null 2>&1 &
+    _PF_PIDS+=($!)
 }
 
 _pf_targets_include_prefect() {
@@ -119,6 +135,60 @@ _pf_targets_include_prefect() {
         [[ "$t" == "all" || "$t" == "prefect" ]] && return 0
     done
     return 1
+}
+
+# Run SQL on Oracle PROD (default) or TEST via the port-forwarded localhost tunnel.
+#
+#   oracle_sql "SELECT sysdate FROM dual"
+#   echo "SELECT * FROM some_table WHERE ROWNUM <= 10" | oracle_sql
+#   oracle_sql --env test "SELECT 1 FROM dual"
+#   oracle_sql --csv "SELECT owner, table_name FROM dba_tables WHERE ROWNUM <= 20"
+#   oracle_sql --list-schemas
+#
+oracle_sql() {
+    python3 "$_PF_SCRIPT_DIR/oracle_sql.py" "$@"
+}
+
+# Dump ALL Oracle source data for a catalog number as JSON.
+#
+#   oracle_catalog_dump --catalog "O-V-123456"
+#   oracle_catalog_dump --catalog "TRH-V-241112" --env prod
+#   oracle_catalog_dump --catalog 241112
+#   oracle_catalog_dump --object-id 12345
+#   oracle_catalog_dump --catalog "O-V-123456" --output dump.json
+#   oracle_catalog_dump --catalog "O-V-123456" --compact | jq .
+#
+oracle_catalog_dump() {
+    python3 "$_PF_SCRIPT_DIR/oracle_catalog_dump.py" "$@"
+}
+
+#
+# Dump ALL Specify7 rows linked to a catalog number in a migrated collection
+# (default: O-V).
+#
+#   specify_catalog_dump --catalog "O-V-123456"
+#   specify_catalog_dump --catalog "O-V-123456" --collection-code O-V
+#   specify_catalog_dump --catalog "O-V-123456" --output specify.json
+#
+specify_catalog_dump() {
+    python3 "$_PF_SCRIPT_DIR/specify_catalog_dump.py" "$@"
+}
+
+#
+# Compare Oracle source data with Specify7 sink for one or more catalog numbers.
+# Runs both dump scripts under the hood and outputs a terminal summary, JSON
+# report, and/or a Markdown evidence card suitable for LLM judgement.
+#
+#   migration_compare --catalog "O-V-123456" --collection-code O-V
+#   migration_compare --fixture scripts/test_fixtures.yaml
+#   migration_compare --fixture scripts/test_fixtures.yaml --format all --output-dir /tmp/reports
+#
+migration_compare() {
+    python3 "$_PF_SCRIPT_DIR/migration_compare.py" "$@"
+}
+
+specify_api() {
+    python3 "$_PF_SCRIPT_DIR/specify_api.py" "$@"
 }
 
 pf_stop() {
@@ -158,3 +228,13 @@ fi
 
 echo ""
 echo "Forwards running in background. Run 'pf_stop' to tear down."
+echo "Oracle SQL helper:      oracle_sql [--env prod|test] [--csv] \"<SQL>\""
+echo "  PROD needs Oracle Instant Client (thick mode) on this machine — see scripts/oracle_sql.py"
+echo "Oracle catalog dump:    oracle_catalog_dump --catalog \"O-V-123456\" [--env prod|test] [--output file.json]"
+echo "  Dumps ALL connected Oracle data for a catalog number as JSON — see scripts/oracle_catalog_dump.py"
+echo "Specify catalog dump:   specify_catalog_dump --catalog \"O-V-123456\" [--collection-code O-V] [--output file.json]"
+echo "  Dumps ALL connected Specify rows for a catalog number as JSON — see scripts/specify_catalog_dump.py"
+echo "Migration compare:      migration_compare --catalog \"O-V-123456\" [--collection-code O-V] [--format terminal|json|md|all]"
+echo "  Compare Oracle vs Specify data; use --fixture scripts/test_fixtures.yaml for batch runs — see scripts/migration_compare.py"
+echo "Specify API helper:     specify_api [--collection O-V] [--text-fields|--geography-tree] [<path>]"
+echo "  Requires 'backend' forward (localhost:8000) — see scripts/specify_api.py"

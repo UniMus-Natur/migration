@@ -1,3 +1,4 @@
+{{- if not (eq .Values.assetServer.enabled false) }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -15,3 +16,4 @@ spec:
   selector:
     {{- include "specify7.selectorLabels" . | nindent 4 }}
     component: asset-server
+{{- end }}

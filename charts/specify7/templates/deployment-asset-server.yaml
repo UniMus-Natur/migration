@@ -1,3 +1,4 @@
+{{- if not (eq .Values.assetServer.enabled false) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -19,7 +20,7 @@ spec:
     spec:
       initContainers:
         - name: volume-permissions
-          image: public.ecr.aws/bitnami/bitnami-shell:11-debian-11-r102
+          image: {{ include "specify7.volumePermissionsImage" . | quote }}
           command: ["/bin/bash", "-c"]
           args:
             - |
@@ -38,13 +39,13 @@ spec:
           imagePullPolicy: {{ .Values.assetServer.image.pullPolicy }}
           ports:
             - name: http
-              containerPort: 80
+              containerPort: 8080
               protocol: TCP
           env:
             - name: SERVER_NAME
-              value: "0.0.0.0" # or use actual hostname if needed, but 0.0.0.0 usually safe for binding
+              value: '{{ include "specify7.fullname" . }}-asset-server'
             - name: SERVER_PORT
-              value: "80"
+              value: {{ .Values.assetServer.service.port | quote }}
             - name: ATTACHMENT_KEY
               value: {{ .Values.specify.attachmentKey | quote }}
             - name: DEBUG_MODE
@@ -66,3 +67,4 @@ spec:
         - name: attachments
           persistentVolumeClaim:
             claimName: {{ if .Values.persistence.existingClaim }}{{ .Values.persistence.existingClaim }}{{ else }}{{ include "specify7.fullname" . }}-attachments{{ end }}
+{{- end }}
