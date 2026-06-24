@@ -296,12 +296,15 @@ def _try_adopt_existing_taxon(
         return None, False
     if dry_run:
         return cand, True
-    cand.source = NORTAXA_SOURCE
-    cand.taxonomicserialnumber = serial
-    cand.text1 = export_stamp
-    cand.text2 = taxon_id or cand.text2
-    cand.yesno1 = True
-    cand.save(update_fields=["source", "taxonomicserialnumber", "text1", "text2", "yesno1", "version"])
+    from django.db import transaction
+
+    with transaction.atomic():
+        cand.source = NORTAXA_SOURCE
+        cand.taxonomicserialnumber = serial
+        cand.text1 = export_stamp
+        cand.text2 = taxon_id or cand.text2
+        cand.yesno1 = True
+        cand.save(update_fields=["source", "taxonomicserialnumber", "text1", "text2", "yesno1", "version"])
     return cand, True
 
 
@@ -311,13 +314,17 @@ def _link_synonym_to_accepted(synonym: Any, accepted: Any, *, dry_run: bool) -> 
         return False
     if dry_run:
         return True
+    from django.db import transaction
+
     from specifyweb.specify.models import Determination
 
-    synonym.acceptedtaxon_id = accepted.id
-    synonym.isaccepted = False
-    synonym.save(update_fields=["acceptedtaxon", "isaccepted", "version"])
-    Determination.objects.filter(taxon=synonym).update(preferredtaxon=accepted)
-    Determination.objects.filter(preferredtaxon=synonym).update(preferredtaxon=accepted)
+    # Specify ``Taxon`` uses ``Tree.save()`` which ``select_for_update()``s the row.
+    with transaction.atomic():
+        synonym.acceptedtaxon_id = accepted.id
+        synonym.isaccepted = False
+        synonym.save(update_fields=["acceptedtaxon", "isaccepted", "version"])
+        Determination.objects.filter(taxon=synonym).update(preferredtaxon=accepted)
+        Determination.objects.filter(preferredtaxon=synonym).update(preferredtaxon=accepted)
     return True
 
 
@@ -448,6 +455,8 @@ def _update_existing_taxon(
     if dry_run:
         return
 
+    from django.db import transaction
+
     changed = False
     if name and taxon_obj.name != name:
         taxon_obj.name = name
@@ -469,7 +478,8 @@ def _update_existing_taxon(
         changed = True
         stats.parents_updated += 1
     if changed:
-        taxon_obj.save()
+        with transaction.atomic():
+            taxon_obj.save()
 
 
 def merge_nortaxa_tsv_into_discipline_tree(

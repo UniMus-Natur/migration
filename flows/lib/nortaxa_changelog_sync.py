@@ -184,10 +184,13 @@ def _apply_parent_change(
         parent = root
     if dry_run:
         return True
+    from django.db import transaction
+
     if taxon.parent_id != parent.id:
-        taxon.parent_id = parent.id
-        taxon.text2 = taxon_id[:32] if taxon_id else taxon.text2
-        taxon.save(update_fields=["parent", "text2", "version"])
+        with transaction.atomic():
+            taxon.parent_id = parent.id
+            taxon.text2 = taxon_id[:32] if taxon_id else taxon.text2
+            taxon.save(update_fields=["parent", "text2", "version"])
         return True
     return False
 
@@ -206,9 +209,12 @@ def _apply_author_change(
     author = _author(entry)[:128]
     if dry_run:
         return True
+    from django.db import transaction
+
     if (taxon.author or "") != author:
-        taxon.author = author or None
-        taxon.save(update_fields=["author", "version"])
+        with transaction.atomic():
+            taxon.author = author or None
+            taxon.save(update_fields=["author", "version"])
         return True
     return False
 
@@ -248,6 +254,8 @@ def _apply_insert_from_entry(
     if dry_run:
         taxon_map[name_id] = object()
         return True
+    from django.db import transaction
+
     obj = Taxon(
         name=name,
         fullname=None,
@@ -263,7 +271,8 @@ def _apply_insert_from_entry(
         text2=taxon_id[:32] if taxon_id else None,
         yesno1=True,
     )
-    obj.save()
+    with transaction.atomic():
+        obj.save()
     taxon_map[name_id] = obj
     return True
 
