@@ -35,4 +35,4 @@ divisions:
       - name: Paleontologi
         type: invertpaleo
         collections:
-          - { code: NHM-Paleo, name: NHM-Paleo }
+          - { code: PMO, name: NHM-Paleo }
