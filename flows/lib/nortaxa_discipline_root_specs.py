@@ -55,7 +55,7 @@ _LAV_SOPP = NorTaxaSliceSpec(root_taxon_ids=("975",))
 # Insekter: class Insecta.
 _INSEKTER = NorTaxaSliceSpec(root_taxon_ids=("89",))
 
-# Marine invertebrater: Animalia minus Chordata (hard-coded anchor IDs).
+# Marine invertebrater: Animalia minus Chordata (hard-coded anchor IDs). #TODO maybe subtract insects
 _MARINE_INVERTEBRATER = NorTaxaSliceSpec(root_taxon_ids=("1",), subtract_subtree_taxon_ids=("196",))
 
 _PATTEDYR = NorTaxaSliceSpec(root_taxon_ids=("293",))  # Mammalia

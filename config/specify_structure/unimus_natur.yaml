@@ -12,7 +12,7 @@ divisions:
       - name: Karplanter Moser
         type: botany
         collections:
-          - { code: O-V, name: O-V }
+          - { code: O-V, name: NHM-karplanter }
       - name: Alger
         type: botany
       - name: Lav Sopp
@@ -32,6 +32,7 @@ divisions:
     disciplines:
       - name: Geologi
         type: geology
-
       - name: Paleontologi
         type: invertpaleo
+        collections:
+          - { code: NHM-Paleo, name: NHM-Paleo }
