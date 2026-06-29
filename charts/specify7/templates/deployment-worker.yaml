@@ -48,7 +48,8 @@ spec:
           workingDir: /opt/specify7
           command: ["/bin/bash", "-c"]
           args:
-            - exec ve/bin/celery -A specifyweb worker -l INFO --concurrency=1 -Q "$DATABASE_NAME"
+            # Also consume legacy "celery" queue until all backends use CELERY_TASK_DEFAULT_QUEUE.
+            - exec ve/bin/celery -A specifyweb worker -l INFO --concurrency=1 -Q "$DATABASE_NAME,celery"
           env:
             - name: DJANGO_SETTINGS_MODULE
               value: "specifyweb.settings"

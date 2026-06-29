@@ -28,6 +28,10 @@ spec:
         matchLabels:
           app.kubernetes.io/instance: specify7
           component: migration-harness
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/instance: specify7
+          component: worker
     ports:
     - protocol: TCP
       port: 3306
