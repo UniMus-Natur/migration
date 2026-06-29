@@ -100,6 +100,13 @@ Image for volume-permissions init containers (chown on shared PVCs).
 {{- end -}}
 
 {{/*
+In-cluster Redis hostname (Bitnami sub-chart service).
+*/}}
+{{- define "specify7.redisHost" -}}
+{{- printf "%s-redis-master" .Release.Name }}
+{{- end -}}
+
+{{/*
 Checksum annotation to roll pods when generated Specify settings change.
 */}}
 {{- define "specify7.configChecksumAnnotation" -}}
