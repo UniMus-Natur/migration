@@ -1436,7 +1436,7 @@ def _write_one_object(
     unmapped: dict[str, Any] = {}
     for key in (
         "long_name", "identifier_num", "parent_object_id", "mediagruppe_enhets_id",
-        "is_reg", "is_approved", "is_corrected", "object_withheld", "object_state",
+        "is_reg", "is_approved", "is_corrected", "object_state",
         "reg_user", "korr_user", "approve_user", "dataset", "project_name",
         "same_sheet_as", "dublettes", "analysis_request",
     ):
@@ -1712,10 +1712,11 @@ def _write_one_object(
             countamt=obj_row.get("number_of_sheets"),
         )
 
-        # MUSIT registration workflow flags → yesNo1/2/3 (Registered / Corrected / Approved).
+        # MUSIT registration workflow flags → yesNo1/2/3/4 (Registered / Corrected / Approved / Withheld).
         co.yesno1 = _musit_bool(obj_row.get("is_reg"))
         co.yesno2 = _musit_bool(obj_row.get("is_corrected"))
         co.yesno3 = _musit_bool(obj_row.get("is_approved"))
+        co.yesno4 = _musit_bool(obj_row.get("object_withheld"))
 
         # Registration date → catalogedDate; approval date → date1.
         reg_date = _coerce_date(obj_row.get("reg_date"))
@@ -1727,10 +1728,6 @@ def _write_one_object(
             co.date1 = approved_date
             co.date1precision = 1
 
-        # Object withheld → visibility flag (1=private, 0=public)
-        withheld = obj_row.get("object_withheld")
-        if withheld is not None and str(withheld).strip().upper() in ("Y", "1", "TRUE"):
-            co.visibility = 1
         co.save()
         stats.co_created += 1
 
