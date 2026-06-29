@@ -34,5 +34,15 @@ def test_matches_valid_classterm_when_author_is_separate_field() -> None:
     assert taxon_matches_valid_classterm(taxon, "Podocarpus lawrencei Hook.f.")
 
 
+def test_matches_valid_classterm_via_fullname_when_name_is_epithet() -> None:
+    taxon = _taxon(name="annua", author="L.", fullname="Poa annua")
+    assert taxon_matches_valid_classterm(taxon, "Poa annua L.")
+
+
+def test_matches_valid_classterm_via_fullname_binomial_prefix() -> None:
+    taxon = _taxon(name="lawrencei", fullname="Podocarpus lawrencei")
+    assert taxon_matches_valid_classterm(taxon, "Podocarpus lawrencei Hook.f.")
+
+
 def test_norm_strips_punctuation_in_authorship() -> None:
     assert norm_taxon_label("Hook. f.") == "hook f"

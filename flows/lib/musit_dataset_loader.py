@@ -323,20 +323,27 @@ def _resolve_taxon(
     latin_name: str | None,
     taxontreedef_id: int,
 ) -> Any:
-    """Look up an existing Specify ``Taxon`` row by NorTaxa id only."""
+    """Look up an existing Specify ``Taxon`` row by NorTaxa scientific name id."""
     from specifyweb.specify.models import Taxon
 
-    if adb_taxon_id is not None:
+    taxon_fields = ("id", "name", "author", "source", "fullname", "taxonomicserialnumber")
+    for raw_id in (adb_taxon_id, adb_latin_name_id):
+        if raw_id is None:
+            continue
         try:
-            adb_taxon_str = str(int(adb_taxon_id))
-            t = Taxon.objects.filter(
-                taxonomicserialnumber=adb_taxon_str,
-                definition_id=taxontreedef_id,
-            ).first()
-            if t is not None:
-                return t
+            serial = str(int(raw_id))
         except (TypeError, ValueError):
-            pass
+            continue
+        t = (
+            Taxon.objects.filter(
+                taxonomicserialnumber=serial,
+                definition_id=taxontreedef_id,
+            )
+            .only(*taxon_fields)
+            .first()
+        )
+        if t is not None:
+            return t
 
     return None
 
@@ -348,10 +355,15 @@ def _find_taxon_by_valid_classterm(
 ) -> tuple[Any, list[dict[str, Any]]]:
     """Fallback match on ``valid_classterm`` against Specify ``Taxon`` rows.
 
-    1. Case-insensitive exact match on ``Taxon.name``.
-    2. When that fails and the probe looks like a name with authorship, match the
-       leading binomial (genus + epithet) and require ``_taxon_matches_valid_classterm``.
+    NorTaxa-managed trees store rank-local epithets in ``Taxon.name`` and binomials
+    in ``fullname`` (via ``set_fullnames``), so both fields are searched.
+
+    1. Case-insensitive exact match on ``Taxon.name`` or ``Taxon.fullname``.
+    2. When the probe looks like a name with authorship, match the leading binomial
+       against ``name`` or ``fullname`` and require ``_taxon_matches_valid_classterm``.
     """
+    from django.db.models import Q
+
     from specifyweb.specify.models import Taxon
 
     probe = " ".join((valid_classterm or "").strip().split())
@@ -366,6 +378,7 @@ def _find_taxon_by_valid_classterm(
             "name": taxon.name,
             "author": getattr(taxon, "author", None),
             "source": getattr(taxon, "source", None),
+            "fullname": getattr(taxon, "fullname", None),
             "probe": probe,
             "match_mode": match_mode,
         }
@@ -380,27 +393,48 @@ def _find_taxon_by_valid_classterm(
             return matches[0], rows
         return None, rows
 
-    exact = list(
-        Taxon.objects.filter(
-            definition_id=taxontreedef_id,
-            name__iexact=probe,
-        ).only(*taxon_fields)
-    )
-    if len(exact) == 1:
-        return exact[0], [_row_dict(exact[0], match_mode="name_iexact")]
-    if len(exact) > 1:
-        guarded = [t for t in exact if _taxon_matches_valid_classterm(t, valid_classterm)]
-        found, rows = _single_or_none(guarded, match_mode="name_iexact+guardrail")
+    def _query_field(field: str, value: str) -> list[Any]:
+        return list(
+            Taxon.objects.filter(
+                definition_id=taxontreedef_id,
+                **{f"{field}__iexact": value},
+            ).only(*taxon_fields)
+        )
+
+    def _try_exact(*, match_mode: str) -> tuple[Any, list[dict[str, Any]]] | None:
+        by_name = _query_field("name", probe)
+        if len(by_name) == 1:
+            return by_name[0], [_row_dict(by_name[0], match_mode=f"{match_mode}:name")]
+        by_fullname = _query_field("fullname", probe)
+        if len(by_fullname) == 1:
+            return by_fullname[0], [_row_dict(by_fullname[0], match_mode=f"{match_mode}:fullname")]
+        combined = list(
+            Taxon.objects.filter(
+                definition_id=taxontreedef_id,
+            )
+            .filter(Q(name__iexact=probe) | Q(fullname__iexact=probe))
+            .only(*taxon_fields)
+        )
+        guarded = [t for t in combined if _taxon_matches_valid_classterm(t, valid_classterm)]
+        found, rows = _single_or_none(guarded, match_mode=f"{match_mode}+guardrail")
         if found is not None or guarded:
             return found, rows
+        if combined:
+            return None, [_row_dict(t, match_mode=match_mode) for t in combined]
+        return None
+
+    exact_hit = _try_exact(match_mode="exact_iexact")
+    if exact_hit is not None:
+        return exact_hit
 
     binomial = _binomial_prefix_from_valid_classterm(probe)
     if binomial:
         binomial_hits = list(
             Taxon.objects.filter(
                 definition_id=taxontreedef_id,
-                name__iexact=binomial,
-            ).only(*taxon_fields)
+            )
+            .filter(Q(name__iexact=binomial) | Q(fullname__iexact=binomial))
+            .only(*taxon_fields)
         )
         guarded = [t for t in binomial_hits if _taxon_matches_valid_classterm(t, valid_classterm)]
         found, rows = _single_or_none(guarded, match_mode="binomial+guardrail")
@@ -409,8 +443,6 @@ def _find_taxon_by_valid_classterm(
         if guarded or binomial_hits:
             return None, rows
 
-    if exact:
-        return None, [_row_dict(t, match_mode="name_iexact") for t in exact]
     return None, []
 
 
@@ -574,18 +606,20 @@ def _resolve_or_create_taxon(
         taxontreedef_id=taxontreedef_id,
     )
     if existing is not None:
-        if _taxon_matches_valid_classterm(existing, valid_classterm):
-            return existing, created_nodes
-        created_nodes.append(
-            {
-                "mismatch_reason": "id_match_conflicts_with_valid_classterm",
-                "resolved_taxon_id": int(existing.id),
-                "resolved_taxon_name": getattr(existing, "name", None),
-                "valid_classterm": valid_classterm,
-                "object_id": object_id,
-                "catalog": catalog_number,
-            }
-        )
+        # ``taxonomicserialnumber`` (= Oracle ``ADB_TAXON_ID``) is authoritative.
+        if not _taxon_matches_valid_classterm(existing, valid_classterm):
+            created_nodes.append(
+                {
+                    "mismatch_reason": "id_match_conflicts_with_valid_classterm",
+                    "resolved_taxon_id": int(existing.id),
+                    "resolved_taxon_name": getattr(existing, "name", None),
+                    "resolved_taxon_fullname": getattr(existing, "fullname", None),
+                    "valid_classterm": valid_classterm,
+                    "object_id": object_id,
+                    "catalog": catalog_number,
+                }
+            )
+        return existing, created_nodes
 
     fallback, candidate_scores = _find_taxon_by_valid_classterm(
         taxontreedef_id=taxontreedef_id,
