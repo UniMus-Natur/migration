@@ -15,7 +15,7 @@ spec:
   storageClassName: {{ .Values.persistence.storageClass | quote }}
   {{- end }}
 
-{{- if .Values.assetServer.image.repository }}
+{{- if and .Values.assetServer.image.repository (not (eq (include "specify7.assetServerS3Enabled" .) "true")) }}
 ---
 kind: PersistentVolumeClaim
 apiVersion: v1

@@ -112,3 +112,28 @@ Checksum annotation to roll pods when generated Specify settings change.
 {{- define "specify7.configChecksumAnnotation" -}}
 checksum/config: {{ include (print $.Template.BasePath "/secret-config.yaml") . | sha256sum }}
 {{- end -}}
+
+{{/*
+Public hostname advertised by the asset server in web_asset_store.xml.
+*/}}
+{{- define "specify7.assetServerServerName" -}}
+{{- if .Values.assetServer.serverName -}}
+{{- .Values.assetServer.serverName -}}
+{{- else if and .Values.ingress.enabled .Values.ingress.hosts -}}
+{{- (index .Values.ingress.hosts 0).host -}}
+{{- else -}}
+{{- include "specify7.fullname" . }}-asset-server
+{{- end -}}
+{{- end -}}
+
+{{/*
+True when the asset server stores attachments in S3 instead of a PVC.
+Renders the string "true" or "false" for use with eq in templates.
+*/}}
+{{- define "specify7.assetServerS3Enabled" -}}
+{{- if and (not (eq .Values.assetServer.enabled false)) .Values.assetServer.s3.enabled .Values.assetServer.s3.bucket -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end -}}

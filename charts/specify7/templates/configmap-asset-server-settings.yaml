@@ -1,0 +1,38 @@
+{{- if eq (include "specify7.assetServerS3Enabled" .) "true" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "specify7.fullname" . }}-asset-server-settings
+  labels:
+    {{- include "specify7.labels" . | nindent 4 }}
+    component: asset-server
+data:
+  settings.py: |
+    import os
+
+    DEBUG = os.getenv('DEBUG_MODE', 'false').lower() == 'true'
+    KEY = os.environ['ATTACHMENT_KEY']
+    TIME_TOLERANCE = 600
+    REQUIRE_KEY_FOR_GET = False
+    ALLOW_STATIC_FILE_ACCESS = True
+
+    HOST = os.environ['SERVER_NAME']
+    PORT = int(os.getenv('SERVER_PORT', '8080'))
+    SERVER_NAME = os.environ['SERVER_NAME']
+    SERVER_PORT = PORT
+    DEVELOPMENT_PORT = PORT
+
+    COLLECTION_S3_PATHS = {
+    {{- range .Values.assetServer.collections }}
+        {{ . | quote }}: 's3://{{ $.Values.assetServer.s3.bucket }}/{{ $.Values.assetServer.s3.prefix }}',
+    {{- end }}
+    }
+
+    BASE_DIR = '/home/specify/attachments'
+    THUMB_DIR = 'thumbnails'
+    ORIG_DIR = 'originals'
+    CAN_THUMBNAIL = {
+        'image/jpeg', 'image/gif', 'image/png', 'image/tiff', 'application/pdf',
+    }
+    SERVER = 'paste'
+{{- end }}

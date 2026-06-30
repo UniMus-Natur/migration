@@ -64,6 +64,37 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
+  name: {{ include "specify7.fullname" . }}-asset-server-web
+  labels:
+    {{- include "specify7.labels" . | nindent 4 }}
+    component: asset-server
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "specify7.selectorLabels" . | nindent 6 }}
+      component: asset-server
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- if .Values.networkPolicy.allowAllNamespaces }}
+        - namespaceSelector: {}
+        {{- else if .Values.networkPolicy.allowedNamespaceNames }}
+        {{- range .Values.networkPolicy.allowedNamespaceNames }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . | quote }}
+        {{- end }}
+        {{- else }}
+        - podSelector: {}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
   name: {{ include "specify7.fullname" . }}-asset-server-internal
   labels:
     {{- include "specify7.labels" . | nindent 4 }}

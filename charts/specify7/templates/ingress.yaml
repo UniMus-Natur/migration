@@ -38,6 +38,50 @@ spec:
                 port:
                   number: {{ $.Values.migrationHarness.service.port }}
           {{- end }}
+          {{- if not (eq $.Values.assetServer.enabled false) }}
+          - path: /web_asset_store.xml
+            pathType: Exact
+            backend:
+              service:
+                name: {{ $fullName }}-asset-server
+                port:
+                  number: {{ $.Values.assetServer.service.port }}
+          - path: /fileget
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullName }}-asset-server
+                port:
+                  number: {{ $.Values.assetServer.service.port }}
+          - path: /fileupload
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullName }}-asset-server
+                port:
+                  number: {{ $.Values.assetServer.service.port }}
+          - path: /filedelete
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullName }}-asset-server
+                port:
+                  number: {{ $.Values.assetServer.service.port }}
+          - path: /getmetadata
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullName }}-asset-server
+                port:
+                  number: {{ $.Values.assetServer.service.port }}
+          - path: /testkey
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullName }}-asset-server
+                port:
+                  number: {{ $.Values.assetServer.service.port }}
+          {{- end }}
           # 1. Route static requests to the static service
           - path: /static
             pathType: Prefix
