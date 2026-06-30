@@ -1169,10 +1169,18 @@ def _fetch_media_rows_for_group(oracle_cursor: Any, media_group_id: int) -> list
     return out
 
 
-def _unimus_media_url(*, media_group_id: int, mediafil_id: int | None = None) -> str:
-    if mediafil_id is not None:
-        return f"https://www.unimus.no/felles/bilder/web_hent_bilde.php?mediafil_id={int(mediafil_id)}&type=jpeg"
+def _unimus_media_url(*, media_group_id: int) -> str:
+    """Public Unimus image endpoint keyed by ``MEDIAGRUPPE_ENHETS_ID``."""
     return f"https://www.unimus.no/felles/bilder/web_hent_bilde.php?id={int(media_group_id)}&type=jpeg"
+
+
+def _pick_primary_media_row(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Choose metadata source when several ``MEDIA_FIL`` rows share one group URL."""
+    for r in rows:
+        orig = (r.get("opprinnelig_filnavn") or "").strip().lower()
+        if orig.endswith((".tif", ".tiff")):
+            return r
+    return rows[0]
 
 
 def _attach_media_urls_to_collection_object(
@@ -1181,7 +1189,7 @@ def _attach_media_urls_to_collection_object(
     co: Any,
     media_group_id: int | None,
 ) -> int:
-    """Create one Attachment + CollectionObjectAttachment per media row."""
+    """Create one URL attachment per media group (Unimus ``id=`` endpoint)."""
     if media_group_id is None:
         return 0
 
@@ -1192,38 +1200,37 @@ def _attach_media_urls_to_collection_object(
         return 0
 
     table_id = int(getattr(getattr(co, "specify_model", None), "tableId", 1) or 1)
-    created = 0
-    for idx, r in enumerate(rows, start=1):
-        mfid = r.get("mediafil_id")
-        url = _unimus_media_url(media_group_id=int(media_group_id), mediafil_id=int(mfid) if mfid is not None else None)
-        orig = (
-            (r.get("opprinnelig_filnavn") or "").strip()
-            or (r.get("id_i_samling") or "").strip()
-            or f"mediafil_{mfid or idx}.jpg"
-        )
-        guessed, _ = mimetypes.guess_type(orig)
-        fmt = (r.get("format") or "").strip().lower()
-        mime = guessed or ("image/tiff" if fmt in {"tif", "tiff"} else "image/jpeg")
-        title = ((r.get("tittel") or "").strip() or orig)[:255]
+    r = _pick_primary_media_row(rows)
+    mfid = r.get("mediafil_id")
+    url = _unimus_media_url(media_group_id=int(media_group_id))
+    orig = (
+        (r.get("opprinnelig_filnavn") or "").strip()
+        or (r.get("id_i_samling") or "").strip()
+        or f"mediagruppe_{media_group_id}.jpg"
+    )
+    guessed, _ = mimetypes.guess_type(orig)
+    fmt = (r.get("format") or "").strip().lower()
+    mime = guessed or ("image/tiff" if fmt in {"tif", "tiff"} else "image/jpeg")
+    title = ((r.get("tittel") or "").strip() or orig)[:255]
+    mediafil_ids = ",".join(str(x.get("mediafil_id")) for x in rows if x.get("mediafil_id") is not None)
 
-        att = Attachment(
-            attachmentlocation=url[:128],
-            origfilename=orig,
-            title=title,
-            mimetype=mime,
-            tableid=table_id,
-            ispublic=True,
-            remarks=f"MUSIT media_group_id={int(media_group_id)} mediafil_id={mfid}",
-        )
-        att.save()
-        Collectionobjectattachment.objects.create(
-            attachment=att,
-            collectionobject=co,
-            collectionmemberid=int(co.collectionmemberid),
-            ordinal=idx,
-        )
-        created += 1
-    return created
+    att = Attachment(
+        attachmentlocation=url[:128],
+        origfilename=orig,
+        title=title,
+        mimetype=mime,
+        tableid=table_id,
+        ispublic=True,
+        remarks=f"MUSIT media_group_id={int(media_group_id)} mediafil_ids={mediafil_ids}",
+    )
+    att.save()
+    Collectionobjectattachment.objects.create(
+        attachment=att,
+        collectionobject=co,
+        collectionmemberid=int(co.collectionmemberid),
+        ordinal=1,
+    )
+    return 1
 
 
 def _coerce_date(val: Any) -> date | None:
@@ -1765,7 +1772,7 @@ def _write_one_object(
         co.save()
         stats.co_created += 1
 
-        # 4b. URL-only image attachments from USD_FELLES MEDIA tables (all rows per group).
+        # 4b. URL-only image attachment from USD_FELLES (one Unimus link per media group).
         mgid_raw = obj_row.get("mediagruppe_enhets_id")
         if mgid_raw is not None:
             try:
