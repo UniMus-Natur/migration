@@ -66,6 +66,9 @@ spec:
             - name: asset-server-settings
               mountPath: /home/specify/settings.py
               subPath: settings.py
+            - name: asset-server-settings
+              mountPath: /home/specify/web_asset_store.xml
+              subPath: web_asset_store.xml
             {{- else }}
             - name: attachments
               mountPath: /home/specify/attachments

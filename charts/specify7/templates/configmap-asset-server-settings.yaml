@@ -35,4 +35,15 @@ data:
         'image/jpeg', 'image/gif', 'image/png', 'image/tiff', 'application/pdf',
     }
     SERVER = 'paste'
+  # s3-commands passes host as "https://hostname" but the stock template adds
+  # another "http://" prefix, producing broken URLs like http://https://host/...
+  web_asset_store.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <urls>
+        <url type="read"><![CDATA[{{`{{host}}`}}/fileget]]></url>
+        <url type="write"><![CDATA[{{`{{host}}`}}/fileupload]]></url>
+        <url type="delete"><![CDATA[{{`{{host}}`}}/filedelete]]></url>
+        <url type="getmetadata"><![CDATA[{{`{{host}}`}}/getmetadata]]></url>
+        <url type="testkey">{{`{{host}}`}}/testkey</url>
+    </urls>
 {{- end }}
