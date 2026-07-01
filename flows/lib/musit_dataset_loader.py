@@ -93,6 +93,8 @@ class DatasetLoadStats:
     taxon_unresolved: int = 0
     agent_matched: int = 0
     agent_unresolved: int = 0
+    attachments_created: int = 0
+    attachments_failed: int = 0
     errors: list[str] = field(default_factory=list)
     elapsed_s: float = 0.0
     estimate_total_s: float | None = None
@@ -1140,10 +1142,7 @@ def _group_rows_by_object_id(rows: list[dict]) -> dict[int, list[dict]]:
 
 
 def _fetch_media_rows_for_group(oracle_cursor: Any, media_group_id: int) -> list[dict[str, Any]]:
-    """Return URL-addressable media rows for one ``MEDIAGRUPPE_ENHETS_ID``.
-
-    URL-only mode: we do not migrate binary files, only links.
-    """
+    """Return ``MEDIA_FIL`` metadata rows for one ``MEDIAGRUPPE_ENHETS_ID``."""
     oracle_cursor.execute(
         """
         SELECT mf.MEDIAFIL_ID, mf.OPPRINNELIG_FILNAVN, mf.ID_I_SAMLING, mf.TITTEL, mf.FORMAT, mf.MEDIA_TYPE
@@ -1169,13 +1168,11 @@ def _fetch_media_rows_for_group(oracle_cursor: Any, media_group_id: int) -> list
     return out
 
 
-def _unimus_media_url(*, media_group_id: int) -> str:
-    """Public Unimus image endpoint keyed by ``MEDIAGRUPPE_ENHETS_ID``."""
-    return f"https://www.unimus.no/felles/bilder/web_hent_bilde.php?id={int(media_group_id)}&type=jpeg"
+_asset_server_warned = False
 
 
 def _pick_primary_media_row(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """Choose metadata source when several ``MEDIA_FIL`` rows share one group URL."""
+    """Choose metadata source when several ``MEDIA_FIL`` rows share one media group."""
     for r in rows:
         orig = (r.get("opprinnelig_filnavn") or "").strip().lower()
         if orig.endswith((".tif", ".tiff")):
@@ -1183,13 +1180,18 @@ def _pick_primary_media_row(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return rows[0]
 
 
-def _attach_media_urls_to_collection_object(
+def _attach_media_to_collection_object(
     *,
     oracle_cursor: Any,
     co: Any,
     media_group_id: int | None,
+    collection_name: str,
+    dry_run: bool = False,
+    stats: DatasetLoadStats | None = None,
 ) -> int:
-    """Create one URL attachment per media group (Unimus ``id=`` endpoint)."""
+    """Download the Unimus original and store it on the Specify asset server."""
+    global _asset_server_warned
+
     if media_group_id is None:
         return 0
 
@@ -1199,14 +1201,15 @@ def _attach_media_urls_to_collection_object(
     if not rows:
         return 0
 
+    if dry_run:
+        return 1
+
     table_id = int(getattr(getattr(co, "specify_model", None), "tableId", 1) or 1)
     r = _pick_primary_media_row(rows)
-    mfid = r.get("mediafil_id")
-    url = _unimus_media_url(media_group_id=int(media_group_id))
     orig = (
         (r.get("opprinnelig_filnavn") or "").strip()
         or (r.get("id_i_samling") or "").strip()
-        or f"mediagruppe_{media_group_id}.jpg"
+        or f"mediagruppe_{media_group_id}.tif"
     )
     guessed, _ = mimetypes.guess_type(orig)
     fmt = (r.get("format") or "").strip().lower()
@@ -1214,14 +1217,43 @@ def _attach_media_urls_to_collection_object(
     title = ((r.get("tittel") or "").strip() or orig)[:255]
     mediafil_ids = ",".join(str(x.get("mediafil_id")) for x in rows if x.get("mediafil_id") is not None)
 
+    from flows.lib.asset_server_upload import (
+        AssetServerNotConfigured,
+        asset_server_collection_name,
+        migrate_unimus_original_to_asset_server,
+    )
+
+    coll = asset_server_collection_name(fallback_collection_name=collection_name)
+    try:
+        uploaded = migrate_unimus_original_to_asset_server(
+            media_group_id=int(media_group_id),
+            orig_filename=orig,
+            mime_type=mime,
+            collection_name=coll,
+        )
+    except AssetServerNotConfigured as exc:
+        if not _asset_server_warned:
+            _log("warning", "Asset server not configured; skipping media upload: %s", exc)
+            _asset_server_warned = True
+        if stats is not None:
+            stats.attachments_failed += 1
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        if stats is not None:
+            stats.attachments_failed += 1
+        raise
+
     att = Attachment(
-        attachmentlocation=url[:128],
+        attachmentlocation=uploaded["attachmentlocation"][:128],
         origfilename=orig,
         title=title,
-        mimetype=mime,
+        mimetype=uploaded["mime_type"],
         tableid=table_id,
         ispublic=True,
-        remarks=f"MUSIT media_group_id={int(media_group_id)} mediafil_ids={mediafil_ids}",
+        remarks=(
+            f"MUSIT media_group_id={int(media_group_id)} mediafil_ids={mediafil_ids} "
+            f"bytes={uploaded['bytes']}"
+        ),
     )
     att.save()
     Collectionobjectattachment.objects.create(
@@ -1230,6 +1262,8 @@ def _attach_media_urls_to_collection_object(
         collectionmemberid=int(co.collectionmemberid),
         ordinal=1,
     )
+    if stats is not None:
+        stats.attachments_created += 1
     return 1
 
 
@@ -1667,6 +1701,8 @@ def _write_one_object(
                 )
             ]
             stats.determination_created += max(1, len(det_rows))
+            if obj_row.get("mediagruppe_enhets_id") is not None:
+                stats.attachments_created += 1
             return
 
         ce = Collectingevent(**ce_kwargs)
@@ -1772,17 +1808,21 @@ def _write_one_object(
         co.save()
         stats.co_created += 1
 
-        # 4b. URL-only image attachment from USD_FELLES (one Unimus link per media group).
+        # 4b. Image attachment: Unimus original → asset server.
         mgid_raw = obj_row.get("mediagruppe_enhets_id")
         if mgid_raw is not None:
             try:
-                _attach_media_urls_to_collection_object(
+                _attach_media_to_collection_object(
                     oracle_cursor=oracle_cursor,
                     co=co,
                     media_group_id=int(mgid_raw),
+                    collection_name=str(collection.collectionname),
+                    dry_run=False,
+                    stats=stats,
                 )
             except Exception as exc:  # noqa: BLE001
-                _log("warning", "object_id=%s: media URL attachment migration failed: %s", object_id, exc)
+                stats.attachments_failed += 1
+                _log("warning", "object_id=%s: media attachment migration failed: %s", object_id, exc)
 
         # 5. Determination(s) — deduplicate by best available source keys/text.
         seen_det_keys: set[tuple] = set()

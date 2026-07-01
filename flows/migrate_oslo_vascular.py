@@ -98,6 +98,8 @@ def _build_report(
             "taxon_unresolved": stats.taxon_unresolved,
             "agent_matched": stats.agent_matched,
             "agent_unresolved": stats.agent_unresolved,
+            "attachments_created": stats.attachments_created,
+            "attachments_failed": stats.attachments_failed,
             "errors": stats.errors,
             "elapsed_s": round(stats.elapsed_s, 2),
             "estimate_total_s": round(stats.estimate_total_s, 2) if stats.estimate_total_s else None,
@@ -136,7 +138,7 @@ def migrate_oslo_vascular_task(
 
     logger.info(
         "migrate_oslo_vascular_task done | co_created=%s co_skipped=%s ce=%s"
-        " loc_new=%s det=%s taxon_ok=%s agent_ok=%s err=%s elapsed=%.1fs%s",
+        " loc_new=%s det=%s taxon_ok=%s agent_ok=%s att_ok=%s att_fail=%s err=%s elapsed=%.1fs%s",
         stats.co_created,
         stats.co_skipped,
         stats.ce_created,
@@ -144,6 +146,8 @@ def migrate_oslo_vascular_task(
         stats.determination_created,
         stats.taxon_matched,
         stats.agent_matched,
+        stats.attachments_created,
+        stats.attachments_failed,
         len(stats.errors),
         stats.elapsed_s,
         f" | estimated_full={round(stats.estimate_total_s, 0)}s"
@@ -229,6 +233,8 @@ def migrate_oslo_vascular_flow(
         "taxon_unresolved": stats.taxon_unresolved,
         "agent_matched": stats.agent_matched,
         "agent_unresolved": stats.agent_unresolved,
+        "attachments_created": stats.attachments_created,
+        "attachments_failed": stats.attachments_failed,
         "errors": stats.errors,
         "elapsed_s": round(stats.elapsed_s, 2),
         "estimate_total_s": round(stats.estimate_total_s, 2) if stats.estimate_total_s else None,

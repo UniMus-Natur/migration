@@ -112,7 +112,9 @@ APP_USER_NAME = MASTER_NAME
 APP_USER_PASSWORD = MASTER_PASSWORD
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'migration-worker-key')
-WEB_ATTACHMENT_KEY = os.environ.get('ATTACHMENT_KEY', '')
+WEB_ATTACHMENT_URL = os.environ.get('ASSET_SERVER_URL') or None
+WEB_ATTACHMENT_KEY = os.environ.get('ATTACHMENT_KEY') or os.environ.get('ASSET_SERVER_KEY') or ''
+WEB_ATTACHMENT_COLLECTION = os.environ.get('ASSET_SERVER_COLLECTION') or None
 
 DEBUG = False
 ALLOWED_HOSTS = ['*']
@@ -135,7 +137,7 @@ def _ensure_specify_settings(specify_dir: str) -> None:
     }
     for filename, content in stubs.items():
         path = os.path.join(settings_dir, filename)
-        if not os.path.exists(path):
-            os.makedirs(settings_dir, exist_ok=True)
+        os.makedirs(settings_dir, exist_ok=True)
+        if filename == "local_specify_settings.py" or not os.path.exists(path):
             with open(path, "w") as f:
                 f.write(content)
