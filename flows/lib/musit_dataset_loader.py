@@ -1141,21 +1141,145 @@ def _group_rows_by_object_id(rows: list[dict]) -> dict[int, list[dict]]:
     return out
 
 
-def _fetch_media_rows_for_group(oracle_cursor: Any, media_group_id: int) -> list[dict[str, Any]]:
-    """Return ``MEDIA_FIL`` metadata rows for one ``MEDIAGRUPPE_ENHETS_ID``."""
+# MUSIT ``MEDIAGRUPPE_RELASJON`` id for "Avbilder" (depicts) links on museum objects.
+_MUSIT_RELASJON_AVBILDER = 1
+
+_museum_object_tabell_id_cache: dict[str, int] = {}
+
+
+def _resolve_museum_object_tabell_id(oracle_cursor: Any, oracle_schema: str) -> int:
+    """``USD_METADATA.SKJEMA__TABELL.TABELL_ID`` for ``MUSEUM_OBJECT`` in *oracle_schema*."""
+    key = oracle_schema.upper()
+    cached = _museum_object_tabell_id_cache.get(key)
+    if cached is not None:
+        return cached
     oracle_cursor.execute(
         """
-        SELECT mf.MEDIAFIL_ID, mf.OPPRINNELIG_FILNAVN, mf.ID_I_SAMLING, mf.TITTEL, mf.FORMAT, mf.MEDIA_TYPE
+        SELECT st.TABELL_ID
+          FROM USD_METADATA.SKJEMA__TABELL st
+         WHERE st.NAVN = 'MUSEUM_OBJECT'
+           AND UPPER(st.SKJEMA) = :schema
+        """,
+        {"schema": key},
+    )
+    row = oracle_cursor.fetchone()
+    if row is None:
+        raise RuntimeError(
+            f"MUSEUM_OBJECT TABELL_ID not found in USD_METADATA.SKJEMA__TABELL "
+            f"for schema {oracle_schema!r}"
+        )
+    tabell_id = int(row[0])
+    _museum_object_tabell_id_cache[key] = tabell_id
+    return tabell_id
+
+
+def _fetch_avbilder_media_groups_for_objects(
+    oracle_cursor: Any,
+    *,
+    museum_object_tabell_id: int,
+    object_ids: list[int],
+) -> dict[int, list[int]]:
+    """Batch-load all ``Avbilder`` media-group ids linked via ``MEDIAGRUPPE_EKSTERNTOBJEKT``."""
+    if not object_ids:
+        return {}
+    out: dict[int, list[int]] = {}
+    for chunk_start in range(0, len(object_ids), _SPECIMEN_BATCH):
+        chunk = object_ids[chunk_start : chunk_start + _SPECIMEN_BATCH]
+        placeholders = ", ".join(f":oid{i}" for i in range(len(chunk)))
+        binds: dict[str, Any] = {
+            f"oid{i}": oid for i, oid in enumerate(chunk)
+        }
+        binds["tid"] = int(museum_object_tabell_id)
+        binds["rel"] = _MUSIT_RELASJON_AVBILDER
+        oracle_cursor.execute(
+            f"""
+            SELECT meo.RAD_ID_BESKRIVELSE, meo.MEDIAGRUPPE_ENHETS_ID
+              FROM USD_FELLES.MEDIAGRUPPE_EKSTERNTOBJEKT meo
+             WHERE meo.TABELL_ID_BESKRIVELSE = :tid
+               AND meo.RELASJONS_TYPE = :rel
+               AND meo.RAD_ID_BESKRIVELSE IN ({placeholders})
+             ORDER BY meo.RAD_ID_BESKRIVELSE, meo.MEDIAGRUPPE_ENHETS_ID
+            """,
+            binds,
+        )
+        for rad_id, mgid in oracle_cursor.fetchall():
+            oid = int(rad_id)
+            gid = int(mgid)
+            out.setdefault(oid, []).append(gid)
+    return out
+
+
+def _media_group_ids_for_object(
+    *,
+    object_id: int,
+    primary_group_id: Any,
+    avbilder_by_object: dict[int, list[int]],
+) -> list[int]:
+    """Ordered media-group ids for one specimen (primary column first, then other Avbilder links)."""
+    groups = list(avbilder_by_object.get(object_id, []))
+    if primary_group_id is None:
+        return groups
+    primary = int(primary_group_id)
+    if primary not in groups:
+        return [primary, *groups]
+    if groups and groups[0] == primary:
+        return groups
+    return [primary, *(g for g in groups if g != primary)]
+
+
+def _fetch_musit_media_bundle(oracle_cursor: Any, media_group_id: int) -> dict[str, Any]:
+    """Load ``MEDIAGRUPPE_ENHET``, ``MEDIA_FIL``, and person/role metadata for one group."""
+    gid = int(media_group_id)
+    bundle: dict[str, Any] = {"group": {}, "files": [], "people": [], "process_end_date": None}
+
+    oracle_cursor.execute(
+        """
+        SELECT mge.TITTEL,
+               mge.FILMNR_NEGATIVNR,
+               mge.MEDIAGRUPPE_UUID,
+               mge.FREMVISNINGS_MEDIAFIL_ID,
+               mge.SIDENR
+          FROM USD_FELLES.MEDIAGRUPPE_ENHET mge
+         WHERE mge.MEDIAGRUPPE_ENHETS_ID = :gid
+        """,
+        {"gid": gid},
+    )
+    g_row = oracle_cursor.fetchone()
+    if g_row is not None:
+        bundle["group"] = {
+            "tittel": g_row[0],
+            "filmnr_negativnr": g_row[1],
+            "mediagruppe_uuid": g_row[2],
+            "fremvisnings_mediafil_id": g_row[3],
+            "sidenr": g_row[4],
+        }
+
+    oracle_cursor.execute(
+        """
+        SELECT mf.MEDIAFIL_ID,
+               mf.OPPRINNELIG_FILNAVN,
+               mf.ID_I_SAMLING,
+               mf.TITTEL,
+               mf.FORMAT,
+               mf.MEDIA_TYPE,
+               mf.ORIGINAL_KILDEHENVISNING,
+               mf.KLAUSUL,
+               mf.FIL_STORRELSE,
+               mf.SIDENUMMER,
+               mf.MEDIA_VERSJONSTYPE_ID,
+               mvt.DISPLAY_NAVN,
+               mvt.NAVN
           FROM USD_FELLES.MEDIA_FIL mf
+          LEFT JOIN USD_FELLES.MEDIA_VERSJONSTYPE mvt
+            ON mvt.ID = mf.MEDIA_VERSJONSTYPE_ID
          WHERE mf.MEDIAGRUPPE_ENHETS_ID = :gid
            AND (mf.MEDIA_TYPE = '1' OR mf.MEDIA_TYPE IS NULL)
          ORDER BY mf.MEDIAFIL_ID
         """,
-        {"gid": int(media_group_id)},
+        {"gid": gid},
     )
-    out: list[dict[str, Any]] = []
     for r in oracle_cursor.fetchall():
-        out.append(
+        bundle["files"].append(
             {
                 "mediafil_id": r[0],
                 "opprinnelig_filnavn": r[1],
@@ -1163,21 +1287,207 @@ def _fetch_media_rows_for_group(oracle_cursor: Any, media_group_id: int) -> list
                 "tittel": r[3],
                 "format": r[4],
                 "media_type": r[5],
+                "original_kildehenvisning": r[6],
+                "klausul": r[7],
+                "fil_storrelse": r[8],
+                "sidenummer": r[9],
+                "media_versjonstype_id": r[10],
+                "versjon_display_navn": r[11],
+                "versjon_navn": r[12],
             }
         )
-    return out
+
+    oracle_cursor.execute(
+        """
+        SELECT p.NAVN,
+               pr.NAVN,
+               mp.DATO,
+               mp.PERIODE,
+               mp.KOMMENTAR
+          FROM USD_FELLES.MEDIAGRUPPE_PERSON mp
+          JOIN USD_FELLES.PERSON p ON p.PERSON_ID = mp.PERSON_ID
+          JOIN USD_FELLES.PERSONROLLE pr ON pr.PERSONROLLE_ID = mp.PERSONROLLE_ID
+         WHERE mp.MEDIAGRUPPE_ENHETS_ID = :gid
+         ORDER BY mp.SORTERING NULLS LAST, mp.PERSONROLLE_ID
+        """,
+        {"gid": gid},
+    )
+    for r in oracle_cursor.fetchall():
+        bundle["people"].append(
+            {
+                "navn": r[0],
+                "rolle": r[1],
+                "dato": r[2],
+                "periode": r[3],
+                "kommentar": r[4],
+            }
+        )
+
+    try:
+        oracle_cursor.execute(
+            """
+            SELECT MAX(pt.PROCESS_END_DATE)
+              FROM USD_FELLES.PROCESS_TABLE pt
+             WHERE pt.MEDIAGRUPPE_ENHETS_ID = :gid
+            """,
+            {"gid": gid},
+        )
+        proc_row = oracle_cursor.fetchone()
+        if proc_row is not None:
+            bundle["process_end_date"] = proc_row[0]
+    except Exception:  # noqa: BLE001
+        pass
+
+    return bundle
 
 
-_asset_server_warned = False
+def _role_name_matches(role: str | None, *hints: str) -> bool:
+    if not role:
+        return False
+    lowered = role.strip().lower()
+    return any(h in lowered for h in hints)
 
 
-def _pick_primary_media_row(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """Choose metadata source when several ``MEDIA_FIL`` rows share one media group."""
+def _pick_primary_media_row(
+    rows: list[dict[str, Any]],
+    *,
+    preferred_mediafil_id: int | None = None,
+) -> dict[str, Any]:
+    """Choose the canonical ``MEDIA_FIL`` row for upload and metadata."""
+    if preferred_mediafil_id is not None:
+        for r in rows:
+            if r.get("mediafil_id") is not None and int(r["mediafil_id"]) == int(preferred_mediafil_id):
+                return r
     for r in rows:
         orig = (r.get("opprinnelig_filnavn") or "").strip().lower()
         if orig.endswith((".tif", ".tiff")):
             return r
     return rows[0]
+
+
+def _musit_media_attachment_fields(
+    *,
+    bundle: dict[str, Any],
+    upload_row: dict[str, Any],
+    metadata_row: dict[str, Any] | None = None,
+    media_group_id: int,
+    uploaded_bytes: int,
+    object_withheld: Any,
+) -> dict[str, Any]:
+    """Map MUSIT media metadata to Specify ``Attachment`` field values."""
+    group = bundle.get("group") or {}
+    people: list[dict[str, Any]] = bundle.get("people") or []
+    files: list[dict[str, Any]] = bundle.get("files") or []
+    meta_row = metadata_row or upload_row
+
+    orig = (
+        (upload_row.get("opprinnelig_filnavn") or "").strip()
+        or (upload_row.get("id_i_samling") or "").strip()
+        or f"mediagruppe_{media_group_id}.tif"
+    )
+    title = (
+        (meta_row.get("tittel") or "").strip()
+        or (group.get("tittel") or "").strip()
+        or (group.get("filmnr_negativnr") or "").strip()
+        or (upload_row.get("tittel") or "").strip()
+        or orig
+    )
+
+    credit: str | None = None
+    copyrightholder: str | None = None
+    dateimaged: str | None = None
+    copyrightdate: str | None = None
+    person_remarks: list[str] = []
+
+    for person in people:
+        name = (person.get("navn") or "").strip()
+        role = (person.get("rolle") or "").strip()
+        if not name and not role:
+            continue
+        label = f"{role}: {name}".strip(": ").strip()
+        if label:
+            person_remarks.append(label)
+        if name and _role_name_matches(role, "fotograf", "photo", "foto", "skaper", "creator"):
+            credit = credit or name
+            dateimaged = dateimaged or _short_date(person.get("dato")) or _trunc(person.get("periode"), 64)
+        if name and _role_name_matches(role, "opphav", "copyright", "rettighet", "holder"):
+            copyrightholder = copyrightholder or name
+            copyrightdate = copyrightdate or _short_date(person.get("dato")) or _trunc(person.get("periode"), 64)
+        kommentar = (person.get("kommentar") or "").strip()
+        if kommentar:
+            person_remarks.append(f"{role or 'person'} comment: {kommentar}")
+
+    kilde = (meta_row.get("original_kildehenvisning") or "").strip()
+    if kilde and not credit:
+        credit = kilde
+
+    klausul = (meta_row.get("klausul") or "").strip()
+    license_val = _trunc(klausul, 64) if klausul and len(klausul) <= 64 else None
+
+    metadatatext = _trunc(kilde, 256) if kilde and credit != kilde else None
+
+    subtype = (
+        (meta_row.get("versjon_display_navn") or "").strip()
+        or (meta_row.get("versjon_navn") or "").strip()
+        or None
+    )
+
+    filecreateddate: datetime | None = None
+    proc_end = bundle.get("process_end_date")
+    if isinstance(proc_end, datetime):
+        filecreateddate = proc_end
+    elif proc_end is not None:
+        d = _coerce_date(proc_end)
+        if d is not None:
+            filecreateddate = datetime.combine(d, dtime.min)
+
+    withheld = _musit_bool(object_withheld)
+    ispublic = False if withheld is True else True
+
+    mediafil_ids = ",".join(str(x.get("mediafil_id")) for x in files if x.get("mediafil_id") is not None)
+    remark_parts = [
+        f"MUSIT media_group_id={int(media_group_id)}",
+        f"mediafil_ids={mediafil_ids}",
+        f"bytes={int(uploaded_bytes)}",
+    ]
+    mg_uuid = (group.get("mediagruppe_uuid") or "").strip()
+    if mg_uuid:
+        remark_parts.append(f"mediagruppe_uuid={mg_uuid}")
+    fremvis = group.get("fremvisnings_mediafil_id")
+    if fremvis is not None:
+        remark_parts.append(f"fremvisnings_mediafil_id={int(fremvis)}")
+    fil_size = upload_row.get("fil_storrelse") or meta_row.get("fil_storrelse")
+    if fil_size is not None:
+        remark_parts.append(f"fil_storrelse={int(fil_size)}")
+    sidenummer = meta_row.get("sidenummer")
+    if sidenummer is not None:
+        remark_parts.append(f"sidenummer={sidenummer}")
+    sidenr = group.get("sidenr")
+    if sidenr is not None:
+        remark_parts.append(f"sidenr={sidenr}")
+    if klausul and license_val is None:
+        remark_parts.append(f"klausul={klausul}")
+    if person_remarks:
+        remark_parts.append("people=" + "; ".join(person_remarks))
+
+    return {
+        "origfilename": orig,
+        "title": _trunc(title, 255) or orig[:255],
+        "credit": _trunc(credit, 64),
+        "copyrightholder": _trunc(copyrightholder, 64),
+        "copyrightdate": copyrightdate,
+        "dateimaged": dateimaged,
+        "license": license_val,
+        "metadatatext": metadatatext,
+        "subtype": _trunc(subtype, 64),
+        "guid": _trunc(mg_uuid, 128),
+        "filecreateddate": filecreateddate,
+        "ispublic": ispublic,
+        "remarks": _trunc("; ".join(remark_parts), 4000),
+    }
+
+
+_asset_server_warned = False
 
 
 def _attach_media_to_collection_object(
@@ -1186,6 +1496,8 @@ def _attach_media_to_collection_object(
     co: Any,
     media_group_id: int | None,
     collection_name: str,
+    object_withheld: Any = None,
+    ordinal: int = 1,
     dry_run: bool = False,
     stats: DatasetLoadStats | None = None,
 ) -> int:
@@ -1197,25 +1509,32 @@ def _attach_media_to_collection_object(
 
     from specifyweb.specify.models import Attachment, Collectionobjectattachment
 
-    rows = _fetch_media_rows_for_group(oracle_cursor, int(media_group_id))
+    bundle = _fetch_musit_media_bundle(oracle_cursor, int(media_group_id))
+    rows = bundle.get("files") or []
     if not rows:
         return 0
 
     if dry_run:
         return 1
 
+    group = bundle.get("group") or {}
+    upload_row = _pick_primary_media_row(rows)
+    fremvis = group.get("fremvisnings_mediafil_id")
+    metadata_row = (
+        _pick_primary_media_row(rows, preferred_mediafil_id=int(fremvis))
+        if fremvis is not None
+        else upload_row
+    )
+
     table_id = int(getattr(getattr(co, "specify_model", None), "tableId", 1) or 1)
-    r = _pick_primary_media_row(rows)
     orig = (
-        (r.get("opprinnelig_filnavn") or "").strip()
-        or (r.get("id_i_samling") or "").strip()
+        (upload_row.get("opprinnelig_filnavn") or "").strip()
+        or (upload_row.get("id_i_samling") or "").strip()
         or f"mediagruppe_{media_group_id}.tif"
     )
     guessed, _ = mimetypes.guess_type(orig)
-    fmt = (r.get("format") or "").strip().lower()
+    fmt = (upload_row.get("format") or "").strip().lower()
     mime = guessed or ("image/tiff" if fmt in {"tif", "tiff"} else "image/jpeg")
-    title = ((r.get("tittel") or "").strip() or orig)[:255]
-    mediafil_ids = ",".join(str(x.get("mediafil_id")) for x in rows if x.get("mediafil_id") is not None)
 
     from flows.lib.asset_server_upload import (
         AssetServerNotConfigured,
@@ -1243,24 +1562,46 @@ def _attach_media_to_collection_object(
             stats.attachments_failed += 1
         raise
 
-    att = Attachment(
-        attachmentlocation=uploaded["attachmentlocation"][:128],
-        origfilename=orig,
-        title=title,
-        mimetype=uploaded["mime_type"],
-        tableid=table_id,
-        ispublic=True,
-        remarks=(
-            f"MUSIT media_group_id={int(media_group_id)} mediafil_ids={mediafil_ids} "
-            f"bytes={uploaded['bytes']}"
-        ),
+    meta = _musit_media_attachment_fields(
+        bundle=bundle,
+        upload_row=upload_row,
+        metadata_row=metadata_row,
+        media_group_id=int(media_group_id),
+        uploaded_bytes=int(uploaded["bytes"]),
+        object_withheld=object_withheld,
     )
+
+    att_kwargs: dict[str, Any] = {
+        "attachmentlocation": uploaded["attachmentlocation"][:128],
+        "origfilename": meta["origfilename"],
+        "title": meta["title"],
+        "mimetype": uploaded["mime_type"],
+        "tableid": table_id,
+        "ispublic": meta["ispublic"],
+        "remarks": meta["remarks"],
+    }
+    for optional in (
+        "credit",
+        "copyrightholder",
+        "copyrightdate",
+        "dateimaged",
+        "license",
+        "metadatatext",
+        "subtype",
+        "guid",
+        "filecreateddate",
+    ):
+        val = meta.get(optional)
+        if val is not None:
+            att_kwargs[optional] = val
+
+    att = Attachment(**att_kwargs)
     att.save()
     Collectionobjectattachment.objects.create(
         attachment=att,
         collectionobject=co,
         collectionmemberid=int(co.collectionmemberid),
-        ordinal=1,
+        ordinal=int(ordinal),
     )
     if stats is not None:
         stats.attachments_created += 1
@@ -1490,6 +1831,7 @@ def _write_one_object(
     dry_run: bool,
     locality_cache: dict[tuple[int, int], int],
     stats: DatasetLoadStats,
+    avbilder_by_object: dict[int, list[int]] | None = None,
 ) -> None:
     """Write one CollectionObject + CollectingEvent + Determination(s) for ``object_id``.
 
@@ -1701,8 +2043,12 @@ def _write_one_object(
                 )
             ]
             stats.determination_created += max(1, len(det_rows))
-            if obj_row.get("mediagruppe_enhets_id") is not None:
-                stats.attachments_created += 1
+            media_group_ids = _media_group_ids_for_object(
+                object_id=object_id,
+                primary_group_id=obj_row.get("mediagruppe_enhets_id"),
+                avbilder_by_object=avbilder_by_object or {},
+            )
+            stats.attachments_created += len(media_group_ids)
             return
 
         ce = Collectingevent(**ce_kwargs)
@@ -1808,21 +2154,33 @@ def _write_one_object(
         co.save()
         stats.co_created += 1
 
-        # 4b. Image attachment: Unimus original → asset server.
-        mgid_raw = obj_row.get("mediagruppe_enhets_id")
-        if mgid_raw is not None:
+        # 4b. Image attachments: all Avbilder media groups → asset server (one per group).
+        media_group_ids = _media_group_ids_for_object(
+            object_id=object_id,
+            primary_group_id=obj_row.get("mediagruppe_enhets_id"),
+            avbilder_by_object=avbilder_by_object or {},
+        )
+        for ordinal, mgid in enumerate(media_group_ids, start=1):
             try:
                 _attach_media_to_collection_object(
                     oracle_cursor=oracle_cursor,
                     co=co,
-                    media_group_id=int(mgid_raw),
+                    media_group_id=int(mgid),
                     collection_name=str(collection.collectionname),
+                    object_withheld=obj_row.get("object_withheld"),
+                    ordinal=ordinal,
                     dry_run=False,
                     stats=stats,
                 )
             except Exception as exc:  # noqa: BLE001
                 stats.attachments_failed += 1
-                _log("warning", "object_id=%s: media attachment migration failed: %s", object_id, exc)
+                _log(
+                    "warning",
+                    "object_id=%s mediagruppe_enhets_id=%s: media attachment migration failed: %s",
+                    object_id,
+                    mgid,
+                    exc,
+                )
 
         # 5. Determination(s) — deduplicate by best available source keys/text.
         seen_det_keys: set[tuple] = set()
@@ -2123,6 +2481,16 @@ def load_musit_dataset(
     total_oracle = _count_total_objects(oracle_cursor, config)
     _log("info", "load_musit_dataset | total Oracle objects for filter: %s", total_oracle)
 
+    museum_object_tabell_id = _resolve_museum_object_tabell_id(
+        oracle_cursor, config.oracle_schema
+    )
+    _log(
+        "info",
+        "load_musit_dataset | MUSEUM_OBJECT TABELL_ID=%s for schema %s",
+        museum_object_tabell_id,
+        config.oracle_schema,
+    )
+
     # In-memory locality cache: (discipline_id, place_id) → specify locality pk
     locality_cache: dict[tuple[int, int], int] = {}
     total_processed = 0
@@ -2144,8 +2512,14 @@ def load_musit_dataset(
         if ids_to_process:
             specimen_rows = _fetch_specimen_rows(oracle_cursor, config, ids_to_process)
             grouped = _group_rows_by_object_id(specimen_rows)
+            avbilder_by_object = _fetch_avbilder_media_groups_for_objects(
+                oracle_cursor,
+                museum_object_tabell_id=museum_object_tabell_id,
+                object_ids=ids_to_process,
+            )
         else:
             grouped = {}
+            avbilder_by_object = {}
 
         for oid in page_ids:
             if oid in already_done:
@@ -2169,6 +2543,7 @@ def load_musit_dataset(
                 dry_run=dry_run,
                 locality_cache=locality_cache,
                 stats=stats,
+                avbilder_by_object=avbilder_by_object,
             )
 
             total_processed += 1
