@@ -14,9 +14,11 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 def build_s3_client_from_env(payload_signing_enabled: bool | None = None):
-    access_key = os.getenv("AWS_ACCESS_KEY_ID") or os.getenv("S3_ACCESS_KEY_ID")
-    secret_key = os.getenv("AWS_SECRET_ACCESS_KEY") or os.getenv("S3_SECRET_ACCESS_KEY")
-    region = os.getenv("AWS_DEFAULT_REGION") or os.getenv("S3_REGION") or "us-east-1"
+    # Migration flows use S3_* (specify-migration bucket). AWS_* in the same secret
+    # are for the asset-server educloud bucket — do not prefer them here.
+    access_key = os.getenv("S3_ACCESS_KEY_ID") or os.getenv("AWS_ACCESS_KEY_ID")
+    secret_key = os.getenv("S3_SECRET_ACCESS_KEY") or os.getenv("AWS_SECRET_ACCESS_KEY")
+    region = os.getenv("S3_REGION") or os.getenv("AWS_DEFAULT_REGION") or "us-east-1"
     endpoint_url = os.getenv("S3_ENDPOINT_URL") or None
     force_path = _env_bool("S3_FORCE_PATH_STYLE", True)
     payload_signing_enabled = (

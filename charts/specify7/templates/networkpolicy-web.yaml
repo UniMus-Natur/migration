@@ -116,6 +116,12 @@ spec:
             matchLabels:
               {{- include "specify7.selectorLabels" . | nindent 14 }}
               component: worker
+        {{- if and .Values.prefect.enabled .Values.prefect.devWorker.enabled }}
+        - podSelector:
+            matchLabels:
+              {{- include "specify7.selectorLabels" . | nindent 14 }}
+              component: prefect-dev-worker
+        {{- end }}
       ports:
         - protocol: TCP
           port: 8080

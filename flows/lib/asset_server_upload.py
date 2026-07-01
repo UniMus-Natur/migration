@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import logging
 import mimetypes
+import os
 import time
 from os.path import splitext
 from typing import Any
 from uuid import uuid4
 from xml.etree import ElementTree
+from urllib.parse import urlparse
 
 import hmac
 import requests
@@ -65,6 +67,15 @@ def asset_server_collection_name(*, fallback_collection_name: str) -> str:
     return fallback_collection_name
 
 
+def _rewrite_url_for_internal_upload(url: str) -> str:
+    """Prefer in-cluster asset server for uploads when ASSET_SERVER_INTERNAL_BASE is set."""
+    internal_base = (os.environ.get("ASSET_SERVER_INTERNAL_BASE") or "").strip().rstrip("/")
+    if not internal_base:
+        return url
+    path = urlparse(url).path or "/fileupload"
+    return f"{internal_base}{path}"
+
+
 def _ensure_server_urls() -> dict[str, str]:
     global _server_urls
 
@@ -88,6 +99,7 @@ def _ensure_server_urls() -> dict[str, str]:
     if not parsed.get("write"):
         raise AssetServerError("Asset server XML is missing a write URL")
 
+    parsed["write"] = _rewrite_url_for_internal_upload(parsed["write"])
     _server_urls = parsed
     return parsed
 

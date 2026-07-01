@@ -38,6 +38,11 @@ spec:
             - name: PREFECT_API_URL
               value: "http://{{ include "specify7.fullname" . }}-prefect-server:4200/api"
             {{- end }}
+            {{- if not (eq .Values.assetServer.enabled false) }}
+            # In-cluster asset server base for migration uploads (avoids ingress hairpin on large POSTs).
+            - name: ASSET_SERVER_INTERNAL_BASE
+              value: "http://{{ include "specify7.fullname" . }}-asset-server"
+            {{- end }}
           {{- if .Values.secrets.existingSecret }}
           envFrom:
             - secretRef:
