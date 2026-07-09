@@ -30,6 +30,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+_MIGRATION_ROOT = Path(__file__).resolve().parent.parent
+if str(_MIGRATION_ROOT) not in sys.path:
+    sys.path.insert(0, str(_MIGRATION_ROOT))
+
+from flows.lib.musit_field_number_map import resolve_field_number_from_legnr_rows
+
 try:
     import yaml
 except ImportError:
@@ -125,6 +131,35 @@ class OracleAdapter:
     def identifier_num(self) -> str:
         num = self._mo.get("identifier_num")
         return _str(num) if num is not None else ""
+
+    @property
+    def primary_collector_actor_id(self) -> int | None:
+        for evt in self._collecting_events():
+            links = sorted(
+                evt.get("EVENT_ROLE_PERSON_NAME") or [],
+                key=lambda link: link.get("sorting_sequence") or 0,
+            )
+            for link in links:
+                role = link.get("_ROLE") or {}
+                if role.get("roleterm") not in ("Leg", "LEGSCR"):
+                    continue
+                pn = link.get("_PERSON_NAME") or {}
+                actor_id = pn.get("actor_id")
+                if actor_id is not None:
+                    return int(actor_id)
+        return None
+
+    @property
+    def legnr(self) -> str:
+        rows = [
+            {"actor_id": row.get("actor_id"), "legnr": row.get("legnr")}
+            for row in (self._doc.get("MUSEUM_OBJECT_LEGNR_PERSON") or [])
+        ]
+        value, _meta = resolve_field_number_from_legnr_rows(
+            rows,
+            primary_actor_id=self.primary_collector_actor_id,
+        )
+        return value or ""
 
     @property
     def uuid(self) -> str:
@@ -305,6 +340,11 @@ class SpecifyAdapter:
         return _str(self._co.get("fieldnumber"))
 
     @property
+    def integer1(self) -> str:
+        value = self._co.get("integer1")
+        return _str(value) if value is not None else ""
+
+    @property
     def remarks(self) -> str:
         return _str(self._co.get("remarks"))
 
@@ -451,15 +491,25 @@ def run_checks(oracle: OracleAdapter, specify: SpecifyAdapter) -> list[CheckResu
     else:
         chk("uuid_in_remarks", "FAIL", ov=o_uuid, sv=f"remarks={remarks!r}  guid={guid!r}")
 
-    # 4. identifier_num_match
+    # 4. identifier_num → integer1
     o_num = oracle.identifier_num
-    s_fn = specify.field_number
+    s_num = specify.integer1
     if not o_num:
         chk("identifier_num_match", "SKIP", detail="Oracle IDENTIFIER_NUM is null")
-    elif o_num == s_fn:
-        chk("identifier_num_match", "PASS", ov=o_num, sv=s_fn)
+    elif o_num == s_num:
+        chk("identifier_num_match", "PASS", ov=o_num, sv=s_num)
     else:
-        chk("identifier_num_match", "FAIL", ov=o_num, sv=s_fn)
+        chk("identifier_num_match", "FAIL", ov=o_num, sv=s_num)
+
+    # 4b. legnr → fieldNumber
+    o_legnr = oracle.legnr
+    s_fn = specify.field_number
+    if not o_legnr:
+        chk("legnr_match", "SKIP", detail="Oracle LEGNR is null")
+    elif o_legnr == s_fn:
+        chk("legnr_match", "PASS", ov=o_legnr, sv=s_fn)
+    else:
+        chk("legnr_match", "FAIL", ov=o_legnr, sv=s_fn)
 
     # 5. collecting_start_date
     o_date = oracle.collecting_start_date
@@ -739,7 +789,8 @@ def render_markdown(
     lines.append("|---|---|---|---|")
     lines.append(f"| catalog_number | {oracle.catalog_number} | {specify.catalog_number} | {_match_icon(oracle.catalog_number, specify.catalog_number)} |")
     lines.append(f"| uuid / guid | {oracle.uuid or '—'} | {specify.guid or '—'} | {_uuid_match_icon(oracle.uuid, specify.guid, specify.remarks)} |")
-    lines.append(f"| identifier_num / fieldnumber | {oracle.identifier_num or '—'} | {specify.field_number or '—'} | {_match_icon(oracle.identifier_num, specify.field_number)} |")
+    lines.append(f"| identifier_num / integer1 | {oracle.identifier_num or '—'} | {specify.integer1 or '—'} | {_match_icon(oracle.identifier_num, specify.integer1)} |")
+    lines.append(f"| legnr / fieldNumber | {oracle.legnr or '—'} | {specify.field_number or '—'} | {_match_icon(oracle.legnr, specify.field_number)} |")
     lines.append("")
 
     # -- Collecting event section --

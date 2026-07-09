@@ -37,6 +37,10 @@ from typing import Any
 
 from django.db import close_old_connections, transaction
 
+from flows.lib.musit_field_number_map import (
+    coerce_musit_identifier_num,
+    resolve_field_number_from_legnr_rows,
+)
 from flows.lib.musit_taxon_match import (
     binomial_prefix_from_valid_classterm as _binomial_prefix_from_valid_classterm,
     taxon_matches_valid_classterm as _taxon_matches_valid_classterm,
@@ -150,11 +154,6 @@ _SPECIMEN_SQL = """
       oa.artsobs_nr,
       mon.object_notes,
       en.event_notes,
-      (SELECT MIN(mlp.legnr)
-         FROM {schema}.museum_object_legnr_person mlp
-        WHERE mlp.object_id = voa.object_id
-          AND mlp.legnr IS NOT NULL
-      ) AS legnr,
       (SELECT MIN(tye.type_status)
          FROM {schema}.event_museum_object emo2
          JOIN {schema}.typification_event tye
@@ -1732,6 +1731,34 @@ def _collecting_event_candidates(rows: list[dict]) -> list[dict[str, Any]]:
     return out
 
 
+def _fetch_legnr_rows(
+    oracle_cursor: Any,
+    schema: str,
+    object_id: int,
+) -> list[dict[str, Any]]:
+    """Return ``MUSEUM_OBJECT_LEGNR_PERSON`` rows for one object."""
+    sch = str(schema).strip().upper()
+    oracle_cursor.execute(
+        f"""
+        SELECT mlp.actor_id, mlp.legnr
+          FROM {sch}.museum_object_legnr_person mlp
+         WHERE mlp.object_id = :oid
+           AND mlp.legnr IS NOT NULL
+         ORDER BY mlp.object_legnr_person_id
+        """,
+        {"oid": int(object_id)},
+    )
+    rows: list[dict[str, Any]] = []
+    for actor_id, legnr in oracle_cursor.fetchall():
+        if legnr is None:
+            continue
+        text = str(legnr).strip()
+        if not text:
+            continue
+        rows.append({"actor_id": int(actor_id) if actor_id is not None else None, "legnr": text})
+    return rows
+
+
 def _fetch_collector_actor_ids_for_event(
     oracle_cursor: Any,
     schema: str,
@@ -1854,11 +1881,26 @@ def _write_one_object(
     obj_row = _object_scalar_row(rows)
     collecting_row = _select_primary_collecting_row(rows)
     owner = config.oracle_schema
+    collecting_event_id = collecting_row.get("event_id") if collecting_row else None
+    primary_collector_actor_id: int | None = None
+    if collecting_event_id is not None:
+        collector_actor_ids = _fetch_collector_actor_ids_for_event(
+            oracle_cursor, owner, int(collecting_event_id)
+        )
+        if collector_actor_ids:
+            primary_collector_actor_id = collector_actor_ids[0]
+
+    legnr_rows = _fetch_legnr_rows(oracle_cursor, owner, object_id)
+    field_number, legnr_resolution = resolve_field_number_from_legnr_rows(
+        legnr_rows,
+        primary_actor_id=primary_collector_actor_id,
+    )
+    musit_object_number = coerce_musit_identifier_num(obj_row.get("identifier_num"))
 
     # ---- Unmapped payload for JSON archival ----
     unmapped: dict[str, Any] = {}
     for key in (
-        "long_name", "identifier_num", "parent_object_id", "mediagruppe_enhets_id",
+        "long_name", "parent_object_id", "mediagruppe_enhets_id",
         "is_reg", "is_approved", "is_corrected", "object_state",
         "reg_user", "korr_user", "approve_user", "dataset", "project_name",
         "same_sheet_as", "dublettes", "analysis_request",
@@ -1939,6 +1981,14 @@ def _write_one_object(
                 "dataset": config.dataset_label,
             },
             "unmapped": unmapped,
+            "field_number": {
+                "musit_identifier_num": musit_object_number,
+                "specify_integer1": musit_object_number,
+                "specify_fieldnumber": field_number,
+                "legnr_rows": legnr_rows,
+                "legnr_resolution": legnr_resolution,
+                "primary_collector_actor_id": primary_collector_actor_id,
+            },
             "collecting_event_candidates": _collecting_event_candidates(rows),
             "locality_candidates": locality_candidates,
             "selected_locality_source": selected_source,
@@ -1997,7 +2047,6 @@ def _write_one_object(
             _trunc(collecting_row.get("agg_personnames"), 255) if collecting_row else None
         )
         event_notes = collecting_row.get("event_notes") if collecting_row else None
-        collecting_event_id = collecting_row.get("event_id") if collecting_row else None
 
         ce_guid = (
             f"urn:oracle:{owner.lower()}:event:{collecting_event_id or object_id}"[:128]
@@ -2017,11 +2066,6 @@ def _write_one_object(
             ce_kwargs["verbatimdate"] = verbatim_date
         if verbatim_locality:
             ce_kwargs["verbatimlocality"] = verbatim_locality
-
-        # Collector number (MUSIT "Leg no") → stationFieldNumber.
-        legnr = _trunc(obj_row.get("legnr"), 50)
-        if legnr:
-            ce_kwargs["stationfieldnumber"] = legnr
 
         # Habitat / ecology (MUSIT ECOLOGY_PLACE) → text1.
         if habitat_text:
@@ -2136,7 +2180,8 @@ def _write_one_object(
             text6=_trunc(obj_row.get("same_sheet_as"), 255), # Same sheet as
             text7=_trunc(obj_row.get("analysis_request"), 255), # Analysis request
             text8=admin_text,                                # Administrative (MUSIT) audit
-            fieldnumber=_trunc(obj_row.get("identifier_num"), 50),
+            fieldnumber=_trunc(field_number, 50),
+            integer1=musit_object_number,
             altcatalognumber=_trunc(obj_row.get("artsobs_nr"), 32),
             countamt=obj_row.get("number_of_sheets"),
         )
