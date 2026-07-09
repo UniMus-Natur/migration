@@ -22,6 +22,7 @@ class ReconcileResult:
     divisions_skipped: int = 0
     disciplines_created: int = 0
     disciplines_skipped: int = 0
+    taxon_trees_created: int = 0
     collections_created: int = 0
     collections_skipped: int = 0
     errors: list[str] = field(default_factory=list)
@@ -165,6 +166,52 @@ def reconcile_structure(config: StructureConfig, *, dry_run: bool = True) -> Rec
         logger.info("Created discipline %s id=%s", spec.name, created.id)
         return created
 
+    def _ensure_discipline_taxon_tree(
+        discipline: Discipline,
+        spec: DisciplineSpec,
+        *,
+        dry_run_inner: bool,
+        result_inner: ReconcileResult,
+    ) -> Discipline:
+        """Link a taxon tree def when an existing discipline row is missing one."""
+        if discipline.taxontreedef_id:
+            return discipline
+
+        if dry_run_inner:
+            result_inner.taxon_trees_created += 1
+            logger.info(
+                "Would create taxon tree for discipline %s (missing taxontreedef_id)",
+                spec.name,
+            )
+            return discipline
+
+        taxontreedef = {
+            "name": spec.taxon_tree.name,
+            "preload": spec.taxon_tree.preload,
+            "discipline_id": discipline.id,
+        }
+        if spec.taxon_tree.preloadfile:
+            taxontreedef["preloadfile"] = spec.taxon_tree.preloadfile
+        try:
+            setup_api.create_taxon_tree(normalize_keys(taxontreedef))
+        except setup_api.SetupError as e:
+            result_inner.errors.append(f"discipline {spec.name!r} taxon tree: {e}")
+            return discipline
+
+        refreshed = Discipline.objects.filter(pk=discipline.id).first()
+        if refreshed is None or not refreshed.taxontreedef_id:
+            result_inner.errors.append(
+                f"discipline {spec.name!r}: taxon tree not linked after create_taxon_tree"
+            )
+            return discipline
+        result_inner.taxon_trees_created += 1
+        logger.info(
+            "Created taxon tree for discipline %s treedef_id=%s",
+            spec.name,
+            refreshed.taxontreedef_id,
+        )
+        return refreshed
+
     def _ensure_collection(
         discipline: Discipline,
         code: str,
@@ -175,6 +222,14 @@ def reconcile_structure(config: StructureConfig, *, dry_run: bool = True) -> Rec
         result_inner: ReconcileResult,
     ) -> None:
         if not discipline.taxontreedef_id:
+            if dry_run_inner:
+                result_inner.collections_created += 1
+                logger.info(
+                    "Would create collection: %s (after taxon tree for %s)",
+                    code,
+                    discipline.name,
+                )
+                return
             result_inner.errors.append(
                 f"collection {code!r}: discipline {discipline.name!r} has no taxontreedef_id; "
                 "cannot create collection until a taxon tree exists."
@@ -292,6 +347,13 @@ def reconcile_structure(config: StructureConfig, *, dry_run: bool = True) -> Rec
                             f"collection {c.code!r}: skipped (discipline {dspec.name!r} missing in dry_run=false)"
                         )
                 continue
+
+            disc = _ensure_discipline_taxon_tree(
+                disc,
+                dspec,
+                dry_run_inner=dry_run,
+                result_inner=result,
+            )
 
             for c in dspec.collections:
                 _ensure_collection(

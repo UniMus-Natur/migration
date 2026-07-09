@@ -83,8 +83,8 @@ backend:
 global:
   imageRegistry: docker.io
 
-# Init container image for chown on shared volumes.
-volumePermissions:
+# Init container image for chown on shared volumes (Specify7 pods only; not MariaDB/Redis).
+specifyVolumePermissions:
   image: docker.io/library/debian:bookworm-slim
 
 # Static file server (nginx sidecar)
@@ -151,13 +151,24 @@ specify:
 
 # Asset Server Configuration
 assetServer:
+  enabled: true
   image:
     repository: specifyconsortium/specify-asset-service
     pullPolicy: IfNotPresent
     tag: "" # defaults to latest if not set, or specific version
+  # Public hostname in web_asset_store.xml; defaults to the first ingress host.
+  serverName: ""
   service:
     port: 80
   resources: {}
+  # S3-backed attachments (specify-asset-service:s3-commands). When enabled, the
+  # attachments PVC is not used; objects live under originals/ and thumbnails/.
+  s3:
+    enabled: false
+    bucket: ""
+    prefix: attachments
+  # Specify collection names mapped to the shared S3 prefix above.
+  collections: []
 
 # Report Runner Configuration
 reportRunner:

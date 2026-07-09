@@ -37,6 +37,10 @@ from typing import Any
 
 from django.db import close_old_connections, transaction
 
+from flows.lib.musit_field_number_map import (
+    coerce_musit_identifier_num,
+    resolve_field_number_from_legnr_rows,
+)
 from flows.lib.musit_taxon_match import (
     binomial_prefix_from_valid_classterm as _binomial_prefix_from_valid_classterm,
     taxon_matches_valid_classterm as _taxon_matches_valid_classterm,
@@ -93,6 +97,8 @@ class DatasetLoadStats:
     taxon_unresolved: int = 0
     agent_matched: int = 0
     agent_unresolved: int = 0
+    attachments_created: int = 0
+    attachments_failed: int = 0
     errors: list[str] = field(default_factory=list)
     elapsed_s: float = 0.0
     estimate_total_s: float | None = None
@@ -148,11 +154,6 @@ _SPECIMEN_SQL = """
       oa.artsobs_nr,
       mon.object_notes,
       en.event_notes,
-      (SELECT MIN(mlp.legnr)
-         FROM {schema}.museum_object_legnr_person mlp
-        WHERE mlp.object_id = voa.object_id
-          AND mlp.legnr IS NOT NULL
-      ) AS legnr,
       (SELECT MIN(tye.type_status)
          FROM {schema}.event_museum_object emo2
          JOIN {schema}.typification_event tye
@@ -323,20 +324,27 @@ def _resolve_taxon(
     latin_name: str | None,
     taxontreedef_id: int,
 ) -> Any:
-    """Look up an existing Specify ``Taxon`` row by NorTaxa id only."""
+    """Look up an existing Specify ``Taxon`` row by NorTaxa scientific name id."""
     from specifyweb.specify.models import Taxon
 
-    if adb_taxon_id is not None:
+    taxon_fields = ("id", "name", "author", "source", "fullname", "taxonomicserialnumber")
+    for raw_id in (adb_taxon_id, adb_latin_name_id):
+        if raw_id is None:
+            continue
         try:
-            adb_taxon_str = str(int(adb_taxon_id))
-            t = Taxon.objects.filter(
-                taxonomicserialnumber=adb_taxon_str,
-                definition_id=taxontreedef_id,
-            ).first()
-            if t is not None:
-                return t
+            serial = str(int(raw_id))
         except (TypeError, ValueError):
-            pass
+            continue
+        t = (
+            Taxon.objects.filter(
+                taxonomicserialnumber=serial,
+                definition_id=taxontreedef_id,
+            )
+            .only(*taxon_fields)
+            .first()
+        )
+        if t is not None:
+            return t
 
     return None
 
@@ -348,10 +356,15 @@ def _find_taxon_by_valid_classterm(
 ) -> tuple[Any, list[dict[str, Any]]]:
     """Fallback match on ``valid_classterm`` against Specify ``Taxon`` rows.
 
-    1. Case-insensitive exact match on ``Taxon.name``.
-    2. When that fails and the probe looks like a name with authorship, match the
-       leading binomial (genus + epithet) and require ``_taxon_matches_valid_classterm``.
+    NorTaxa-managed trees store rank-local epithets in ``Taxon.name`` and binomials
+    in ``fullname`` (via ``set_fullnames``), so both fields are searched.
+
+    1. Case-insensitive exact match on ``Taxon.name`` or ``Taxon.fullname``.
+    2. When the probe looks like a name with authorship, match the leading binomial
+       against ``name`` or ``fullname`` and require ``_taxon_matches_valid_classterm``.
     """
+    from django.db.models import Q
+
     from specifyweb.specify.models import Taxon
 
     probe = " ".join((valid_classterm or "").strip().split())
@@ -366,6 +379,7 @@ def _find_taxon_by_valid_classterm(
             "name": taxon.name,
             "author": getattr(taxon, "author", None),
             "source": getattr(taxon, "source", None),
+            "fullname": getattr(taxon, "fullname", None),
             "probe": probe,
             "match_mode": match_mode,
         }
@@ -380,27 +394,48 @@ def _find_taxon_by_valid_classterm(
             return matches[0], rows
         return None, rows
 
-    exact = list(
-        Taxon.objects.filter(
-            definition_id=taxontreedef_id,
-            name__iexact=probe,
-        ).only(*taxon_fields)
-    )
-    if len(exact) == 1:
-        return exact[0], [_row_dict(exact[0], match_mode="name_iexact")]
-    if len(exact) > 1:
-        guarded = [t for t in exact if _taxon_matches_valid_classterm(t, valid_classterm)]
-        found, rows = _single_or_none(guarded, match_mode="name_iexact+guardrail")
+    def _query_field(field: str, value: str) -> list[Any]:
+        return list(
+            Taxon.objects.filter(
+                definition_id=taxontreedef_id,
+                **{f"{field}__iexact": value},
+            ).only(*taxon_fields)
+        )
+
+    def _try_exact(*, match_mode: str) -> tuple[Any, list[dict[str, Any]]] | None:
+        by_name = _query_field("name", probe)
+        if len(by_name) == 1:
+            return by_name[0], [_row_dict(by_name[0], match_mode=f"{match_mode}:name")]
+        by_fullname = _query_field("fullname", probe)
+        if len(by_fullname) == 1:
+            return by_fullname[0], [_row_dict(by_fullname[0], match_mode=f"{match_mode}:fullname")]
+        combined = list(
+            Taxon.objects.filter(
+                definition_id=taxontreedef_id,
+            )
+            .filter(Q(name__iexact=probe) | Q(fullname__iexact=probe))
+            .only(*taxon_fields)
+        )
+        guarded = [t for t in combined if _taxon_matches_valid_classterm(t, valid_classterm)]
+        found, rows = _single_or_none(guarded, match_mode=f"{match_mode}+guardrail")
         if found is not None or guarded:
             return found, rows
+        if combined:
+            return None, [_row_dict(t, match_mode=match_mode) for t in combined]
+        return None
+
+    exact_hit = _try_exact(match_mode="exact_iexact")
+    if exact_hit is not None:
+        return exact_hit
 
     binomial = _binomial_prefix_from_valid_classterm(probe)
     if binomial:
         binomial_hits = list(
             Taxon.objects.filter(
                 definition_id=taxontreedef_id,
-                name__iexact=binomial,
-            ).only(*taxon_fields)
+            )
+            .filter(Q(name__iexact=binomial) | Q(fullname__iexact=binomial))
+            .only(*taxon_fields)
         )
         guarded = [t for t in binomial_hits if _taxon_matches_valid_classterm(t, valid_classterm)]
         found, rows = _single_or_none(guarded, match_mode="binomial+guardrail")
@@ -409,8 +444,6 @@ def _find_taxon_by_valid_classterm(
         if guarded or binomial_hits:
             return None, rows
 
-    if exact:
-        return None, [_row_dict(t, match_mode="name_iexact") for t in exact]
     return None, []
 
 
@@ -574,18 +607,20 @@ def _resolve_or_create_taxon(
         taxontreedef_id=taxontreedef_id,
     )
     if existing is not None:
-        if _taxon_matches_valid_classterm(existing, valid_classterm):
-            return existing, created_nodes
-        created_nodes.append(
-            {
-                "mismatch_reason": "id_match_conflicts_with_valid_classterm",
-                "resolved_taxon_id": int(existing.id),
-                "resolved_taxon_name": getattr(existing, "name", None),
-                "valid_classterm": valid_classterm,
-                "object_id": object_id,
-                "catalog": catalog_number,
-            }
-        )
+        # ``taxonomicserialnumber`` (= Oracle ``ADB_TAXON_ID``) is authoritative.
+        if not _taxon_matches_valid_classterm(existing, valid_classterm):
+            created_nodes.append(
+                {
+                    "mismatch_reason": "id_match_conflicts_with_valid_classterm",
+                    "resolved_taxon_id": int(existing.id),
+                    "resolved_taxon_name": getattr(existing, "name", None),
+                    "resolved_taxon_fullname": getattr(existing, "fullname", None),
+                    "valid_classterm": valid_classterm,
+                    "object_id": object_id,
+                    "catalog": catalog_number,
+                }
+            )
+        return existing, created_nodes
 
     fallback, candidate_scores = _find_taxon_by_valid_classterm(
         taxontreedef_id=taxontreedef_id,
@@ -973,10 +1008,11 @@ def _get_or_create_locality(
     from flows.lib.migration_oracle_placemap import upsert_placemap_row
     from flows.lib.oracle_geography_load import (
         _deepest_geography_for_place,
-        _fetch_first_coordinate,
+        _fetch_coordinate_bundle,
         _fetch_place_text,
         _place_locality_guid,
         locality_spatial_kwargs_from_musit_koordinate,
+        save_musit_locality_detail,
     )
 
     if oracle_cursor is None:
@@ -1007,7 +1043,7 @@ def _get_or_create_locality(
 
     # Need to create a new Locality.
     agg, loc_text = _fetch_place_text(oracle_cursor, owner, place_id)
-    coord = _fetch_first_coordinate(oracle_cursor, owner, place_id)
+    coord = _fetch_coordinate_bundle(oracle_cursor, owner, place_id)
 
     # Rebuild geo rank map (lightweight — only the set already in memory).
     owner_lower = owner.lower()
@@ -1064,7 +1100,11 @@ def _get_or_create_locality(
             "srclatlongunit": 0,
             "guid": guid,
         }
-        loc_kwargs.update(locality_spatial_kwargs_from_musit_koordinate(coord))
+        loc_kwargs.update(
+            locality_spatial_kwargs_from_musit_koordinate(
+                coord, owner=owner, place_id=place_id
+            )
+        )
         if verbatim:
             loc_kwargs["text1"] = verbatim
         if biogeo_region:
@@ -1072,6 +1112,7 @@ def _get_or_create_locality(
 
         loc = Locality(**loc_kwargs)
         loc.save()
+        save_musit_locality_detail(loc, coord)
         lid = int(loc.id)
         locality_cache[cache_key] = lid
         stats.locality_created += 1
@@ -1105,24 +1146,145 @@ def _group_rows_by_object_id(rows: list[dict]) -> dict[int, list[dict]]:
     return out
 
 
-def _fetch_media_rows_for_group(oracle_cursor: Any, media_group_id: int) -> list[dict[str, Any]]:
-    """Return URL-addressable media rows for one ``MEDIAGRUPPE_ENHETS_ID``.
+# MUSIT ``MEDIAGRUPPE_RELASJON`` id for "Avbilder" (depicts) links on museum objects.
+_MUSIT_RELASJON_AVBILDER = 1
 
-    URL-only mode: we do not migrate binary files, only links.
-    """
+_museum_object_tabell_id_cache: dict[str, int] = {}
+
+
+def _resolve_museum_object_tabell_id(oracle_cursor: Any, oracle_schema: str) -> int:
+    """``USD_METADATA.SKJEMA__TABELL.TABELL_ID`` for ``MUSEUM_OBJECT`` in *oracle_schema*."""
+    key = oracle_schema.upper()
+    cached = _museum_object_tabell_id_cache.get(key)
+    if cached is not None:
+        return cached
     oracle_cursor.execute(
         """
-        SELECT mf.MEDIAFIL_ID, mf.OPPRINNELIG_FILNAVN, mf.ID_I_SAMLING, mf.TITTEL, mf.FORMAT, mf.MEDIA_TYPE
+        SELECT st.TABELL_ID
+          FROM USD_METADATA.SKJEMA__TABELL st
+         WHERE st.NAVN = 'MUSEUM_OBJECT'
+           AND UPPER(st.SKJEMA) = :schema
+        """,
+        {"schema": key},
+    )
+    row = oracle_cursor.fetchone()
+    if row is None:
+        raise RuntimeError(
+            f"MUSEUM_OBJECT TABELL_ID not found in USD_METADATA.SKJEMA__TABELL "
+            f"for schema {oracle_schema!r}"
+        )
+    tabell_id = int(row[0])
+    _museum_object_tabell_id_cache[key] = tabell_id
+    return tabell_id
+
+
+def _fetch_avbilder_media_groups_for_objects(
+    oracle_cursor: Any,
+    *,
+    museum_object_tabell_id: int,
+    object_ids: list[int],
+) -> dict[int, list[int]]:
+    """Batch-load all ``Avbilder`` media-group ids linked via ``MEDIAGRUPPE_EKSTERNTOBJEKT``."""
+    if not object_ids:
+        return {}
+    out: dict[int, list[int]] = {}
+    for chunk_start in range(0, len(object_ids), _SPECIMEN_BATCH):
+        chunk = object_ids[chunk_start : chunk_start + _SPECIMEN_BATCH]
+        placeholders = ", ".join(f":oid{i}" for i in range(len(chunk)))
+        binds: dict[str, Any] = {
+            f"oid{i}": oid for i, oid in enumerate(chunk)
+        }
+        binds["tid"] = int(museum_object_tabell_id)
+        binds["rel"] = _MUSIT_RELASJON_AVBILDER
+        oracle_cursor.execute(
+            f"""
+            SELECT meo.RAD_ID_BESKRIVELSE, meo.MEDIAGRUPPE_ENHETS_ID
+              FROM USD_FELLES.MEDIAGRUPPE_EKSTERNTOBJEKT meo
+             WHERE meo.TABELL_ID_BESKRIVELSE = :tid
+               AND meo.RELASJONS_TYPE = :rel
+               AND meo.RAD_ID_BESKRIVELSE IN ({placeholders})
+             ORDER BY meo.RAD_ID_BESKRIVELSE, meo.MEDIAGRUPPE_ENHETS_ID
+            """,
+            binds,
+        )
+        for rad_id, mgid in oracle_cursor.fetchall():
+            oid = int(rad_id)
+            gid = int(mgid)
+            out.setdefault(oid, []).append(gid)
+    return out
+
+
+def _media_group_ids_for_object(
+    *,
+    object_id: int,
+    primary_group_id: Any,
+    avbilder_by_object: dict[int, list[int]],
+) -> list[int]:
+    """Ordered media-group ids for one specimen (primary column first, then other Avbilder links)."""
+    groups = list(avbilder_by_object.get(object_id, []))
+    if primary_group_id is None:
+        return groups
+    primary = int(primary_group_id)
+    if primary not in groups:
+        return [primary, *groups]
+    if groups and groups[0] == primary:
+        return groups
+    return [primary, *(g for g in groups if g != primary)]
+
+
+def _fetch_musit_media_bundle(oracle_cursor: Any, media_group_id: int) -> dict[str, Any]:
+    """Load ``MEDIAGRUPPE_ENHET``, ``MEDIA_FIL``, and person/role metadata for one group."""
+    gid = int(media_group_id)
+    bundle: dict[str, Any] = {"group": {}, "files": [], "people": [], "process_end_date": None}
+
+    oracle_cursor.execute(
+        """
+        SELECT mge.TITTEL,
+               mge.FILMNR_NEGATIVNR,
+               mge.MEDIAGRUPPE_UUID,
+               mge.FREMVISNINGS_MEDIAFIL_ID,
+               mge.SIDENR
+          FROM USD_FELLES.MEDIAGRUPPE_ENHET mge
+         WHERE mge.MEDIAGRUPPE_ENHETS_ID = :gid
+        """,
+        {"gid": gid},
+    )
+    g_row = oracle_cursor.fetchone()
+    if g_row is not None:
+        bundle["group"] = {
+            "tittel": g_row[0],
+            "filmnr_negativnr": g_row[1],
+            "mediagruppe_uuid": g_row[2],
+            "fremvisnings_mediafil_id": g_row[3],
+            "sidenr": g_row[4],
+        }
+
+    oracle_cursor.execute(
+        """
+        SELECT mf.MEDIAFIL_ID,
+               mf.OPPRINNELIG_FILNAVN,
+               mf.ID_I_SAMLING,
+               mf.TITTEL,
+               mf.FORMAT,
+               mf.MEDIA_TYPE,
+               mf.ORIGINAL_KILDEHENVISNING,
+               mf.KLAUSUL,
+               mf.FIL_STORRELSE,
+               mf.SIDENUMMER,
+               mf.MEDIA_VERSJONSTYPE_ID,
+               mvt.DISPLAY_NAVN,
+               mvt.NAVN
           FROM USD_FELLES.MEDIA_FIL mf
+          LEFT JOIN USD_FELLES.MEDIA_VERSJONSTYPE mvt
+            ON mvt.ID = mf.MEDIA_VERSJONSTYPE_ID
          WHERE mf.MEDIAGRUPPE_ENHETS_ID = :gid
            AND (mf.MEDIA_TYPE = '1' OR mf.MEDIA_TYPE IS NULL)
          ORDER BY mf.MEDIAFIL_ID
         """,
-        {"gid": int(media_group_id)},
+        {"gid": gid},
     )
-    out: list[dict[str, Any]] = []
     for r in oracle_cursor.fetchall():
-        out.append(
+        bundle["files"].append(
             {
                 "mediafil_id": r[0],
                 "opprinnelig_filnavn": r[1],
@@ -1130,66 +1292,325 @@ def _fetch_media_rows_for_group(oracle_cursor: Any, media_group_id: int) -> list
                 "tittel": r[3],
                 "format": r[4],
                 "media_type": r[5],
+                "original_kildehenvisning": r[6],
+                "klausul": r[7],
+                "fil_storrelse": r[8],
+                "sidenummer": r[9],
+                "media_versjonstype_id": r[10],
+                "versjon_display_navn": r[11],
+                "versjon_navn": r[12],
             }
         )
-    return out
+
+    oracle_cursor.execute(
+        """
+        SELECT p.NAVN,
+               pr.NAVN,
+               mp.DATO,
+               mp.PERIODE,
+               mp.KOMMENTAR
+          FROM USD_FELLES.MEDIAGRUPPE_PERSON mp
+          JOIN USD_FELLES.PERSON p ON p.PERSON_ID = mp.PERSON_ID
+          JOIN USD_FELLES.PERSONROLLE pr ON pr.PERSONROLLE_ID = mp.PERSONROLLE_ID
+         WHERE mp.MEDIAGRUPPE_ENHETS_ID = :gid
+         ORDER BY mp.SORTERING NULLS LAST, mp.PERSONROLLE_ID
+        """,
+        {"gid": gid},
+    )
+    for r in oracle_cursor.fetchall():
+        bundle["people"].append(
+            {
+                "navn": r[0],
+                "rolle": r[1],
+                "dato": r[2],
+                "periode": r[3],
+                "kommentar": r[4],
+            }
+        )
+
+    try:
+        oracle_cursor.execute(
+            """
+            SELECT MAX(pt.PROCESS_END_DATE)
+              FROM USD_FELLES.PROCESS_TABLE pt
+             WHERE pt.MEDIAGRUPPE_ENHETS_ID = :gid
+            """,
+            {"gid": gid},
+        )
+        proc_row = oracle_cursor.fetchone()
+        if proc_row is not None:
+            bundle["process_end_date"] = proc_row[0]
+    except Exception:  # noqa: BLE001
+        pass
+
+    return bundle
 
 
-def _unimus_media_url(*, media_group_id: int, mediafil_id: int | None = None) -> str:
-    if mediafil_id is not None:
-        return f"https://www.unimus.no/felles/bilder/web_hent_bilde.php?mediafil_id={int(mediafil_id)}&type=jpeg"
-    return f"https://www.unimus.no/felles/bilder/web_hent_bilde.php?id={int(media_group_id)}&type=jpeg"
+def _role_name_matches(role: str | None, *hints: str) -> bool:
+    if not role:
+        return False
+    lowered = role.strip().lower()
+    return any(h in lowered for h in hints)
 
 
-def _attach_media_urls_to_collection_object(
+def _pick_primary_media_row(
+    rows: list[dict[str, Any]],
+    *,
+    preferred_mediafil_id: int | None = None,
+) -> dict[str, Any]:
+    """Choose the canonical ``MEDIA_FIL`` row for upload and metadata."""
+    if preferred_mediafil_id is not None:
+        for r in rows:
+            if r.get("mediafil_id") is not None and int(r["mediafil_id"]) == int(preferred_mediafil_id):
+                return r
+    for r in rows:
+        orig = (r.get("opprinnelig_filnavn") or "").strip().lower()
+        if orig.endswith((".tif", ".tiff")):
+            return r
+    return rows[0]
+
+
+def _musit_media_attachment_fields(
+    *,
+    bundle: dict[str, Any],
+    upload_row: dict[str, Any],
+    metadata_row: dict[str, Any] | None = None,
+    media_group_id: int,
+    uploaded_bytes: int,
+    object_withheld: Any,
+) -> dict[str, Any]:
+    """Map MUSIT media metadata to Specify ``Attachment`` field values."""
+    group = bundle.get("group") or {}
+    people: list[dict[str, Any]] = bundle.get("people") or []
+    files: list[dict[str, Any]] = bundle.get("files") or []
+    meta_row = metadata_row or upload_row
+
+    orig = (
+        (upload_row.get("opprinnelig_filnavn") or "").strip()
+        or (upload_row.get("id_i_samling") or "").strip()
+        or f"mediagruppe_{media_group_id}.tif"
+    )
+    title = (
+        (meta_row.get("tittel") or "").strip()
+        or (group.get("tittel") or "").strip()
+        or (group.get("filmnr_negativnr") or "").strip()
+        or (upload_row.get("tittel") or "").strip()
+        or orig
+    )
+
+    credit: str | None = None
+    copyrightholder: str | None = None
+    dateimaged: str | None = None
+    copyrightdate: str | None = None
+    person_remarks: list[str] = []
+
+    for person in people:
+        name = (person.get("navn") or "").strip()
+        role = (person.get("rolle") or "").strip()
+        if not name and not role:
+            continue
+        label = f"{role}: {name}".strip(": ").strip()
+        if label:
+            person_remarks.append(label)
+        if name and _role_name_matches(role, "fotograf", "photo", "foto", "skaper", "creator"):
+            credit = credit or name
+            dateimaged = dateimaged or _short_date(person.get("dato")) or _trunc(person.get("periode"), 64)
+        if name and _role_name_matches(role, "opphav", "copyright", "rettighet", "holder"):
+            copyrightholder = copyrightholder or name
+            copyrightdate = copyrightdate or _short_date(person.get("dato")) or _trunc(person.get("periode"), 64)
+        kommentar = (person.get("kommentar") or "").strip()
+        if kommentar:
+            person_remarks.append(f"{role or 'person'} comment: {kommentar}")
+
+    kilde = (meta_row.get("original_kildehenvisning") or "").strip()
+    if kilde and not credit:
+        credit = kilde
+
+    klausul = (meta_row.get("klausul") or "").strip()
+    license_val = _trunc(klausul, 64) if klausul and len(klausul) <= 64 else None
+
+    metadatatext = _trunc(kilde, 256) if kilde and credit != kilde else None
+
+    subtype = (
+        (meta_row.get("versjon_display_navn") or "").strip()
+        or (meta_row.get("versjon_navn") or "").strip()
+        or None
+    )
+
+    filecreateddate: datetime | None = None
+    proc_end = bundle.get("process_end_date")
+    if isinstance(proc_end, datetime):
+        filecreateddate = proc_end
+    elif proc_end is not None:
+        d = _coerce_date(proc_end)
+        if d is not None:
+            filecreateddate = datetime.combine(d, dtime.min)
+
+    withheld = _musit_bool(object_withheld)
+    ispublic = False if withheld is True else True
+
+    mediafil_ids = ",".join(str(x.get("mediafil_id")) for x in files if x.get("mediafil_id") is not None)
+    remark_parts = [
+        f"MUSIT media_group_id={int(media_group_id)}",
+        f"mediafil_ids={mediafil_ids}",
+        f"bytes={int(uploaded_bytes)}",
+    ]
+    mg_uuid = (group.get("mediagruppe_uuid") or "").strip()
+    if mg_uuid:
+        remark_parts.append(f"mediagruppe_uuid={mg_uuid}")
+    fremvis = group.get("fremvisnings_mediafil_id")
+    if fremvis is not None:
+        remark_parts.append(f"fremvisnings_mediafil_id={int(fremvis)}")
+    fil_size = upload_row.get("fil_storrelse") or meta_row.get("fil_storrelse")
+    if fil_size is not None:
+        remark_parts.append(f"fil_storrelse={int(fil_size)}")
+    sidenummer = meta_row.get("sidenummer")
+    if sidenummer is not None:
+        remark_parts.append(f"sidenummer={sidenummer}")
+    sidenr = group.get("sidenr")
+    if sidenr is not None:
+        remark_parts.append(f"sidenr={sidenr}")
+    if klausul and license_val is None:
+        remark_parts.append(f"klausul={klausul}")
+    if person_remarks:
+        remark_parts.append("people=" + "; ".join(person_remarks))
+
+    return {
+        "origfilename": orig,
+        "title": _trunc(title, 255) or orig[:255],
+        "credit": _trunc(credit, 64),
+        "copyrightholder": _trunc(copyrightholder, 64),
+        "copyrightdate": copyrightdate,
+        "dateimaged": dateimaged,
+        "license": license_val,
+        "metadatatext": metadatatext,
+        "subtype": _trunc(subtype, 64),
+        "guid": _trunc(mg_uuid, 128),
+        "filecreateddate": filecreateddate,
+        "ispublic": ispublic,
+        "remarks": _trunc("; ".join(remark_parts), 4000),
+    }
+
+
+_asset_server_warned = False
+
+
+def _attach_media_to_collection_object(
     *,
     oracle_cursor: Any,
     co: Any,
     media_group_id: int | None,
+    collection_name: str,
+    object_withheld: Any = None,
+    ordinal: int = 1,
+    dry_run: bool = False,
+    stats: DatasetLoadStats | None = None,
 ) -> int:
-    """Create one Attachment + CollectionObjectAttachment per media row."""
+    """Download the Unimus original and store it on the Specify asset server."""
+    global _asset_server_warned
+
     if media_group_id is None:
         return 0
 
     from specifyweb.specify.models import Attachment, Collectionobjectattachment
 
-    rows = _fetch_media_rows_for_group(oracle_cursor, int(media_group_id))
+    bundle = _fetch_musit_media_bundle(oracle_cursor, int(media_group_id))
+    rows = bundle.get("files") or []
     if not rows:
         return 0
 
-    table_id = int(getattr(getattr(co, "specify_model", None), "tableId", 1) or 1)
-    created = 0
-    for idx, r in enumerate(rows, start=1):
-        mfid = r.get("mediafil_id")
-        url = _unimus_media_url(media_group_id=int(media_group_id), mediafil_id=int(mfid) if mfid is not None else None)
-        orig = (
-            (r.get("opprinnelig_filnavn") or "").strip()
-            or (r.get("id_i_samling") or "").strip()
-            or f"mediafil_{mfid or idx}.jpg"
-        )
-        guessed, _ = mimetypes.guess_type(orig)
-        fmt = (r.get("format") or "").strip().lower()
-        mime = guessed or ("image/tiff" if fmt in {"tif", "tiff"} else "image/jpeg")
-        title = ((r.get("tittel") or "").strip() or orig)[:255]
+    if dry_run:
+        return 1
 
-        att = Attachment(
-            attachmentlocation=url[:128],
-            origfilename=orig,
-            title=title,
-            mimetype=mime,
-            tableid=table_id,
-            ispublic=True,
-            remarks=f"MUSIT media_group_id={int(media_group_id)} mediafil_id={mfid}",
+    group = bundle.get("group") or {}
+    upload_row = _pick_primary_media_row(rows)
+    fremvis = group.get("fremvisnings_mediafil_id")
+    metadata_row = (
+        _pick_primary_media_row(rows, preferred_mediafil_id=int(fremvis))
+        if fremvis is not None
+        else upload_row
+    )
+
+    table_id = int(getattr(getattr(co, "specify_model", None), "tableId", 1) or 1)
+    orig = (
+        (upload_row.get("opprinnelig_filnavn") or "").strip()
+        or (upload_row.get("id_i_samling") or "").strip()
+        or f"mediagruppe_{media_group_id}.tif"
+    )
+    guessed, _ = mimetypes.guess_type(orig)
+    fmt = (upload_row.get("format") or "").strip().lower()
+    mime = guessed or ("image/tiff" if fmt in {"tif", "tiff"} else "image/jpeg")
+
+    from flows.lib.asset_server_upload import (
+        AssetServerNotConfigured,
+        asset_server_collection_name,
+        migrate_unimus_original_to_asset_server,
+    )
+
+    coll = asset_server_collection_name(fallback_collection_name=collection_name)
+    try:
+        uploaded = migrate_unimus_original_to_asset_server(
+            media_group_id=int(media_group_id),
+            orig_filename=orig,
+            mime_type=mime,
+            collection_name=coll,
         )
-        att.save()
-        Collectionobjectattachment.objects.create(
-            attachment=att,
-            collectionobject=co,
-            collectionmemberid=int(co.collectionmemberid),
-            ordinal=idx,
-        )
-        created += 1
-    return created
+    except AssetServerNotConfigured as exc:
+        if not _asset_server_warned:
+            _log("warning", "Asset server not configured; skipping media upload: %s", exc)
+            _asset_server_warned = True
+        if stats is not None:
+            stats.attachments_failed += 1
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        if stats is not None:
+            stats.attachments_failed += 1
+        raise
+
+    meta = _musit_media_attachment_fields(
+        bundle=bundle,
+        upload_row=upload_row,
+        metadata_row=metadata_row,
+        media_group_id=int(media_group_id),
+        uploaded_bytes=int(uploaded["bytes"]),
+        object_withheld=object_withheld,
+    )
+
+    att_kwargs: dict[str, Any] = {
+        "attachmentlocation": uploaded["attachmentlocation"][:128],
+        "origfilename": meta["origfilename"],
+        "title": meta["title"],
+        "mimetype": uploaded["mime_type"],
+        "tableid": table_id,
+        "ispublic": meta["ispublic"],
+        "remarks": meta["remarks"],
+    }
+    for optional in (
+        "credit",
+        "copyrightholder",
+        "copyrightdate",
+        "dateimaged",
+        "license",
+        "metadatatext",
+        "subtype",
+        "guid",
+        "filecreateddate",
+    ):
+        val = meta.get(optional)
+        if val is not None:
+            att_kwargs[optional] = val
+
+    att = Attachment(**att_kwargs)
+    att.save()
+    Collectionobjectattachment.objects.create(
+        attachment=att,
+        collectionobject=co,
+        collectionmemberid=int(co.collectionmemberid),
+        ordinal=int(ordinal),
+    )
+    if stats is not None:
+        stats.attachments_created += 1
+    return 1
 
 
 def _coerce_date(val: Any) -> date | None:
@@ -1310,6 +1731,34 @@ def _collecting_event_candidates(rows: list[dict]) -> list[dict[str, Any]]:
     return out
 
 
+def _fetch_legnr_rows(
+    oracle_cursor: Any,
+    schema: str,
+    object_id: int,
+) -> list[dict[str, Any]]:
+    """Return ``MUSEUM_OBJECT_LEGNR_PERSON`` rows for one object."""
+    sch = str(schema).strip().upper()
+    oracle_cursor.execute(
+        f"""
+        SELECT mlp.actor_id, mlp.legnr
+          FROM {sch}.museum_object_legnr_person mlp
+         WHERE mlp.object_id = :oid
+           AND mlp.legnr IS NOT NULL
+         ORDER BY mlp.object_legnr_person_id
+        """,
+        {"oid": int(object_id)},
+    )
+    rows: list[dict[str, Any]] = []
+    for actor_id, legnr in oracle_cursor.fetchall():
+        if legnr is None:
+            continue
+        text = str(legnr).strip()
+        if not text:
+            continue
+        rows.append({"actor_id": int(actor_id) if actor_id is not None else None, "legnr": text})
+    return rows
+
+
 def _fetch_collector_actor_ids_for_event(
     oracle_cursor: Any,
     schema: str,
@@ -1415,6 +1864,7 @@ def _write_one_object(
     dry_run: bool,
     locality_cache: dict[tuple[int, int], int],
     stats: DatasetLoadStats,
+    avbilder_by_object: dict[int, list[int]] | None = None,
 ) -> None:
     """Write one CollectionObject + CollectingEvent + Determination(s) for ``object_id``.
 
@@ -1431,12 +1881,27 @@ def _write_one_object(
     obj_row = _object_scalar_row(rows)
     collecting_row = _select_primary_collecting_row(rows)
     owner = config.oracle_schema
+    collecting_event_id = collecting_row.get("event_id") if collecting_row else None
+    primary_collector_actor_id: int | None = None
+    if collecting_event_id is not None:
+        collector_actor_ids = _fetch_collector_actor_ids_for_event(
+            oracle_cursor, owner, int(collecting_event_id)
+        )
+        if collector_actor_ids:
+            primary_collector_actor_id = collector_actor_ids[0]
+
+    legnr_rows = _fetch_legnr_rows(oracle_cursor, owner, object_id)
+    field_number, legnr_resolution = resolve_field_number_from_legnr_rows(
+        legnr_rows,
+        primary_actor_id=primary_collector_actor_id,
+    )
+    musit_object_number = coerce_musit_identifier_num(obj_row.get("identifier_num"))
 
     # ---- Unmapped payload for JSON archival ----
     unmapped: dict[str, Any] = {}
     for key in (
-        "long_name", "identifier_num", "parent_object_id", "mediagruppe_enhets_id",
-        "is_reg", "is_approved", "is_corrected", "object_withheld", "object_state",
+        "long_name", "parent_object_id", "mediagruppe_enhets_id",
+        "is_reg", "is_approved", "is_corrected", "object_state",
         "reg_user", "korr_user", "approve_user", "dataset", "project_name",
         "same_sheet_as", "dublettes", "analysis_request",
     ):
@@ -1516,6 +1981,14 @@ def _write_one_object(
                 "dataset": config.dataset_label,
             },
             "unmapped": unmapped,
+            "field_number": {
+                "musit_identifier_num": musit_object_number,
+                "specify_integer1": musit_object_number,
+                "specify_fieldnumber": field_number,
+                "legnr_rows": legnr_rows,
+                "legnr_resolution": legnr_resolution,
+                "primary_collector_actor_id": primary_collector_actor_id,
+            },
             "collecting_event_candidates": _collecting_event_candidates(rows),
             "locality_candidates": locality_candidates,
             "selected_locality_source": selected_source,
@@ -1574,7 +2047,6 @@ def _write_one_object(
             _trunc(collecting_row.get("agg_personnames"), 255) if collecting_row else None
         )
         event_notes = collecting_row.get("event_notes") if collecting_row else None
-        collecting_event_id = collecting_row.get("event_id") if collecting_row else None
 
         ce_guid = (
             f"urn:oracle:{owner.lower()}:event:{collecting_event_id or object_id}"[:128]
@@ -1594,11 +2066,6 @@ def _write_one_object(
             ce_kwargs["verbatimdate"] = verbatim_date
         if verbatim_locality:
             ce_kwargs["verbatimlocality"] = verbatim_locality
-
-        # Collector number (MUSIT "Leg no") → stationFieldNumber.
-        legnr = _trunc(obj_row.get("legnr"), 50)
-        if legnr:
-            ce_kwargs["stationfieldnumber"] = legnr
 
         # Habitat / ecology (MUSIT ECOLOGY_PLACE) → text1.
         if habitat_text:
@@ -1626,6 +2093,12 @@ def _write_one_object(
                 )
             ]
             stats.determination_created += max(1, len(det_rows))
+            media_group_ids = _media_group_ids_for_object(
+                object_id=object_id,
+                primary_group_id=obj_row.get("mediagruppe_enhets_id"),
+                avbilder_by_object=avbilder_by_object or {},
+            )
+            stats.attachments_created += len(media_group_ids)
             return
 
         ce = Collectingevent(**ce_kwargs)
@@ -1707,15 +2180,17 @@ def _write_one_object(
             text6=_trunc(obj_row.get("same_sheet_as"), 255), # Same sheet as
             text7=_trunc(obj_row.get("analysis_request"), 255), # Analysis request
             text8=admin_text,                                # Administrative (MUSIT) audit
-            fieldnumber=_trunc(obj_row.get("identifier_num"), 50),
+            fieldnumber=_trunc(field_number, 50),
+            integer1=musit_object_number,
             altcatalognumber=_trunc(obj_row.get("artsobs_nr"), 32),
             countamt=obj_row.get("number_of_sheets"),
         )
 
-        # MUSIT registration workflow flags → yesNo1/2/3 (Registered / Corrected / Approved).
+        # MUSIT registration workflow flags → yesNo1/2/3/4 (Registered / Corrected / Approved / Withheld).
         co.yesno1 = _musit_bool(obj_row.get("is_reg"))
         co.yesno2 = _musit_bool(obj_row.get("is_corrected"))
         co.yesno3 = _musit_bool(obj_row.get("is_approved"))
+        co.yesno4 = _musit_bool(obj_row.get("object_withheld"))
 
         # Registration date → catalogedDate; approval date → date1.
         reg_date = _coerce_date(obj_row.get("reg_date"))
@@ -1727,24 +2202,36 @@ def _write_one_object(
             co.date1 = approved_date
             co.date1precision = 1
 
-        # Object withheld → visibility flag (1=private, 0=public)
-        withheld = obj_row.get("object_withheld")
-        if withheld is not None and str(withheld).strip().upper() in ("Y", "1", "TRUE"):
-            co.visibility = 1
         co.save()
         stats.co_created += 1
 
-        # 4b. URL-only image attachments from USD_FELLES MEDIA tables (all rows per group).
-        mgid_raw = obj_row.get("mediagruppe_enhets_id")
-        if mgid_raw is not None:
+        # 4b. Image attachments: all Avbilder media groups → asset server (one per group).
+        media_group_ids = _media_group_ids_for_object(
+            object_id=object_id,
+            primary_group_id=obj_row.get("mediagruppe_enhets_id"),
+            avbilder_by_object=avbilder_by_object or {},
+        )
+        for ordinal, mgid in enumerate(media_group_ids, start=1):
             try:
-                _attach_media_urls_to_collection_object(
+                _attach_media_to_collection_object(
                     oracle_cursor=oracle_cursor,
                     co=co,
-                    media_group_id=int(mgid_raw),
+                    media_group_id=int(mgid),
+                    collection_name=str(collection.collectionname),
+                    object_withheld=obj_row.get("object_withheld"),
+                    ordinal=ordinal,
+                    dry_run=False,
+                    stats=stats,
                 )
             except Exception as exc:  # noqa: BLE001
-                _log("warning", "object_id=%s: media URL attachment migration failed: %s", object_id, exc)
+                stats.attachments_failed += 1
+                _log(
+                    "warning",
+                    "object_id=%s mediagruppe_enhets_id=%s: media attachment migration failed: %s",
+                    object_id,
+                    mgid,
+                    exc,
+                )
 
         # 5. Determination(s) — deduplicate by best available source keys/text.
         seen_det_keys: set[tuple] = set()
@@ -2045,6 +2532,16 @@ def load_musit_dataset(
     total_oracle = _count_total_objects(oracle_cursor, config)
     _log("info", "load_musit_dataset | total Oracle objects for filter: %s", total_oracle)
 
+    museum_object_tabell_id = _resolve_museum_object_tabell_id(
+        oracle_cursor, config.oracle_schema
+    )
+    _log(
+        "info",
+        "load_musit_dataset | MUSEUM_OBJECT TABELL_ID=%s for schema %s",
+        museum_object_tabell_id,
+        config.oracle_schema,
+    )
+
     # In-memory locality cache: (discipline_id, place_id) → specify locality pk
     locality_cache: dict[tuple[int, int], int] = {}
     total_processed = 0
@@ -2066,8 +2563,14 @@ def load_musit_dataset(
         if ids_to_process:
             specimen_rows = _fetch_specimen_rows(oracle_cursor, config, ids_to_process)
             grouped = _group_rows_by_object_id(specimen_rows)
+            avbilder_by_object = _fetch_avbilder_media_groups_for_objects(
+                oracle_cursor,
+                museum_object_tabell_id=museum_object_tabell_id,
+                object_ids=ids_to_process,
+            )
         else:
             grouped = {}
+            avbilder_by_object = {}
 
         for oid in page_ids:
             if oid in already_done:
@@ -2091,6 +2594,7 @@ def load_musit_dataset(
                 dry_run=dry_run,
                 locality_cache=locality_cache,
                 stats=stats,
+                avbilder_by_object=avbilder_by_object,
             )
 
             total_processed += 1

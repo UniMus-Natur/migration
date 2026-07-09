@@ -11,7 +11,8 @@
 **Behaviour**
 
 - ``Taxon.name`` uses rank-local epithets from API ``NameString`` (not full binomial).
-- ``fullname`` is computed by Specify via ``set_fullnames`` after each merge batch.
+- ``fullname`` is computed by Specify via ``set_fullnames`` after each merge batch
+  (rank ``fullnameseparator`` must be set — default single space, matching Specify).
 - Accepted taxa are inserted first; synonym rows are linked via ``acceptedtaxon``.
 - Parent changes on re-run update ``Taxon.parent`` when the API parent id drifts.
 """
@@ -42,14 +43,40 @@ from flows.lib.nortaxa_api_client import (
 )
 
 NORTAXA_SOURCE = "NorTaxa"
+_DEFAULT_FULLNAME_SEPARATOR = " "
+
+
+def _fullnameseparator_for_level(level: dict[str, Any], *, default: str = _DEFAULT_FULLNAME_SEPARATOR) -> str:
+    raw = level.get("fullnameseparator")
+    if raw is None:
+        raw = level.get("fullNameSeparator")
+    if raw is None:
+        return default
+    return str(raw)
+
+
+def _rank_levels_by_name(levels: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    for lvl in levels:
+        key = (lvl.get("name") or "").strip().lower()
+        if key:
+            out[key] = lvl
+    return out
 
 
 def load_nortaxa_rank_levels() -> list[dict[str, Any]]:
     """Rank template covering NorTaxa export ``Rank`` / ``taxonRank`` values."""
     with _NORTAXA_RANK_CONFIG_PATH.open(encoding="utf-8") as fh:
         payload = json.load(fh)
+    default_sep = payload.get("defaultFullNameSeparator", _DEFAULT_FULLNAME_SEPARATOR)
     levels = payload.get("levels") or []
-    return sorted(levels, key=lambda x: int(x.get("rank", 0)))
+    normalized: list[dict[str, Any]] = []
+    for lvl in levels:
+        row = dict(lvl)
+        if "fullnameseparator" not in row and "fullNameSeparator" not in row:
+            row["fullnameseparator"] = default_sep
+        normalized.append(row)
+    return sorted(normalized, key=lambda x: int(x.get("rank", 0)))
 
 
 def ensure_taxon_tree_rank_items(treedef_id: int, *, dry_run: bool) -> dict[str, Any]:
@@ -59,7 +86,9 @@ def ensure_taxon_tree_rank_items(treedef_id: int, *, dry_run: bool) -> dict[str,
     out: dict[str, Any] = {
         "treedef_id": treedef_id,
         "created_rank_items": [],
+        "updated_rank_items": [],
         "would_create_rank_items": [],
+        "would_update_rank_items": [],
         "dry_run": dry_run,
     }
     levels = load_nortaxa_rank_levels()
@@ -67,38 +96,52 @@ def ensure_taxon_tree_rank_items(treedef_id: int, *, dry_run: bool) -> dict[str,
         out["error"] = "empty_rank_config"
         return out
 
+    by_name = _rank_levels_by_name(levels)
     existing_by_name: dict[str, Any] = {}
     for item in Taxontreedefitem.objects.filter(treedef_id=treedef_id):
         key = (item.name or "").strip().lower()
         if key:
             existing_by_name[key] = item
 
-    missing = [lvl for lvl in levels if (lvl.get("name") or "").strip().lower() not in existing_by_name]
-    if not missing:
-        _rechain_taxon_tree_rank_parents(treedef_id)
-        return out
-
-    if dry_run:
-        out["would_create_rank_items"] = [str(lvl.get("name") or "") for lvl in missing]
-        return out
-
-    for lvl in missing:
-        name = str(lvl.get("name") or "").strip()
-        if not name:
+    for key, item in existing_by_name.items():
+        lvl = by_name.get(key)
+        if lvl is None:
             continue
-        item = Taxontreedefitem.objects.create(
-            treedef_id=treedef_id,
-            rankid=int(lvl.get("rank", 0)),
-            name=name,
-            title=name,
-            isenforced=bool(lvl.get("enforced", True)),
-            isinfullname=bool(lvl.get("infullname", False)),
-            parent_id=None,
-        )
-        existing_by_name[name.lower()] = item
-        out["created_rank_items"].append(name)
+        desired_sep = _fullnameseparator_for_level(lvl)
+        current_sep = item.fullnameseparator
+        if current_sep != desired_sep and not (current_sep and str(current_sep).strip()):
+            if dry_run:
+                out["would_update_rank_items"].append(item.name)
+            else:
+                item.fullnameseparator = desired_sep
+                item.save(update_fields=["fullnameseparator", "version"])
+                out["updated_rank_items"].append(item.name)
 
-    _rechain_taxon_tree_rank_parents(treedef_id)
+    missing = [lvl for lvl in levels if (lvl.get("name") or "").strip().lower() not in existing_by_name]
+    if missing and dry_run:
+        out["would_create_rank_items"] = [str(lvl.get("name") or "") for lvl in missing]
+
+    if missing and not dry_run:
+        for lvl in missing:
+            name = str(lvl.get("name") or "").strip()
+            if not name:
+                continue
+            item = Taxontreedefitem.objects.create(
+                treedef_id=treedef_id,
+                rankid=int(lvl.get("rank", 0)),
+                name=name,
+                title=name,
+                isenforced=bool(lvl.get("enforced", True)),
+                isinfullname=bool(lvl.get("infullname", False)),
+                fullnameseparator=_fullnameseparator_for_level(lvl),
+                parent_id=None,
+            )
+            existing_by_name[name.lower()] = item
+            out["created_rank_items"].append(name)
+
+    if not dry_run:
+        _rechain_taxon_tree_rank_parents(treedef_id)
+
     if out["created_rank_items"]:
         logger.info(
             "Created %s taxon rank items on TaxonTreeDefID=%s: %s",
@@ -107,7 +150,22 @@ def ensure_taxon_tree_rank_items(treedef_id: int, *, dry_run: bool) -> dict[str,
             ", ".join(out["created_rank_items"][:8])
             + ("..." if len(out["created_rank_items"]) > 8 else ""),
         )
+    if out["updated_rank_items"]:
+        logger.info(
+            "Set fullnameseparator on %s rank item(s) for TaxonTreeDefID=%s",
+            len(out["updated_rank_items"]),
+            treedef_id,
+        )
     return out
+
+
+def ensure_taxon_treedef_defaults(treedef_id: int) -> None:
+    """Align ``TaxonTreeDef`` metadata with Specify default tree behaviour."""
+    from specifyweb.specify.models import Taxontreedef
+
+    Taxontreedef.objects.filter(pk=treedef_id, fullnamedirection__isnull=True).update(
+        fullnamedirection=1
+    )
 
 
 def _rechain_taxon_tree_rank_parents(treedef_id: int) -> None:
@@ -154,7 +212,11 @@ def ensure_discipline_taxon_tree(discipline_id: int, *, dry_run: bool) -> dict[s
             return out
         base = (disc.name or "discipline").strip() or "discipline"
         td_name = f"NorTaxa {base}"[:64]
-        td = Taxontreedef.objects.create(name=td_name, discipline_id=disc.id)
+        td = Taxontreedef.objects.create(
+            name=td_name,
+            discipline_id=disc.id,
+            fullnamedirection=1,
+        )
         Discipline.objects.filter(pk=disc.id).update(taxontreedef_id=td.id)
         out["created_treedef"] = True
         td_id = int(td.id)
@@ -162,6 +224,8 @@ def ensure_discipline_taxon_tree(discipline_id: int, *, dry_run: bool) -> dict[s
 
     assert td_id is not None
     out["treedef_id"] = td_id
+    if not dry_run:
+        ensure_taxon_treedef_defaults(td_id)
 
     rank0 = Taxontreedefitem.objects.filter(treedef_id=td_id, rankid=0).first()
     if rank0 is None:
@@ -174,9 +238,13 @@ def ensure_discipline_taxon_tree(discipline_id: int, *, dry_run: bool) -> dict[s
             rankid=0,
             name="Life",
             title="Life",
+            fullnameseparator=_DEFAULT_FULLNAME_SEPARATOR,
             parent_id=None,
         )
         out["created_rank_item"] = True
+    elif not dry_run and not (rank0.fullnameseparator or "").strip():
+        rank0.fullnameseparator = _DEFAULT_FULLNAME_SEPARATOR
+        rank0.save(update_fields=["fullnameseparator", "version"])
 
     root = Taxon.objects.filter(definition_id=td_id, parent_id__isnull=True).first()
     if root is None:

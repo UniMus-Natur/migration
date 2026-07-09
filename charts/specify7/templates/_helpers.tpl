@@ -96,7 +96,14 @@ Django CSRF_TRUSTED_ORIGINS: when ingress is enabled, always include https://<in
 Image for volume-permissions init containers (chown on shared PVCs).
 */}}
 {{- define "specify7.volumePermissionsImage" -}}
-{{- .Values.volumePermissions.image | default "docker.io/library/debian:bookworm-slim" }}
+{{- .Values.specifyVolumePermissions.image | default "docker.io/library/debian:bookworm-slim" }}
+{{- end -}}
+
+{{/*
+In-cluster Redis hostname (Bitnami sub-chart service).
+*/}}
+{{- define "specify7.redisHost" -}}
+{{- printf "%s-redis-master" .Release.Name }}
 {{- end -}}
 
 {{/*
@@ -104,4 +111,29 @@ Checksum annotation to roll pods when generated Specify settings change.
 */}}
 {{- define "specify7.configChecksumAnnotation" -}}
 checksum/config: {{ include (print $.Template.BasePath "/secret-config.yaml") . | sha256sum }}
+{{- end -}}
+
+{{/*
+Public hostname advertised by the asset server in web_asset_store.xml.
+*/}}
+{{- define "specify7.assetServerServerName" -}}
+{{- if .Values.assetServer.serverName -}}
+{{- .Values.assetServer.serverName -}}
+{{- else if and .Values.ingress.enabled .Values.ingress.hosts -}}
+{{- (index .Values.ingress.hosts 0).host -}}
+{{- else -}}
+{{- include "specify7.fullname" . }}-asset-server
+{{- end -}}
+{{- end -}}
+
+{{/*
+True when the asset server stores attachments in S3 instead of a PVC.
+Renders the string "true" or "false" for use with eq in templates.
+*/}}
+{{- define "specify7.assetServerS3Enabled" -}}
+{{- if and (not (eq .Values.assetServer.enabled false)) .Values.assetServer.s3.enabled .Values.assetServer.s3.bucket -}}
+true
+{{- else -}}
+false
+{{- end -}}
 {{- end -}}

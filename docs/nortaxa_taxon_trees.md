@@ -30,7 +30,7 @@ This page documents how **NorTaxa** (Artsdatabanken) taxonomy is loaded into Spe
 - **Source:** NorTaxa **REST API only** (no DwC zip). Bulk load uses `DataTransfer/Export`; ongoing updates use `TaxonName/ChangeLog`.
 - **Scope:** One **Specify `TaxonTreeDef` per `Discipline`**, not one global tree for the whole institution. Each discipline gets a curated **slice** of NorTaxa (union of subtree roots, optional subtract).
 - **Idempotency:** Re-running the flow updates existing NorTaxa-managed rows (matched by `taxonomicserialnumber`) instead of duplicating them.
-- **Naming:** Specify `Taxon.name` stores the **rank-local epithet** from NorTaxa `NameString` (e.g. `alba` for *Carex alba*). `fullname` is left null on insert and rebuilt by Specify’s `set_fullnames` after each batch.
+- **Naming:** Specify `Taxon.name` stores the **rank-local epithet** from NorTaxa `NameString` (e.g. `alba` for *Carex alba*). `fullname` is left null on insert and rebuilt by Specify’s `set_fullnames` after each batch. Rank items use **`fullnameseparator: " "`** (Specify default) so binomials render as `Genus epithet`, not `Genusepithet`. Author stays in `Taxon.author`, not in `fullname`.
 - **Synonyms:** Accepted taxa are inserted first; synonym rows are inserted then linked via `Taxon.acceptedtaxon` (Specify synonymy semantics).
 
 ---
@@ -155,7 +155,8 @@ For each discipline artifact:
 1. **`ensure_discipline_taxon_tree`**
    - Creates `TaxonTreeDef` and links `Discipline.TaxonTreeDefID` if missing.
    - Creates rank-0 **Life** `Taxontreedefitem` and root `Taxon` if missing.
-   - Creates all other ranks from [`nortaxa_taxon_tree_ranks.json`](../flows/lib/nortaxa_taxon_tree_ranks.json) (Kingdom … Forma) and chains `parent` links.
+   - Creates all other ranks from [`nortaxa_taxon_tree_ranks.json`](../flows/lib/nortaxa_taxon_tree_ranks.json) (Kingdom … Forma) with `fullnameseparator` = space and chains `parent` links.
+   - Backfills missing `fullnameseparator` on rank rows created before this fix.
 
 2. **`merge_nortaxa_tsv_into_discipline_tree`**
    - **Pass 1 — accepted:** insert missing taxa (parent order), refresh existing (`present_refreshed`), update parent/name/author/vernacular when API drifts.
@@ -334,6 +335,7 @@ Changelog summary: `events_seen`, `auto_applied`, `review_queued`, `review_items
 | Symptom | Likely cause | Action |
 |---------|--------------|--------|
 | `inserted=0`, high `skipped_unknown_rank` | Tree def has only Life rank | Ensure `ensure_taxon_tree_rank_items` ran; check `rank_items.created_rank_items` in bootstrap |
+| `fullname` like `Genusepithet` (no space) | Missing `fullnameseparator` on rank items | Re-run merge after deploy; bootstrap backfills separator and `set_fullnames` rebuilds |
 | `TransactionManagementError: select_for_update` | `Taxon.save()` outside transaction | Fixed in current code — redeploy worker image / flow code |
 | `dry_run_tree_bootstrap_needed` | New discipline, `dry_run=true` | Run once with `dry_run=false` to create tree |
 | `unmapped_discipline_name` | `Discipline.name` not in root specs | Add mapping or rename discipline in Specify |

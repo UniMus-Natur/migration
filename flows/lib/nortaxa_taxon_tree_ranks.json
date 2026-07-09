@@ -1,4 +1,5 @@
 {
+  "defaultFullNameSeparator": " ",
   "levels": [
     {"name": "Life", "enforced": true, "infullname": false, "rank": 0},
     {"name": "Kingdom", "enforced": true, "infullname": false, "rank": 10},

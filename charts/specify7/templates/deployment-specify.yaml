@@ -98,7 +98,11 @@ spec:
             - name: SPECIFY_CONFIG_DIR
               value: "/opt/specify7/config"
             - name: REDIS_HOST
-              value: {{ .Release.Name }}-redis-master
+              value: {{ include "specify7.redisHost" . | quote }}
+            - name: CELERY_BROKER_URL
+              value: {{ printf "redis://%s/0" (include "specify7.redisHost" .) | quote }}
+            - name: CELERY_RESULT_BACKEND
+              value: {{ printf "redis://%s/1" (include "specify7.redisHost" .) | quote }}
             - name: WEB_CONCURRENCY
               value: "4"
             - name: DATABASE_HOST

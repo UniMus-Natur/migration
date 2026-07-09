@@ -6,8 +6,8 @@ optionally clears the bridge-table tracking rows.
 
 What is deleted (in FK-safe order)
 -----------------------------------
-1. ``determination``               linked to the collection's objects
-2. ``collectionobjectattachment``  linked to the collection's objects
+1. ``collectionobjectattachment`` (+ linked ``attachment`` rows and asset-server files)
+2. ``determination``               linked to the collection's objects
 3. ``collectionobjectattr``        linked to the collection's objects
 4. ``collectionobject``            all rows for the given ``CollectionID``
 5. ``collectingevent``             only those that were exclusively used by the
@@ -16,14 +16,21 @@ What is deleted (in FK-safe order)
 7. ``migration_oracle_objectmap``  rows for this collection (when ``clear_objectmap_rows=True``)
 8. ``migration_oracle_placemap``   rows for the discipline (when ``clear_placemap_rows=True``)
 
+Attachment / asset-server cleanup
+---------------------------------
+``Collectionobjectattachment`` rows are removed via the **Django ORM** (not bulk SQL) so
+Specify's ``post_delete`` signals run: the join row delete cascades to ``Attachment``,
+which calls the asset server's ``filedelete`` endpoint (same as deleting in the UI).
+
 What is NOT touched
 --------------------
 * ``Agent``     (shared; migrated separately)
 * ``Geography`` (shared; pre-existing)
 * ``Taxon``     (shared; pre-existing)
 * ``SpecifyUser``
+* Migration report objects in the ``specify-migration`` S3 bucket
 
-The purge uses **direct SQL** (same strategy as ``purge_specify_geography_locality.py``)
+Specimen tables use **direct SQL** (same strategy as ``purge_specify_geography_locality.py``)
 for speed.  For large collections, deletes are chunked to avoid single huge transactions.
 """
 
@@ -43,6 +50,140 @@ from flows.lib.specify_setup import setup_django
 REPORT_CATEGORY_PURGE_DATASET = "purge-specify-dataset"
 
 _CHUNK = 5000  # rows per DELETE chunk
+_ATTACHMENT_ITER_CHUNK = 200  # ORM deletes (one asset-server call each)
+
+
+def _count_collection_object_attachments(cur: Any, collection_id: int) -> tuple[int, int]:
+    """Return (join-row count, distinct attachment count) for a collection."""
+    coa_count = _count(
+        cur,
+        """
+        SELECT COUNT(*)
+          FROM collectionobjectattachment coa
+          JOIN collectionobject co ON co.collectionobjectid = coa.CollectionObjectID
+         WHERE co.CollectionID = %s
+        """,
+        [collection_id],
+    )
+    att_count = _count(
+        cur,
+        """
+        SELECT COUNT(DISTINCT coa.AttachmentID)
+          FROM collectionobjectattachment coa
+          JOIN collectionobject co ON co.collectionobjectid = coa.CollectionObjectID
+         WHERE co.CollectionID = %s
+        """,
+        [collection_id],
+    )
+    return coa_count, att_count
+
+
+def _purge_collection_object_attachments(
+    co_ids: list[int],
+    *,
+    logger: Any,
+) -> dict[str, int]:
+    """Delete CO attachments through Specify ORM so asset-server files are removed."""
+    from specifyweb.backend.attachment_gw import views as attachment_gw_views
+    from specifyweb.specify.models import Collectionobjectattachment
+
+    stats = {
+        "collectionobjectattachment_deleted": 0,
+        "attachment_deleted": 0,
+        "asset_delete_failed": 0,
+    }
+    if not co_ids:
+        return stats
+
+    attachment_gw_views.init()
+    asset_server_configured = attachment_gw_views.server_urls is not None
+    if asset_server_configured:
+        logger.info(
+            "purge_specify_dataset | deleting attachments via ORM (asset-server filedelete enabled)"
+        )
+    else:
+        logger.warning(
+            "purge_specify_dataset | asset server not configured; "
+            "falling back to SQL attachment delete (S3 files will remain)"
+        )
+        return _purge_collection_object_attachments_sql(co_ids, logger=logger)
+
+    for i in range(0, len(co_ids), _CHUNK):
+        batch = co_ids[i : i + _CHUNK]
+        coa_qs = (
+            Collectionobjectattachment.objects.filter(collectionobject_id__in=batch)
+            .select_related("attachment")
+            .order_by("id")
+        )
+        for coa in coa_qs.iterator(chunk_size=_ATTACHMENT_ITER_CHUNK):
+            coa_id = int(coa.pk)
+            attachment_id = int(coa.attachment_id)
+            try:
+                coa.delete()
+                stats["collectionobjectattachment_deleted"] += 1
+                stats["attachment_deleted"] += 1
+            except Exception as exc:  # noqa: BLE001
+                stats["asset_delete_failed"] += 1
+                logger.warning(
+                    "purge_specify_dataset | attachment delete failed "
+                    "collectionobjectattachment_id=%s attachment_id=%s: %s",
+                    coa_id,
+                    attachment_id,
+                    exc,
+                )
+    return stats
+
+
+def _purge_collection_object_attachments_sql(
+    co_ids: list[int],
+    *,
+    logger: Any,
+) -> dict[str, int]:
+    """Fallback when the asset server is unavailable: SQL-only attachment cleanup."""
+    from django.db import connection
+
+    stats = {
+        "collectionobjectattachment_deleted": 0,
+        "attachment_deleted": 0,
+        "asset_delete_failed": 0,
+    }
+    with connection.cursor() as cur:
+        for i in range(0, len(co_ids), _CHUNK):
+            batch = co_ids[i : i + _CHUNK]
+            placeholders = ",".join(["%s"] * len(batch))
+            cur.execute(
+                f"""
+                SELECT DISTINCT coa.AttachmentID
+                  FROM collectionobjectattachment coa
+                 WHERE coa.CollectionObjectID IN ({placeholders})
+                """,
+                batch,
+            )
+            attachment_ids = [int(row[0]) for row in cur.fetchall() if row and row[0] is not None]
+
+            cur.execute(
+                f"DELETE FROM collectionobjectattachment WHERE CollectionObjectID IN ({placeholders})",
+                batch,
+            )
+            stats["collectionobjectattachment_deleted"] += int(
+                cur.rowcount if cur.rowcount is not None else 0
+            )
+
+            if attachment_ids:
+                att_placeholders = ",".join(["%s"] * len(attachment_ids))
+                cur.execute(
+                    f"DELETE FROM attachment WHERE attachmentid IN ({att_placeholders})",
+                    attachment_ids,
+                )
+                stats["attachment_deleted"] += int(
+                    cur.rowcount if cur.rowcount is not None else 0
+                )
+    logger.info(
+        "purge_specify_dataset | SQL attachment fallback deleted %s join rows, %s attachments",
+        stats["collectionobjectattachment_deleted"],
+        stats["attachment_deleted"],
+    )
+    return stats
 
 
 def _table_exists(cur: Any, table: str) -> bool:
@@ -102,9 +243,15 @@ def _purge_dataset(
             out["message"] = "nothing to purge"
             return out
 
+        coa_before, att_before = _count_collection_object_attachments(cur, collection_id)
+        out["collectionobjectattachment_before"] = coa_before
+        out["attachment_before"] = att_before
+
         if dry_run:
             # Count what would be removed.
             out["would_delete_co"] = co_before
+            out["would_delete_collectionobjectattachment"] = coa_before
+            out["would_delete_attachment"] = att_before
 
             cur.execute(
                 "SELECT CollectingEventID FROM collectionobject"
@@ -125,7 +272,9 @@ def _purge_dataset(
             out["would_delete_localities_approx"] = orphan_loc_count
 
             out["message"] = (
-                f"dry_run: would delete ~{co_before} CollectionObjects, "
+                f"dry_run: would delete ~{coa_before} CollectionObjectAttachments "
+                f"(~{att_before} asset-server files), "
+                f"~{co_before} CollectionObjects, "
                 f"~{len(ce_ids)} CollectingEvents, "
                 f"~{orphan_loc_count} Localities"
             )
@@ -133,26 +282,30 @@ def _purge_dataset(
 
     # ---- Live purge ----
     with connection.cursor() as cur:
+        # Step 1: collect CO ids in batches (outside FK_CHECKS=0 for attachment ORM deletes).
+        offset = 0
+        all_co_ids: list[int] = []
+        while True:
+            cur.execute(
+                "SELECT collectionobjectid FROM collectionobject"
+                " WHERE CollectionID = %s LIMIT %s OFFSET %s",
+                [collection_id, _CHUNK, offset],
+            )
+            batch = [row[0] for row in cur.fetchall()]
+            if not batch:
+                break
+            all_co_ids.extend(batch)
+            offset += _CHUNK
+
+    out["co_count"] = len(all_co_ids)
+    logger.info("purge_specify_dataset | collection=%s co_count=%s", collection_code, len(all_co_ids))
+
+    attachment_stats = _purge_collection_object_attachments(all_co_ids, logger=logger)
+    out.update(attachment_stats)
+
+    with connection.cursor() as cur:
         cur.execute("SET FOREIGN_KEY_CHECKS=0")
         try:
-            # Step 1: collect CO ids in batches.
-            offset = 0
-            all_co_ids: list[int] = []
-            while True:
-                cur.execute(
-                    "SELECT collectionobjectid FROM collectionobject"
-                    " WHERE CollectionID = %s LIMIT %s OFFSET %s",
-                    [collection_id, _CHUNK, offset],
-                )
-                batch = [row[0] for row in cur.fetchall()]
-                if not batch:
-                    break
-                all_co_ids.extend(batch)
-                offset += _CHUNK
-
-            out["co_count"] = len(all_co_ids)
-            logger.info("purge_specify_dataset | collection=%s co_count=%s", collection_code, len(all_co_ids))
-
             # Collect CE ids before deleting COs.
             all_ce_ids: list[int] = []
             for i in range(0, len(all_co_ids), _CHUNK):
@@ -180,20 +333,7 @@ def _purge_dataset(
                 det_deleted += cur.rowcount
             out["determination_deleted"] = det_deleted
 
-            # Step 3: delete CollectionObjectAttachment.
-            coa_deleted = 0
-            for i in range(0, len(all_co_ids), _CHUNK):
-                batch = all_co_ids[i : i + _CHUNK]
-                cur.execute(
-                    "DELETE FROM collectionobjectattachment WHERE CollectionObjectID IN ({})".format(
-                        ",".join(["%s"] * len(batch))
-                    ),
-                    batch,
-                )
-                coa_deleted += cur.rowcount
-            out["collectionobjectattachment_deleted"] = coa_deleted
-
-            # Step 4: delete CollectionObjectAttr.
+            # Step 3: delete CollectionObjectAttr.
             coattr_deleted = 0
             for i in range(0, len(all_co_ids), _CHUNK):
                 batch = all_co_ids[i : i + _CHUNK]
@@ -206,7 +346,7 @@ def _purge_dataset(
                 coattr_deleted += cur.rowcount
             out["collectionobjectattr_deleted"] = coattr_deleted
 
-            # Step 5: delete CollectionObjects.
+            # Step 4: delete CollectionObjects.
             co_deleted = 0
             for i in range(0, len(all_co_ids), _CHUNK):
                 batch = all_co_ids[i : i + _CHUNK]
@@ -221,7 +361,7 @@ def _purge_dataset(
 
             logger.info("purge_specify_dataset | deleted %s COs + %s determinations", co_deleted, det_deleted)
 
-            # Step 6: collect locality ids for the CEs we are about to delete,
+            # Step 5: collect locality ids for the CEs we are about to delete,
             # then null the FK and delete CEs.
             locality_ids_candidate: set[int] = set()
             ce_deleted = 0
@@ -249,7 +389,7 @@ def _purge_dataset(
                 ce_deleted += cur.rowcount
             out["ce_deleted"] = ce_deleted
 
-            # Step 7: delete orphaned Locality rows (those no longer referenced by any CE).
+            # Step 6: delete orphaned Locality rows (those no longer referenced by any CE).
             loc_deleted = 0
             loc_ids = list(locality_ids_candidate)
             for i in range(0, len(loc_ids), _CHUNK):
@@ -271,7 +411,7 @@ def _purge_dataset(
                 "purge_specify_dataset | deleted %s CEs, %s Localities", ce_deleted, loc_deleted
             )
 
-            # Step 8: clear objectmap rows.
+            # Step 7: clear objectmap rows.
             if clear_objectmap_rows and _table_exists(cur, OBJECTMAP_TABLE):
                 cur.execute(
                     f"DELETE FROM {OBJECTMAP_TABLE} WHERE specify_collection_id = %s",
@@ -280,7 +420,7 @@ def _purge_dataset(
                 out["objectmap_rows_deleted"] = cur.rowcount
                 logger.info("purge_specify_dataset | objectmap rows deleted: %s", cur.rowcount)
 
-            # Step 9: when clearing placemap rows, force-delete mapped localities for this discipline.
+            # Step 8: when clearing placemap rows, force-delete mapped localities for this discipline.
             #
             # Why: orphan-only delete above can leave stale localities if they are still referenced
             # by CollectingEvents outside the just-deleted CO set. For "clean re-run" use cases

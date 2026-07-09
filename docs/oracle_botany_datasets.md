@@ -569,7 +569,7 @@ Suggested archival key: `MUSIT_BOTANIKK_FELLES:OBJECT_ID:<id>`.
 | `OBJECT_ATTRIBUTES.UUID` | `CollectionObject.guid` / `uniqueidentifier` (policy-dependent) | Keep | Partial coverage in source; never use as sole key. |
 | `OBJECT_ATTRIBUTES.IS_REG` | `CollectionObject.text*` / quality flag | Keep | Strong indicator for publishability and DwC differences. |
 | `OBJECT_ATTRIBUTES.IS_APPROVED` | `CollectionObject.text*` / quality flag | Keep | Strong indicator for publishability and DwC differences. |
-| `OBJECT_ATTRIBUTES.OBJECT_WITHHELD` | `CollectionObject.visibility` / custom embargo flag | Keep | Preserve exactly; used in downstream policy decisions. |
+| `OBJECT_ATTRIBUTES.OBJECT_WITHHELD` | `CollectionObject.yesNo4` (Withheld) | Keep | Boolean MUSIT flag; same mapping as other workflow yesNo fields. |
 | `OBJECT_ATTRIBUTES.OBJECT_STATE` | `CollectionObject.text*` / custom status field | Keep | Keep raw value; can drive QA review. |
 | `OBJECT_ATTRIBUTES.REG_DATE` | `CollectionObject.timestampcreated` override or custom date field | Keep | Preserve as source registration timestamp. |
 | `OBJECT_ATTRIBUTES.APPROVED_DATE` | custom migrated date field | Keep | Useful for publication timeline / QA. |
