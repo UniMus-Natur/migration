@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -673,237 +672,155 @@ def _deepest_geography_for_place(
     return best_geo
 
 
-def _parse_dms_coordinate(coordinate_string: str | None) -> tuple[float | None, float | None]:
-    """Parse DMS strings like ``59°48.185'N 10°44.478'E`` into decimal degrees."""
-    if not coordinate_string:
-        return None, None
-    pattern = re.compile(
-        r"(\d+)[°º]\s*([\d.]+)[''′]\s*([NS])\s+"
-        r"(\d+)[°º]\s*([\d.]+)[''′]\s*([EW])",
-        re.IGNORECASE,
-    )
-    m = pattern.search(coordinate_string)
-    if not m:
-        return None, None
-    try:
-        lat_deg, lat_min, lat_hem = float(m.group(1)), float(m.group(2)), m.group(3).upper()
-        lon_deg, lon_min, lon_hem = float(m.group(4)), float(m.group(5)), m.group(6).upper()
-        lat = lat_deg + lat_min / 60.0
-        lon = lon_deg + lon_min / 60.0
-        if lat_hem == "S":
-            lat = -lat
-        if lon_hem == "W":
-            lon = -lon
-        if -90 <= lat <= 90 and -180 <= lon <= 180:
-            return lat, lon
-    except (ValueError, TypeError):
-        pass
-    return None, None
+from flows.lib.musit_coordinate_map import (
+    COORD_CONFLICT_THRESHOLD_DEG,
+    LAT1TEXT_MAX_LEN,
+    apply_verbatim_coordinate_fields,
+    empty_coordinate_bundle,
+    locality_detail_kwargs_from_musit_koordinate,
+    locality_spatial_kwargs_from_musit_koordinate,
+    normalize_musit_datum,
+    verbatim_coordinate_string,
+)
+
+# Backward-compatible aliases for callers/tests that used private names.
+_apply_verbatim_coordinate_fields = apply_verbatim_coordinate_fields
+_normalize_musit_datum = normalize_musit_datum
+_verbatim_coordinate_string = verbatim_coordinate_string
 
 
-def _parse_dms_coordinate_range(
-    coordinate_string: str | None,
-) -> tuple[float | None, float | None, float | None, float | None]:
-    """Parse DMS range strings like ``17°7'-17°8'N 25°3'-25°4'W``.
-
-    Returns ``(lat_low, lat_high, lon_low, lon_high)`` in signed decimal degrees.
-    """
-    if not coordinate_string:
-        return None, None, None, None
-    s = coordinate_string.strip()
-    pattern = re.compile(
-        r"(\d+)[°º]\s*([\d.]+)'\s*-\s*(\d+)[°º]\s*([\d.]+)'\s*([NS])\s+"
-        r"(\d+)[°º]\s*([\d.]+)'\s*-\s*(\d+)[°º]\s*([\d.]+)'\s*([EW])",
-        re.IGNORECASE,
-    )
-    m = pattern.search(s)
-    if not m:
-        return None, None, None, None
-    try:
-        lat_a = float(m.group(1)) + float(m.group(2)) / 60.0
-        lat_b = float(m.group(3)) + float(m.group(4)) / 60.0
-        lon_a = float(m.group(6)) + float(m.group(7)) / 60.0
-        lon_b = float(m.group(8)) + float(m.group(9)) / 60.0
-        lat_hemi = m.group(5).upper()
-        lon_hemi = m.group(10).upper()
-        if lat_hemi == "S":
-            lat_a, lat_b = -lat_a, -lat_b
-        if lon_hemi == "W":
-            lon_a, lon_b = -lon_a, -lon_b
-        lat_low, lat_high = (lat_a, lat_b) if lat_a <= lat_b else (lat_b, lat_a)
-        lon_low, lon_high = (lon_a, lon_b) if lon_a <= lon_b else (lon_b, lon_a)
-        if not (-90 <= lat_low <= 90 and -90 <= lat_high <= 90):
-            return None, None, None, None
-        if not (-180 <= lon_low <= 180 and -180 <= lon_high <= 180):
-            return None, None, None, None
-        return lat_low, lat_high, lon_low, lon_high
-    except (TypeError, ValueError):
-        return None, None, None, None
-
-
-def _sanitize_lat_lng(
-    lat: Any,
-    lng: Any,
-    coordinate_string: str | None,
-) -> tuple[float | None, float | None]:
-    """Return valid (lat, lng) decimals or None, with DMS-string fallback."""
-
-    def _to_float(v: Any) -> float | None:
-        if v is None:
-            return None
-        try:
-            return float(v)
-        except (TypeError, ValueError):
-            return None
-
-    lat_f = _to_float(lat)
-    lng_f = _to_float(lng)
-
-    if lat_f is None or not (-90 <= lat_f <= 90):
-        dms_lat, dms_lng = _parse_dms_coordinate(coordinate_string)
-        if dms_lat is not None:
-            return dms_lat, dms_lng
-        if lat_f is not None and 100 < abs(lat_f) < 1000:
-            candidate = lat_f - (int(lat_f / 100) * 100)
-            if -90 <= candidate <= 90:
-                lng_candidate = lng_f
-                if lng_f is not None and not (-180 <= lng_f <= 180):
-                    lng_candidate = None
-                return candidate, lng_candidate
-        return None, None
-
-    if lng_f is not None and not (-180 <= lng_f <= 180):
-        lng_f = None
-
-    return lat_f, lng_f
-
-
-def _to_decimal_or_none(v: Any) -> float | None:
-    if v is None:
-        return None
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
-
-
-def locality_spatial_kwargs_from_musit_koordinate(coord: dict[str, Any]) -> dict[str, Any]:
-    """Map Oracle ``KOORDINATE_PLACE`` row (from ``_fetch_first_coordinate``) to Specify ``Locality`` fields."""
-    lat_raw = coord.get("latitude_l")
-    lng_raw = coord.get("longitude_l")
-    coord_str = coord.get("coordinate_string")
-    lat, lng = _sanitize_lat_lng(lat_raw, lng_raw, coord_str)
-    out: dict[str, Any] = {}
-
-    datum = coord.get("datum")
-    if datum:
-        ds = str(datum).strip()
-        if ds:
-            out["datum"] = ds[:50]
-
-    if lat is not None:
-        out["latitude1"] = lat
-    if lng is not None:
-        out["longitude1"] = lng
-
-    lat_h = _to_decimal_or_none(coord.get("latitude_h"))
-    lon_h = _to_decimal_or_none(coord.get("longitude_h"))
-    if lat_h is None or lon_h is None:
-        # Many MUSIT rows store range bounds only in COORDINATE_STRING.
-        rlat_low, rlat_high, rlon_low, rlon_high = _parse_dms_coordinate_range(coord_str)
-        if lat is not None and rlat_low is not None and lat_h is None:
-            # Prefer the opposite range endpoint as latitude2.
-            lat_h = rlat_high if abs(lat - rlat_low) <= abs(lat - rlat_high) else rlat_low
-        elif lat_h is None and rlat_high is not None:
-            lat_h = rlat_high
-        if lng is not None and rlon_low is not None and lon_h is None:
-            lon_h = rlon_high if abs(lng - rlon_low) <= abs(lng - rlon_high) else rlon_low
-        elif lon_h is None and rlon_high is not None:
-            lon_h = rlon_high
-    if lat_h is not None:
-        out["latitude2"] = lat_h
-    if lon_h is not None:
-        out["longitude2"] = lon_h
-
-    if coord_str:
-        cs = str(coord_str).strip()
-        if cs:
-            out["lat1text"] = cs[:50]
-            if len(cs) > 50:
-                out["long1text"] = cs[50:100]
-
-    alt_l = _to_decimal_or_none(coord.get("alt_l"))
-    alt_h = _to_decimal_or_none(coord.get("alt_h"))
-    if alt_l is not None and alt_h is not None:
-        lo, hi = (alt_l, alt_h) if alt_l <= alt_h else (alt_h, alt_l)
-        out["minelevation"] = lo
-        out["maxelevation"] = hi
-    elif alt_l is not None:
-        out["minelevation"] = alt_l
-        out["maxelevation"] = alt_l
-    elif alt_h is not None:
-        out["minelevation"] = alt_h
-        out["maxelevation"] = alt_h
-
-    alt_str = coord.get("altitude_string")
-    if alt_str:
-        vs = str(alt_str).strip()[:50]
-        if vs:
-            out["verbatimelevation"] = vs
-
-    alt_unit = coord.get("altitude_unit")
-    if alt_unit:
-        us = str(alt_unit).strip()[:50]
-        if us:
-            out["originalelevationunit"] = us
-
-    acc = _to_decimal_or_none(coord.get("accuracy"))
-    if acc is not None:
-        out["latlongaccuracy"] = acc
-
-    prec = coord.get("precision")
-    ca_alt = coord.get("ca_altitude")
-    bits: list[str] = []
-    if prec is not None:
-        bits.append(f"MUSIT PRECISION={prec}")
-    if ca_alt:
-        ca = str(ca_alt).strip()
-        if ca:
-            bits.append(f"MUSIT CA_ALTITUDE={ca[:40]}")
-
-    # UTM grid reference (MUSIT "Zone & Band" + grid square), e.g. "32 V".
-    zone = coord.get("zone")
-    belt = coord.get("belt")
-    zone_str = str(zone).strip() if zone is not None else ""
-    belt_str = str(belt).strip() if belt is not None else ""
-    utm_zone = f"{zone_str}{belt_str}".strip()
-    if utm_zone:
-        bits.append(f"MUSIT UTM ZONE={utm_zone[:20]}")
-
-    map_sheet = coord.get("map_sheet")
-    if map_sheet:
-        ms = str(map_sheet).strip()
-        if ms:
-            bits.append(f"MUSIT MAP_SHEET={ms[:40]}")
-
-    # MUSIT coordinate-quality flags: "Ca coord" (approximate) and
-    # "Coordinate added later" (georeferenced after collection).
-    if _musit_flag_is_set(coord.get("ca_utm")):
-        bits.append("MUSIT CA_COORD=1")
-    if _musit_flag_is_set(coord.get("utm_senere")):
-        bits.append("MUSIT COORD_ADDED_LATER=1")
-
-    if bits:
-        out["remarks"] = " ".join(bits)
-
-    return out
-
-
-def _musit_flag_is_set(value: Any) -> bool:
-    """True for MUSIT boolean-ish flag columns stored as '1'/'Y'/'TRUE'."""
-    if value is None:
+def save_musit_locality_detail(locality: Any, coord: dict[str, Any]) -> bool:
+    """Create a ``LocalityDetail`` child row when structured projected coordinates exist."""
+    detail_kwargs = locality_detail_kwargs_from_musit_koordinate(coord)
+    if not detail_kwargs:
         return False
-    return str(value).strip().upper() in ("1", "Y", "TRUE")
+    from specifyweb.specify.models import Localitydetail
+
+    if Localitydetail.objects.filter(locality_id=int(locality.id)).exists():
+        return False
+    detail = Localitydetail(locality=locality, **detail_kwargs)
+    detail.save()
+    return True
+
+
+def _fetch_coordinate_bundle(oracle_cursor: Any, owner: str, place_id: int) -> dict[str, Any | None]:
+    """Load primary ``KOORDINATE_PLACE`` row plus ``DERIVED_COORDINATES`` for a ``PLACE_ID``."""
+    o = owner.upper()
+    oracle_cursor.execute(
+        f"""
+        SELECT * FROM (
+            SELECT
+                kp.COORDINATE_STRING,
+                kp.COORDINATE_STRING_ACTUAL,
+                kp.LATITUDE_L,
+                kp.LONGITUDE_L,
+                kp.DATUM,
+                kp."PRECISION" AS MUSIT_PRECISION,
+                kp.ACCURACY,
+                kp.ALT_L,
+                kp.ALT_H,
+                kp.ALTITUDE_STRING,
+                kp.ALTITUDE_UNIT,
+                kp.CA_ALTITUDE,
+                kp.LATITUDE_H,
+                kp.LONGITUDE_H,
+                kp.MAP_SHEET,
+                kp.ZONE,
+                kp.BELT,
+                kp.CA_UTM,
+                kp.UTM_SENERE,
+                kp.KOORDINATE_PLACE_ID,
+                kp.COORDINATE_TYPE,
+                t.TYPETERM AS COORDINATE_TYPE_TERM,
+                kp.MGRS_L,
+                kp.MGRS_H,
+                kp.UTM_X,
+                kp.UTM_Y,
+                kp.UTM_X_H,
+                kp.UTM_Y_H,
+                kp.UTM33_X,
+                kp.UTM33_Y,
+                dc.LATITUDE AS DC_LATITUDE,
+                dc.LONGITUDE AS DC_LONGITUDE,
+                dc.DATUM AS DC_DATUM,
+                dc.ZONE AS DC_ZONE,
+                dc.BAND AS DC_BAND,
+                dc.UTM_X AS DC_UTM_X,
+                dc.UTM_Y AS DC_UTM_Y,
+                dc.UTM33_X AS DC_UTM33_X,
+                dc.UTM33_Y AS DC_UTM33_Y,
+                dc.LAT_WGS84 AS DC_LAT_WGS84,
+                dc.LONG_WGS84 AS DC_LONG_WGS84,
+                dc.DERIVED_COORDINATES_TYPE AS DC_COORDINATES_TYPE
+              FROM {o}.koordinate_place kp
+              JOIN {o}.koordinate_place_place kpp
+                ON kpp.koordinate_place_id = kp.koordinate_place_id
+              LEFT JOIN {o}.derived_coordinates dc
+                ON dc.koordinate_place_id = kp.koordinate_place_id
+              LEFT JOIN {o}.types t
+                ON t.type_id = kp.coordinate_type
+             WHERE kpp.place_id = :pid
+             ORDER BY
+               CASE WHEN dc.LATITUDE IS NOT NULL AND dc.LONGITUDE IS NOT NULL THEN 0 ELSE 1 END,
+               CASE WHEN kp.LATITUDE_L IS NOT NULL AND kp.LONGITUDE_L IS NOT NULL THEN 0 ELSE 1 END,
+               CASE WHEN kp.COORDINATE_STRING IS NOT NULL THEN 0 ELSE 1 END,
+               kp.KOORDINATE_PLACE_ID DESC
+        ) WHERE ROWNUM = 1
+        """,
+        {"pid": place_id},
+    )
+    r = oracle_cursor.fetchone()
+    if not r:
+        return empty_coordinate_bundle()
+    return {
+        "coordinate_string": r[0],
+        "coordinate_string_actual": r[1],
+        "latitude_l": r[2],
+        "longitude_l": r[3],
+        "datum": r[4],
+        "precision": r[5],
+        "accuracy": r[6],
+        "alt_l": r[7],
+        "alt_h": r[8],
+        "altitude_string": r[9],
+        "altitude_unit": r[10],
+        "ca_altitude": r[11],
+        "latitude_h": r[12],
+        "longitude_h": r[13],
+        "map_sheet": r[14],
+        "zone": r[15],
+        "belt": r[16],
+        "ca_utm": r[17],
+        "utm_senere": r[18],
+        "koordinate_place_id": r[19],
+        "coordinate_type": r[20],
+        "coordinate_type_term": r[21],
+        "mgrs_l": r[22],
+        "mgrs_h": r[23],
+        "utm_x": r[24],
+        "utm_y": r[25],
+        "utm_x_h": r[26],
+        "utm_y_h": r[27],
+        "utm33_x": r[28],
+        "utm33_y": r[29],
+        "dc_latitude": r[30],
+        "dc_longitude": r[31],
+        "dc_datum": r[32],
+        "dc_zone": r[33],
+        "dc_band": r[34],
+        "dc_utm_x": r[35],
+        "dc_utm_y": r[36],
+        "dc_utm33_x": r[37],
+        "dc_utm33_y": r[38],
+        "dc_lat_wgs84": r[39],
+        "dc_lon_wgs84": r[40],
+        "dc_coordinates_type": r[41],
+    }
+
+
+def _fetch_first_coordinate(oracle_cursor: Any, owner: str, place_id: int) -> dict[str, Any | None]:
+    """Backward-compatible alias for :func:`_fetch_coordinate_bundle`."""
+    return _fetch_coordinate_bundle(oracle_cursor, owner, place_id)
 
 
 def _fetch_place_text(oracle_cursor: Any, owner: str, place_id: int) -> tuple[str, str | None]:
@@ -980,90 +897,6 @@ def _fetch_place_ecology_and_region(
         region = None
 
     return ecology, region
-
-
-def _fetch_first_coordinate(oracle_cursor: Any, owner: str, place_id: int) -> dict[str, Any | None]:
-    """Pick the best ``KOORDINATE_PLACE`` row for a ``PLACE_ID`` (prefer numeric lat/long, then newest id)."""
-    o = owner.upper()
-    oracle_cursor.execute(
-        f"""
-        SELECT * FROM (
-            SELECT
-                kp.COORDINATE_STRING,
-                kp.LATITUDE_L,
-                kp.LONGITUDE_L,
-                kp.DATUM,
-                kp."PRECISION" AS MUSIT_PRECISION,
-                kp.ACCURACY,
-                kp.ALT_L,
-                kp.ALT_H,
-                kp.ALTITUDE_STRING,
-                kp.ALTITUDE_UNIT,
-                kp.CA_ALTITUDE,
-                kp.LATITUDE_H,
-                kp.LONGITUDE_H,
-                kp.MAP_SHEET,
-                kp.ZONE,
-                kp.BELT,
-                kp.CA_UTM,
-                kp.UTM_SENERE,
-                kp.KOORDINATE_PLACE_ID
-              FROM {o}.koordinate_place kp
-              JOIN {o}.koordinate_place_place kpp
-                ON kpp.koordinate_place_id = kp.koordinate_place_id
-             WHERE kpp.place_id = :pid
-             ORDER BY
-               CASE WHEN kp.LATITUDE_L IS NOT NULL AND kp.LONGITUDE_L IS NOT NULL THEN 0 ELSE 1 END,
-               CASE WHEN kp.COORDINATE_STRING IS NOT NULL THEN 0 ELSE 1 END,
-               kp.KOORDINATE_PLACE_ID DESC
-        ) WHERE ROWNUM = 1
-        """,
-        {"pid": place_id},
-    )
-    r = oracle_cursor.fetchone()
-    if not r:
-        return {
-            "coordinate_string": None,
-            "latitude_l": None,
-            "longitude_l": None,
-            "datum": None,
-            "precision": None,
-            "accuracy": None,
-            "alt_l": None,
-            "alt_h": None,
-            "altitude_string": None,
-            "altitude_unit": None,
-            "ca_altitude": None,
-            "latitude_h": None,
-            "longitude_h": None,
-            "map_sheet": None,
-            "zone": None,
-            "belt": None,
-            "ca_utm": None,
-            "utm_senere": None,
-            "koordinate_place_id": None,
-        }
-    return {
-        "coordinate_string": r[0],
-        "latitude_l": r[1],
-        "longitude_l": r[2],
-        "datum": r[3],
-        "precision": r[4],
-        "accuracy": r[5],
-        "alt_l": r[6],
-        "alt_h": r[7],
-        "altitude_string": r[8],
-        "altitude_unit": r[9],
-        "ca_altitude": r[10],
-        "latitude_h": r[11],
-        "longitude_h": r[12],
-        "map_sheet": r[13],
-        "zone": r[14],
-        "belt": r[15],
-        "ca_utm": r[16],
-        "utm_senere": r[17],
-        "koordinate_place_id": r[18],
-    }
 
 
 def _iter_referenced_place_ids(oracle_cursor: Any, owner: str) -> list[int]:
@@ -1267,7 +1100,7 @@ def load_localities_for_referenced_places(
                 )
             stats.places_seen += 1
             agg, loc_text = _fetch_place_text(oracle_cursor, owner, pid)
-            coord = _fetch_first_coordinate(oracle_cursor, owner, pid)
+            coord = _fetch_coordinate_bundle(oracle_cursor, owner, pid)
             geo_id = _deepest_geography_for_place(
                 oracle_cursor, owner, pid, oracle_hid_to_specify_geo, geo_rankid_by_pk
             )
@@ -1324,11 +1157,16 @@ def load_localities_for_referenced_places(
                         "srclatlongunit": 0,
                         "guid": guid_loc,
                     }
-                    loc_kwargs.update(locality_spatial_kwargs_from_musit_koordinate(coord))
+                    loc_kwargs.update(
+                        locality_spatial_kwargs_from_musit_koordinate(
+                            coord, owner=owner, place_id=pid
+                        )
+                    )
                     if verbatim:
                         loc_kwargs["text1"] = verbatim
                     loc = Locality(**loc_kwargs)
                     loc.save()
+                    save_musit_locality_detail(loc, coord)
                     stats.localities_created += 1
                     locality_cache[loc_key] = int(loc.id)
                     upsert_placemap_row(

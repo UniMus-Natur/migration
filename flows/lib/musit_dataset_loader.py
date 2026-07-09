@@ -1009,10 +1009,11 @@ def _get_or_create_locality(
     from flows.lib.migration_oracle_placemap import upsert_placemap_row
     from flows.lib.oracle_geography_load import (
         _deepest_geography_for_place,
-        _fetch_first_coordinate,
+        _fetch_coordinate_bundle,
         _fetch_place_text,
         _place_locality_guid,
         locality_spatial_kwargs_from_musit_koordinate,
+        save_musit_locality_detail,
     )
 
     if oracle_cursor is None:
@@ -1043,7 +1044,7 @@ def _get_or_create_locality(
 
     # Need to create a new Locality.
     agg, loc_text = _fetch_place_text(oracle_cursor, owner, place_id)
-    coord = _fetch_first_coordinate(oracle_cursor, owner, place_id)
+    coord = _fetch_coordinate_bundle(oracle_cursor, owner, place_id)
 
     # Rebuild geo rank map (lightweight — only the set already in memory).
     owner_lower = owner.lower()
@@ -1100,7 +1101,11 @@ def _get_or_create_locality(
             "srclatlongunit": 0,
             "guid": guid,
         }
-        loc_kwargs.update(locality_spatial_kwargs_from_musit_koordinate(coord))
+        loc_kwargs.update(
+            locality_spatial_kwargs_from_musit_koordinate(
+                coord, owner=owner, place_id=place_id
+            )
+        )
         if verbatim:
             loc_kwargs["text1"] = verbatim
         if biogeo_region:
@@ -1108,6 +1113,7 @@ def _get_or_create_locality(
 
         loc = Locality(**loc_kwargs)
         loc.save()
+        save_musit_locality_detail(loc, coord)
         lid = int(loc.id)
         locality_cache[cache_key] = lid
         stats.locality_created += 1
