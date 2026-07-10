@@ -677,7 +677,6 @@ from flows.lib.musit_coordinate_map import (
     LAT1TEXT_MAX_LEN,
     apply_verbatim_coordinate_fields,
     empty_coordinate_bundle,
-    locality_detail_kwargs_from_musit_koordinate,
     locality_spatial_kwargs_from_musit_koordinate,
     normalize_musit_datum,
     verbatim_coordinate_string,
@@ -687,20 +686,6 @@ from flows.lib.musit_coordinate_map import (
 _apply_verbatim_coordinate_fields = apply_verbatim_coordinate_fields
 _normalize_musit_datum = normalize_musit_datum
 _verbatim_coordinate_string = verbatim_coordinate_string
-
-
-def save_musit_locality_detail(locality: Any, coord: dict[str, Any]) -> bool:
-    """Create a ``LocalityDetail`` child row when structured projected coordinates exist."""
-    detail_kwargs = locality_detail_kwargs_from_musit_koordinate(coord)
-    if not detail_kwargs:
-        return False
-    from specifyweb.specify.models import Localitydetail
-
-    if Localitydetail.objects.filter(locality_id=int(locality.id)).exists():
-        return False
-    detail = Localitydetail(locality=locality, **detail_kwargs)
-    detail.save()
-    return True
 
 
 def _fetch_coordinate_bundle(oracle_cursor: Any, owner: str, place_id: int) -> dict[str, Any | None]:
@@ -1166,7 +1151,6 @@ def load_localities_for_referenced_places(
                         loc_kwargs["text1"] = verbatim
                     loc = Locality(**loc_kwargs)
                     loc.save()
-                    save_musit_locality_detail(loc, coord)
                     stats.localities_created += 1
                     locality_cache[loc_key] = int(loc.id)
                     upsert_placemap_row(

@@ -1012,7 +1012,6 @@ def _get_or_create_locality(
         _fetch_place_text,
         _place_locality_guid,
         locality_spatial_kwargs_from_musit_koordinate,
-        save_musit_locality_detail,
     )
 
     if oracle_cursor is None:
@@ -1112,7 +1111,6 @@ def _get_or_create_locality(
 
         loc = Locality(**loc_kwargs)
         loc.save()
-        save_musit_locality_detail(loc, coord)
         lid = int(loc.id)
         locality_cache[cache_key] = lid
         stats.locality_created += 1

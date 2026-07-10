@@ -8,7 +8,6 @@ import unittest
 from flows.lib.musit_coordinate_map import (
     LAT1TEXT_MAX_LEN,
     apply_verbatim_coordinate_fields,
-    locality_detail_kwargs_from_musit_koordinate,
     locality_spatial_kwargs_from_musit_koordinate,
     normalize_musit_datum,
     verbatim_coordinate_string,
@@ -91,21 +90,22 @@ class MusitCoordinateMapTests(unittest.TestCase):
         self.assertEqual(normalize_musit_datum("WGS 84"), ("WGS84", "WGS 84"))
         self.assertEqual(normalize_musit_datum("32"), (None, "32"))
 
-    def test_locality_detail_from_utm_fields(self) -> None:
+    def test_musit_precision_maps_to_latlongaccuracy(self) -> None:
         coord = {
-            "zone": 32,
-            "belt": "V",
-            "utm_x": 500000,
-            "utm_y": 6000000,
+            "latitude_l": 59.0,
+            "longitude_l": 10.0,
+            "precision": 100,
+            "accuracy": 101,
+            "coordinate_string": "NL 9435,9010",
             "datum": "WGS84",
+            "koordinate_place_id": 4,
         }
-        detail = locality_detail_kwargs_from_musit_koordinate(coord)
-        self.assertIsNotNone(detail)
-        assert detail is not None
-        self.assertEqual(detail["utmzone"], 32)
-        self.assertEqual(detail["utmeasting"], 500000)
-        self.assertEqual(detail["utmnorthing"], 6000000)
-        self.assertEqual(detail["mgrszone"], "32V")
+        out = locality_spatial_kwargs_from_musit_koordinate(coord)
+        self.assertEqual(out["latlongaccuracy"], 100.0)
+        self.assertNotIn("MUSIT PRECISION", out.get("remarks") or "")
+        audit = json.loads(out["text4"])
+        self.assertEqual(audit["uncertainty"]["musit_precision_m"], 100)
+        self.assertEqual(audit["migration_meta"]["mapping_version"], "musit-coordinates-v3")
 
 
 if __name__ == "__main__":

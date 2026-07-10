@@ -169,8 +169,11 @@ def build_coordinate_audit_json(
                 "utm33_y": _json_number_or_none(coord.get("dc_utm33_y")),
             },
         },
+        "uncertainty": {
+            "musit_precision_m": _json_number_or_none(coord.get("precision")),
+        },
         "migration_meta": {
-            "mapping_version": "musit-coordinates-v2",
+            "mapping_version": "musit-coordinates-v3",
         },
     }
     if conflict:
@@ -180,10 +183,7 @@ def build_coordinate_audit_json(
 
 def remarks_bits_from_coord(coord: dict[str, Any], *, extra_bits: list[str] | None = None) -> list[str]:
     bits: list[str] = list(extra_bits or [])
-    prec = coord.get("precision")
     ca_alt = coord.get("ca_altitude")
-    if prec is not None:
-        bits.append(f"MUSIT PRECISION={prec}")
     if ca_alt:
         ca = str(ca_alt).strip()
         if ca:
@@ -297,9 +297,9 @@ def locality_spatial_kwargs_from_musit_koordinate(
         if us:
             out["originalelevationunit"] = us
 
-    acc = _to_decimal_or_none(coord.get("accuracy"))
-    if acc is not None:
-        out["latlongaccuracy"] = acc
+    prec = _to_decimal_or_none(coord.get("precision"))
+    if prec is not None:
+        out["latlongaccuracy"] = prec
 
     if extra_remarks:
         existing = out.get("remarks")
@@ -316,34 +316,6 @@ def locality_spatial_kwargs_from_musit_koordinate(
     out["text4"] = json.dumps(audit, ensure_ascii=False, default=str)
 
     return out
-
-
-def locality_detail_kwargs_from_musit_koordinate(coord: dict[str, Any]) -> dict[str, Any] | None:
-    """Build ``LocalityDetail`` kwargs when structured UTM/MGRS fields exist."""
-    zone = _to_decimal_or_none(coord.get("zone"))
-    belt = non_empty_text(coord.get("belt"))
-    utm_x = _to_decimal_or_none(coord.get("utm_x"))
-    utm_y = _to_decimal_or_none(coord.get("utm_y"))
-    mgrs_l = non_empty_text(coord.get("mgrs_l"))
-    if zone is None and utm_x is None and utm_y is None and mgrs_l is None:
-        return None
-
-    detail: dict[str, Any] = {}
-    if zone is not None and float(zone).is_integer():
-        detail["utmzone"] = int(zone)
-    if utm_x is not None:
-        detail["utmeasting"] = utm_x
-    if utm_y is not None:
-        detail["utmnorthing"] = utm_y
-    datum_norm, _ = normalize_musit_datum(coord.get("datum"))
-    if datum_norm:
-        detail["utmdatum"] = datum_norm[:32]
-    if belt:
-        mgrs_zone = f"{int(zone)}{belt}" if zone is not None and float(zone).is_integer() else belt
-        detail["mgrszone"] = mgrs_zone[:4]
-    elif mgrs_l and len(mgrs_l) <= 4:
-        detail["mgrszone"] = mgrs_l[:4]
-    return detail or None
 
 
 def empty_coordinate_bundle() -> dict[str, Any | None]:
