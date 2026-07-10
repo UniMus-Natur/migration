@@ -41,6 +41,7 @@ from flows.lib.musit_field_number_map import (
     coerce_musit_identifier_num,
     resolve_field_number_from_legnr_rows,
 )
+from flows.lib.musit_determination_remarks import determination_remarks as _determination_remarks
 from flows.lib.musit_taxon_match import (
     binomial_prefix_from_valid_classterm as _binomial_prefix_from_valid_classterm,
     taxon_matches_valid_classterm as _taxon_matches_valid_classterm,
@@ -2361,6 +2362,7 @@ def _write_one_object(
                 # MUSIT object-level type status applies to the current determination only.
                 type_status = _trunc(obj_row.get("type_status"), 50) if is_current else None
 
+                det_remarks = _determination_remarks(dr, determiner=determiner)
                 det = Determination(
                     collectionobject=co,
                     taxon=taxon,
@@ -2373,11 +2375,8 @@ def _write_one_object(
                     determiner=determiner,
                     determineddate=det_datetime,
                     determineddateprecision=(1 if det_datetime is not None else None),
+                    remarks=det_remarks,
                 )
-                if not determiner:
-                    det_verbatim = dr.get("det_agg_personnames") or dr.get("detname_orig")
-                    if det_verbatim:
-                        det.remarks = _trunc(f"Determiner (verbatim): {det_verbatim}", 4000)
                 det.save()
                 if det.iscurrent:
                     has_current = True
