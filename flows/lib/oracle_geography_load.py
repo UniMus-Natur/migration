@@ -11,6 +11,14 @@ from typing import Any
 
 from django.db import close_old_connections, transaction
 
+from flows.lib.oracle_geography_admin import (
+    fetch_hierarchical_chain_rows_for_place,
+    hierarchical_admin_relation,
+    oracle_type_name_to_rank_item_name,
+    types_label_column_name as _types_label_column_name,
+)
+from flows.lib.oracle_geography_admin import _norm_type
+
 logger = logging.getLogger(__name__)
 
 
@@ -78,33 +86,6 @@ def _eta_remaining(elapsed_s: float, done: int, total: int) -> str:
         return "…"
     rate = elapsed_s / done
     return _format_duration(rate * (total - done))
-
-
-def _norm_type(s: str | None) -> str:
-    return (s or "").strip().lower()
-
-
-def oracle_type_name_to_rank_item_name(type_name: str | None) -> str:
-    """Map MUSIT ``TYPES`` label to a logical rank name (English).
-
-    Empty / unknown Oracle type returns ``""`` so the loader can infer rank from the
-    parent's ``rankid`` (see ``rank_for_row``): defaulting everything to County breaks
-    world→continent chains when types are NULL.
-    """
-    t = _norm_type(type_name)
-    if not t:
-        return ""
-    if "kommune" in t or "kommun" in t:
-        return "Municipality"
-    if "fylke" in t:
-        return "County"
-    if "land" in t and "fylke" not in t:
-        return "Country"
-    if "kontinent" in t or "continent" in t:
-        return "Continent"
-    if "region" in t or "del" in t:
-        return "State"
-    return "County"
 
 
 # English logical names from ``oracle_type_name_to_rank_item_name`` → try these keys on
@@ -295,38 +276,6 @@ class HierRow:
     type_name: str | None
 
 
-# MUSIT ``TYPES`` human-readable label column differs between deployments (not always ``NAME``).
-_TYPES_LABEL_COLUMN_PRIORITY = (
-    "TYPE_NAME",
-    "TYPENAME",
-    "TYPELABEL",
-    "LABEL",
-    "DESCRIPTION",
-    "TEXT",
-    "TYPE_TEXT",
-    "CODE",
-    "VALUE",
-    "NAME",
-)
-
-
-def _types_label_column_name(cur: Any, owner: str) -> str | None:
-    """Return first matching ``TYPES`` column name for hierarchy type labels, or ``None``."""
-    o = owner.upper()
-    cur.execute(
-        """
-        SELECT column_name FROM all_tab_columns
-        WHERE owner = :owner AND table_name = 'TYPES'
-        """,
-        {"owner": o},
-    )
-    existing = {str(r[0]).upper() for r in cur.fetchall()}
-    for cand in _TYPES_LABEL_COLUMN_PRIORITY:
-        if cand in existing:
-            return cand
-    return None
-
-
 @dataclass
 class GeographyLoadStats:
     treedef_id: int
@@ -348,9 +297,10 @@ def _fetch_hierarchical_rows(cur: Any, owner: str) -> list[HierRow]:
             o,
         )
     type_expr = f"t.{label_col} AS TYPE_NAME" if label_col else "CAST(NULL AS VARCHAR2(4000)) AS TYPE_NAME"
+    rel = hierarchical_admin_relation(owner)
     sql = f"""
     SELECT h.HIERARCH_PLACE_ID, h.HIERACHICAL_PLACENAME, h.PLACE_ID_PARTOF, {type_expr}
-      FROM {o}.hierarchical_place_old h
+      FROM {rel} h
       LEFT JOIN {o}.types t ON t.TYPE_ID = h.HIERACHICAL_TYPE
     """
     t0 = time.perf_counter()
@@ -363,7 +313,7 @@ def _fetch_hierarchical_rows(cur: Any, owner: str) -> list[HierRow]:
         tname = r[3]
         rows.append(HierRow(hid, name, partof, tname))
     _progress_log(
-        "oracle_geography | Oracle fetch | %s hierarchical_place_old rows=%s elapsed=%s",
+        "oracle_geography | Oracle fetch | %s mv_hierarkisk_sted rows=%s elapsed=%s",
         o,
         len(rows),
         _format_duration(time.perf_counter() - t0),
@@ -410,7 +360,7 @@ def load_hierarchical_geography(
     treedef_id: int,
     dry_run: bool,
 ) -> tuple[GeographyLoadStats, dict[int, int]]:
-    """Insert ``Geography`` rows for ``HIERARCHICAL_PLACE_OLD``; return stats and Oracle→Specify id map."""
+    """Insert ``Geography`` rows for ``MV_HIERARKISK_STED``; return stats and Oracle→Specify id map."""
     from specifyweb.specify.models import Geography
 
     close_old_connections()
