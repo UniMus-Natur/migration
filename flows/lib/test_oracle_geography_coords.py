@@ -8,6 +8,8 @@ import unittest
 from flows.lib.musit_coordinate_map import (
     LAT1TEXT_MAX_LEN,
     apply_verbatim_coordinate_fields,
+    build_coordinate_remarks_payload,
+    format_locality_remarks_json,
     locality_spatial_kwargs_from_musit_koordinate,
     normalize_musit_datum,
     verbatim_coordinate_string,
@@ -44,7 +46,9 @@ class MusitCoordinateMapTests(unittest.TestCase):
         self.assertEqual(out["latitude1"], 58.3511)
         self.assertEqual(out["longitude1"], 8.6506)
         self.assertEqual(out["lat1text"], "MK 793-797,676-680")
-        self.assertIn("MUSIT COORD CONFLICT", out.get("remarks") or "")
+        remarks = json.loads(out["remarks"])
+        self.assertEqual(remarks["migration_meta"]["kind"], "musit-coordinate-notes")
+        self.assertEqual(remarks["notes"]["coord_conflict"]["kp"], [59.27, 8.59])
         audit = json.loads(out["text4"])
         self.assertEqual(audit["stored"]["primary_source"], "dc")
         self.assertIsNotNone(audit["stored"]["conflict"])
@@ -105,7 +109,57 @@ class MusitCoordinateMapTests(unittest.TestCase):
         self.assertNotIn("MUSIT PRECISION", out.get("remarks") or "")
         audit = json.loads(out["text4"])
         self.assertEqual(audit["uncertainty"]["musit_precision_m"], 100)
-        self.assertEqual(audit["migration_meta"]["mapping_version"], "musit-coordinates-v3")
+        self.assertEqual(audit["migration_meta"]["mapping_version"], "musit-coordinates-v5")
+
+    def test_remarks_json_when_long_verbatim(self) -> None:
+        long_ref = "X" * (LAT1TEXT_MAX_LEN + 1)
+        coord = {
+            "coordinate_string": long_ref,
+            "koordinate_place_id": 6,
+        }
+        out = locality_spatial_kwargs_from_musit_koordinate(coord)
+        remarks = json.loads(out["remarks"])
+        self.assertEqual(remarks["notes"]["verbatim_stored_in"], "text3")
+
+    def test_remarks_omitted_when_nothing_to_note(self) -> None:
+        coord = {
+            "latitude_l": 59.0,
+            "longitude_l": 10.0,
+            "coordinate_string": "NL 9435,9010",
+            "datum": "WGS84",
+            "koordinate_place_id": 7,
+        }
+        out = locality_spatial_kwargs_from_musit_koordinate(coord)
+        self.assertNotIn("remarks", out)
+
+    def test_format_locality_remarks_json_is_valid(self) -> None:
+        payload = build_coordinate_remarks_payload(
+            {"map_sheet": "1234", "zone": 32, "belt": "V"},
+            kp_datum_unmapped="32",
+        )
+        assert payload is not None
+        text = format_locality_remarks_json(payload)
+        parsed = json.loads(text)
+        self.assertIn("map_sheet", parsed["notes"])
+        self.assertIn("utm_zone", parsed["notes"])
+
+    def test_ca_utm_and_coord_added_later_map_to_yesno(self) -> None:
+        coord = {
+            "latitude_l": 59.0,
+            "longitude_l": 10.0,
+            "coordinate_string": "NL 9435,9010",
+            "datum": "WGS84",
+            "ca_utm": "1",
+            "utm_senere": "0",
+            "koordinate_place_id": 5,
+        }
+        out = locality_spatial_kwargs_from_musit_koordinate(coord)
+        self.assertIs(out["yesno1"], True)
+        self.assertIs(out["yesno2"], False)
+        self.assertNotIn("remarks", out)
+        audit = json.loads(out["text4"])
+        self.assertIs(audit["flags"]["ca_utm"], True)
+        self.assertIs(audit["flags"]["utm_senere"], False)
 
 
 if __name__ == "__main__":
