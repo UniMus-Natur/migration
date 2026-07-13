@@ -10,6 +10,7 @@ from typing import Any
 
 COORD_CONFLICT_THRESHOLD_DEG = 0.01
 LAT1TEXT_MAX_LEN = 50
+REMARKS_JSON_MAX_LEN = 4000
 _KNOWN_GEODETIC_DATUMS = frozenset({"WGS84", "ED50", "ETRS89", "EUREF89", "OSGB36", "NAD83", "NAD27"})
 
 
@@ -27,6 +28,20 @@ def musit_flag_is_set(value: Any) -> bool:
     if value is None:
         return False
     return str(value).strip().upper() in ("1", "Y", "TRUE")
+
+
+def musit_flag_to_bool(value: Any) -> bool | None:
+    """Map MUSIT flag column to tri-state bool (``None`` when unset/unknown)."""
+    if value is None:
+        return None
+    s = str(value).strip().upper()
+    if s == "":
+        return None
+    if s in ("1", "Y", "TRUE", "T"):
+        return True
+    if s in ("0", "N", "FALSE", "F"):
+        return False
+    return None
 
 
 def stored_lat_lng_pair(lat: Any, lng: Any) -> tuple[float | None, float | None]:
@@ -172,8 +187,12 @@ def build_coordinate_audit_json(
         "uncertainty": {
             "musit_precision_m": _json_number_or_none(coord.get("precision")),
         },
+        "flags": {
+            "ca_utm": musit_flag_to_bool(coord.get("ca_utm")),
+            "utm_senere": musit_flag_to_bool(coord.get("utm_senere")),
+        },
         "migration_meta": {
-            "mapping_version": "musit-coordinates-v3",
+            "mapping_version": "musit-coordinates-v5",
         },
     }
     if conflict:
@@ -181,35 +200,93 @@ def build_coordinate_audit_json(
     return payload
 
 
-def remarks_bits_from_coord(coord: dict[str, Any], *, extra_bits: list[str] | None = None) -> list[str]:
-    bits: list[str] = list(extra_bits or [])
-    ca_alt = coord.get("ca_altitude")
-    if ca_alt:
-        ca = str(ca_alt).strip()
-        if ca:
-            bits.append(f"MUSIT CA_ALTITUDE={ca[:40]}")
-
+def _utm_zone_from_coord(coord: dict[str, Any]) -> str | None:
     zone = coord.get("zone")
     belt = coord.get("belt")
     zone_str = str(zone).strip() if zone is not None else ""
     belt_str = str(belt).strip() if belt is not None else ""
     utm_zone = f"{zone_str}{belt_str}".strip()
     if utm_zone and not zone_str.isdigit():
-        bits.append(f"MUSIT UTM ZONE={utm_zone[:20]}")
-    elif zone_str.isdigit() and belt_str:
-        bits.append(f"MUSIT UTM ZONE={utm_zone[:20]}")
+        return utm_zone[:20]
+    if zone_str.isdigit() and belt_str:
+        return utm_zone[:20]
+    return None
 
-    map_sheet = coord.get("map_sheet")
+
+def build_coordinate_remarks_payload(
+    coord: dict[str, Any],
+    *,
+    conflict: dict[str, Any] | None = None,
+    verbatim_stored_in: str | None = None,
+    kp_datum_unmapped: str | None = None,
+) -> dict[str, Any] | None:
+    """Structured migration notes for ``Locality.remarks`` (machine-readable JSON)."""
+    notes: dict[str, Any] = {}
+    if verbatim_stored_in:
+        notes["verbatim_stored_in"] = verbatim_stored_in
+
+    ca_alt = non_empty_text(coord.get("ca_altitude"))
+    if ca_alt:
+        notes["ca_altitude"] = ca_alt[:40]
+
+    utm_zone = _utm_zone_from_coord(coord)
+    if utm_zone:
+        notes["utm_zone"] = utm_zone
+
+    map_sheet = non_empty_text(coord.get("map_sheet"))
     if map_sheet:
-        ms = str(map_sheet).strip()
-        if ms:
-            bits.append(f"MUSIT MAP_SHEET={ms[:40]}")
+        notes["map_sheet"] = map_sheet[:40]
 
-    if musit_flag_is_set(coord.get("ca_utm")):
-        bits.append("MUSIT CA_COORD=1")
-    if musit_flag_is_set(coord.get("utm_senere")):
-        bits.append("MUSIT COORD_ADDED_LATER=1")
-    return bits
+    if conflict:
+        notes["coord_conflict"] = conflict
+
+    if kp_datum_unmapped:
+        notes["kp_datum_unmapped"] = kp_datum_unmapped[:40]
+
+    if not notes:
+        return None
+
+    return {
+        "migration_meta": {"kind": "musit-coordinate-notes", "version": 1},
+        "notes": notes,
+    }
+
+
+def format_locality_remarks_json(payload: dict[str, Any]) -> str:
+    """Serialize remarks payload to compact JSON, staying within Specify field length."""
+    drop_order = (
+        "map_sheet",
+        "utm_zone",
+        "ca_altitude",
+        "kp_datum_unmapped",
+        "verbatim_stored_in",
+        "coord_conflict",
+    )
+
+    def _dump() -> str:
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str)
+
+    text = _dump()
+    while len(text) > REMARKS_JSON_MAX_LEN:
+        notes = payload.get("notes")
+        if not isinstance(notes, dict) or not notes:
+            payload = {
+                "migration_meta": payload.get("migration_meta")
+                or {"kind": "musit-coordinate-notes", "version": 1},
+                "notes": {"truncated": True},
+            }
+            text = _dump()
+            break
+        dropped = False
+        for key in drop_order:
+            if key in notes:
+                del notes[key]
+                dropped = True
+                break
+        if not dropped:
+            notes.clear()
+        text = _dump()
+    return text
 
 
 def locality_spatial_kwargs_from_musit_koordinate(
@@ -246,10 +323,11 @@ def locality_spatial_kwargs_from_musit_koordinate(
         out["longitude2"] = lon_h
 
     verbatim = verbatim_coordinate_string(coord)
+    verbatim_stored_in: str | None = None
     if verbatim:
         apply_verbatim_coordinate_fields(out, verbatim)
         if len(verbatim) > LAT1TEXT_MAX_LEN:
-            out.setdefault("remarks", "MUSIT coordinate_string in text3")
+            verbatim_stored_in = "text3"
 
     kp_datum_norm, kp_datum_raw = normalize_musit_datum(coord.get("datum"))
     dc_datum_norm, _dc_datum_raw = normalize_musit_datum(coord.get("dc_datum"))
@@ -257,16 +335,10 @@ def locality_spatial_kwargs_from_musit_koordinate(
     if datum:
         out["datum"] = datum[:50]
 
-    extra_remarks = remarks_bits_from_coord(coord)
     conflict: dict[str, Any] | None = None
     if kp_lat is not None and kp_lon is not None and dc_lat is not None and dc_lon is not None:
         if coords_materially_differ(kp_lat, kp_lon, dc_lat, dc_lon):
             conflict = {"kp": [kp_lat, kp_lon], "dc": [dc_lat, dc_lon]}
-            extra_remarks.append(
-                f"MUSIT COORD CONFLICT: kp=({kp_lat},{kp_lon}) dc=({dc_lat},{dc_lon})"
-            )
-    if kp_datum_raw and not kp_datum_norm:
-        extra_remarks.append(f"MUSIT KP_DATUM_RAW={kp_datum_raw[:40]}")
 
     coord_type_term = non_empty_text(coord.get("coordinate_type_term"))
     if coord_type_term:
@@ -301,10 +373,21 @@ def locality_spatial_kwargs_from_musit_koordinate(
     if prec is not None:
         out["latlongaccuracy"] = prec
 
-    if extra_remarks:
-        existing = out.get("remarks")
-        merged = "; ".join(p for p in (existing, " ".join(extra_remarks)) if p)
-        out["remarks"] = merged[:4000]
+    ca_utm = musit_flag_to_bool(coord.get("ca_utm"))
+    if ca_utm is not None:
+        out["yesno1"] = ca_utm
+    coord_later = musit_flag_to_bool(coord.get("utm_senere"))
+    if coord_later is not None:
+        out["yesno2"] = coord_later
+
+    remarks_payload = build_coordinate_remarks_payload(
+        coord,
+        conflict=conflict,
+        verbatim_stored_in=verbatim_stored_in,
+        kp_datum_unmapped=kp_datum_raw if kp_datum_raw and not kp_datum_norm else None,
+    )
+    if remarks_payload:
+        out["remarks"] = format_locality_remarks_json(remarks_payload)
 
     audit = build_coordinate_audit_json(
         coord,
