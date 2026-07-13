@@ -20,6 +20,7 @@ def inventory_musit_botany(cur: Any) -> dict[str, int]:
         f"{p}.PLACE_EVENT_ROLE": _count(cur, f"SELECT COUNT(*) FROM {p}.place_event_role"),
         f"{p}.PLACE_LOCALITY_PLACE": _count(cur, f"SELECT COUNT(*) FROM {p}.place_locality_place"),
         f"{p}.PLACE_HIERACHICAL_PLACE": _count(cur, f"SELECT COUNT(*) FROM {p}.place_hierachical_place"),
+        f"{p}.MV_HIERARKISK_STED": _count(cur, f"SELECT COUNT(*) FROM {p}.mv_hierarkisk_sted"),
         f"{p}.HIERARCHICAL_PLACE_OLD": _count(cur, f"SELECT COUNT(*) FROM {p}.hierarchical_place_old"),
         f"{p}.LOCALITY_PLACE": _count(cur, f"SELECT COUNT(*) FROM {p}.locality_place"),
         f"{p}.KOORDINATE_PLACE": _count(cur, f"SELECT COUNT(*) FROM {p}.koordinate_place"),

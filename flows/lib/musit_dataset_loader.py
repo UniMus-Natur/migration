@@ -707,71 +707,9 @@ def _fetch_hierarchical_chain_rows_for_place(
     place_id: int,
 ) -> list[dict[str, Any]]:
     """Return hierarchical rows for a PLACE_ID, including ancestors up to root."""
-    from flows.lib.oracle_geography_load import _types_label_column_name
+    from flows.lib.oracle_geography_admin import fetch_hierarchical_chain_rows_for_place
 
-    o = owner.upper()
-    label_col = _types_label_column_name(oracle_cursor, owner)
-    type_expr = f"t.{label_col}" if label_col else "CAST(NULL AS VARCHAR2(4000))"
-
-    oracle_cursor.execute(
-        f"SELECT php.HIERACHICAL_PLACE_ID FROM {o}.place_hierachical_place php WHERE php.place_id = :pid",
-        {"pid": place_id},
-    )
-    seed_ids = [int(r[0]) for r in oracle_cursor.fetchall() if r and r[0] is not None]
-    if not seed_ids:
-        return []
-
-    by_hid: dict[int, dict[str, Any]] = {}
-    queue: list[int] = list(seed_ids)
-    seen: set[int] = set()
-    while queue:
-        hid = int(queue.pop())
-        if hid in seen:
-            continue
-        seen.add(hid)
-        oracle_cursor.execute(
-            f"""
-            SELECT h.HIERARCH_PLACE_ID, h.HIERACHICAL_PLACENAME, h.PLACE_ID_PARTOF, {type_expr} AS TYPE_NAME
-              FROM {o}.hierarchical_place_old h
-              LEFT JOIN {o}.types t ON t.TYPE_ID = h.HIERACHICAL_TYPE
-             WHERE h.HIERARCH_PLACE_ID = :hid
-            """,
-            {"hid": hid},
-        )
-        row = oracle_cursor.fetchone()
-        if not row:
-            continue
-        partof = int(row[2]) if row[2] is not None else None
-        by_hid[hid] = {
-            "hid": hid,
-            "name": ((row[1] or "").strip() or f"ID_{hid}")[:128],
-            "partof": partof,
-            "type_name": row[3],
-        }
-        if partof is not None and partof not in seen:
-            queue.append(partof)
-
-    # Parent-before-child topological order.
-    ordered: list[dict[str, Any]] = []
-    remaining = set(by_hid.keys())
-    ordered_ids: set[int] = set()
-    guard = 0
-    while remaining and guard < (len(remaining) + 5):
-        guard += 1
-        progressed = False
-        for hid in list(remaining):
-            parent = by_hid[hid]["partof"]
-            if parent is None or parent not in by_hid or parent in ordered_ids:
-                ordered.append(by_hid[hid])
-                ordered_ids.add(hid)
-                remaining.remove(hid)
-                progressed = True
-        if not progressed:
-            for hid in list(remaining):
-                ordered.append(by_hid[hid])
-                ordered_ids.add(hid)
-                remaining.remove(hid)
-    return ordered
+    return fetch_hierarchical_chain_rows_for_place(oracle_cursor, owner, place_id)
 
 
 def _fix_geography_root_nodenumber_if_needed(earth: Any) -> None:
@@ -864,7 +802,7 @@ def _ensure_geography_for_place(
 
     rows = _fetch_hierarchical_chain_rows_for_place(oracle_cursor, owner, place_id)
     if not rows:
-        # No hierarchical_place_old chain for this PLACE_ID — attach a single leaf under Earth
+        # No MV_HIERARKISK_STED chain for this PLACE_ID — attach a single leaf under Earth
         # so Locality always has a valid Geography (Specify tree code requires numbered roots).
         if dry_run:
             return None
