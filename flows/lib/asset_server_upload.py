@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import mimetypes
 import os
 import time
@@ -15,8 +14,6 @@ from urllib.parse import urlparse
 import hmac
 import requests
 from django.conf import settings
-
-logger = logging.getLogger(__name__)
 
 UNIMUS_ORIGINAL_URL = (
     "https://www.unimus.no/felles/bilder/web_hent_bilde.php?id={media_group_id}&type=orig"
@@ -111,6 +108,27 @@ def reset_asset_server_cache() -> None:
     _server_time_delta = 0
 
 
+def validate_media_bytes(file_bytes: bytes, *, source: str) -> str:
+    """Reject HTML/empty downloads; return a coarse media kind for logging."""
+    if not file_bytes:
+        raise AssetServerError(f"Empty response from {source}")
+    head = file_bytes[:512].lstrip().lower()
+    if head.startswith((b"<!doctype", b"<html", b"<?xml")):
+        snippet = file_bytes[:200].decode("utf-8", errors="replace")
+        raise AssetServerError(
+            f"Expected media bytes but got HTML/XML from {source}: {snippet[:120]}"
+        )
+    if file_bytes.startswith((b"II", b"MM")):
+        return "tiff"
+    if file_bytes.startswith(b"\xff\xd8\xff"):
+        return "jpeg"
+    if file_bytes.startswith(b"\x89PNG"):
+        return "png"
+    if file_bytes[:4] == b"%PDF":
+        return "pdf"
+    return "unknown"
+
+
 def download_unimus_original(
     media_group_id: int,
     *,
@@ -124,6 +142,30 @@ def download_unimus_original(
         raise AssetServerError(f"Empty response from Unimus for media_group_id={media_group_id}")
     content_type = response.headers.get("Content-Type")
     return response.content, content_type
+
+
+def _resolve_upload_mime(
+    orig_filename: str,
+    mime_type: str,
+    content_type: str | None,
+    media_kind: str,
+) -> str:
+    if mime_type:
+        return mime_type
+    guessed, _ = mimetypes.guess_type(orig_filename)
+    if guessed:
+        return guessed
+    if content_type:
+        return content_type.split(";", 1)[0].strip()
+    if media_kind == "jpeg":
+        return "image/jpeg"
+    if media_kind == "tiff":
+        return "image/tiff"
+    if media_kind == "png":
+        return "image/png"
+    if media_kind == "pdf":
+        return "application/pdf"
+    return "application/octet-stream"
 
 
 def upload_original_to_asset_server(
@@ -154,8 +196,10 @@ def upload_original_to_asset_server(
     )
     _update_time_delta(response)
     if response.status_code != 200:
+        size_mb = len(file_bytes) / (1024 * 1024)
         raise AssetServerError(
-            f"Asset server upload failed ({response.status_code}): {response.text[:500]}"
+            f"Asset server upload failed ({response.status_code}) for {orig_filename} "
+            f"({size_mb:.1f} MB): {response.text[:500]}"
         )
     return attachment_location
 
@@ -168,21 +212,31 @@ def migrate_unimus_original_to_asset_server(
     collection_name: str,
     timeout_s: int = 600,
 ) -> dict[str, Any]:
-    """Download from Unimus and upload to the asset server."""
-    file_bytes, content_type = download_unimus_original(media_group_id, timeout_s=timeout_s)
-    if not mime_type:
-        guessed, _ = mimetypes.guess_type(orig_filename)
-        mime_type = guessed or (content_type.split(";", 1)[0].strip() if content_type else "application/octet-stream")
+    """Download the Unimus original and upload it to the asset server."""
+    source = f"unimus id={media_group_id} type=orig"
+    try:
+        file_bytes, content_type = download_unimus_original(
+            media_group_id, timeout_s=timeout_s
+        )
+    except requests.RequestException as exc:
+        raise AssetServerError(
+            f"Unimus download failed for media_group_id={media_group_id}: {exc}"
+        ) from exc
 
+    media_kind = validate_media_bytes(file_bytes, source=source)
+    resolved_mime = _resolve_upload_mime(
+        orig_filename, mime_type, content_type, media_kind
+    )
     attachment_location = upload_original_to_asset_server(
         file_bytes=file_bytes,
         orig_filename=orig_filename,
-        mime_type=mime_type,
+        mime_type=resolved_mime,
         collection_name=collection_name,
         timeout_s=timeout_s,
     )
     return {
         "attachmentlocation": attachment_location,
         "bytes": len(file_bytes),
-        "mime_type": mime_type,
+        "mime_type": resolved_mime,
+        "media_kind": media_kind,
     }
