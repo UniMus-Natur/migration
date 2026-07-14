@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import mimetypes
 import os
 import time
@@ -15,9 +16,15 @@ import hmac
 import requests
 from django.conf import settings
 
+logger = logging.getLogger(__name__)
+
 UNIMUS_ORIGINAL_URL = (
     "https://www.unimus.no/felles/bilder/web_hent_bilde.php?id={media_group_id}&type=orig"
 )
+
+# Intermittent asset-server/S3 failures during large TIFF uploads (~0.3% in staging).
+UPLOAD_MAX_ATTEMPTS = 4
+UPLOAD_RETRY_BACKOFF_S = (5, 15, 30)
 
 _server_urls: dict[str, str] | None = None
 _server_time_delta: int = 0
@@ -168,6 +175,31 @@ def _resolve_upload_mime(
     return "application/octet-stream"
 
 
+def _is_retryable_upload_status(status_code: int) -> bool:
+    """True for transient asset-server/proxy failures seen during bulk migration."""
+    return status_code in {400, 408, 429, 502, 503, 504}
+
+
+def _upload_failure_message(
+    *,
+    status_code: int | None,
+    orig_filename: str,
+    file_bytes: bytes,
+    response_text: str,
+    attempt: int,
+    max_attempts: int,
+    exc: Exception | None = None,
+) -> str:
+    size_mb = len(file_bytes) / (1024 * 1024)
+    prefix = f"Asset server upload failed (attempt {attempt}/{max_attempts})"
+    if status_code is not None:
+        return (
+            f"{prefix} ({status_code}) for {orig_filename} "
+            f"({size_mb:.1f} MB): {response_text[:500]}"
+        )
+    return f"{prefix} for {orig_filename} ({size_mb:.1f} MB): {exc}"
+
+
 def upload_original_to_asset_server(
     *,
     file_bytes: bytes,
@@ -175,33 +207,92 @@ def upload_original_to_asset_server(
     mime_type: str,
     collection_name: str,
     timeout_s: int = 600,
+    max_attempts: int = UPLOAD_MAX_ATTEMPTS,
+    retry_backoff_s: tuple[int, ...] = UPLOAD_RETRY_BACKOFF_S,
 ) -> str:
     """Upload bytes to the asset server and return ``attachmentlocation`` (stored filename)."""
     server_urls = _ensure_server_urls()
-    attachment_location = make_attachment_filename(orig_filename)
-    token = _generate_token(_get_timestamp(), attachment_location)
+    write_url = server_urls["write"]
+    resolved_mime = mime_type or "application/octet-stream"
+    errors: list[str] = []
 
-    response = requests.post(
-        server_urls["write"],
-        data={
-            "token": token,
-            "store": attachment_location,
-            "type": "O",
-            "coll": collection_name,
-        },
-        files={
-            "file": (orig_filename, file_bytes, mime_type or "application/octet-stream"),
-        },
-        timeout=timeout_s,
-    )
-    _update_time_delta(response)
-    if response.status_code != 200:
-        size_mb = len(file_bytes) / (1024 * 1024)
-        raise AssetServerError(
-            f"Asset server upload failed ({response.status_code}) for {orig_filename} "
-            f"({size_mb:.1f} MB): {response.text[:500]}"
+    for attempt in range(1, max_attempts + 1):
+        attachment_location = make_attachment_filename(orig_filename)
+        token = _generate_token(_get_timestamp(), attachment_location)
+        try:
+            response = requests.post(
+                write_url,
+                data={
+                    "token": token,
+                    "store": attachment_location,
+                    "type": "O",
+                    "coll": collection_name,
+                },
+                files={
+                    "file": (orig_filename, file_bytes, resolved_mime),
+                },
+                timeout=timeout_s,
+            )
+        except requests.RequestException as exc:
+            msg = _upload_failure_message(
+                status_code=None,
+                orig_filename=orig_filename,
+                file_bytes=file_bytes,
+                response_text="",
+                attempt=attempt,
+                max_attempts=max_attempts,
+                exc=exc,
+            )
+            errors.append(msg)
+            if attempt < max_attempts:
+                delay = retry_backoff_s[min(attempt - 1, len(retry_backoff_s) - 1)]
+                logger.warning(
+                    "%s; retrying in %ss",
+                    msg,
+                    delay,
+                )
+                time.sleep(delay)
+                continue
+            raise AssetServerError(
+                f"Asset server upload failed after {max_attempts} attempts for "
+                f"{orig_filename}: " + "; ".join(errors)
+            ) from exc
+
+        _update_time_delta(response)
+        if response.status_code == 200:
+            return attachment_location
+
+        msg = _upload_failure_message(
+            status_code=response.status_code,
+            orig_filename=orig_filename,
+            file_bytes=file_bytes,
+            response_text=response.text,
+            attempt=attempt,
+            max_attempts=max_attempts,
         )
-    return attachment_location
+        errors.append(msg)
+        if (
+            attempt < max_attempts
+            and _is_retryable_upload_status(response.status_code)
+        ):
+            delay = retry_backoff_s[min(attempt - 1, len(retry_backoff_s) - 1)]
+            logger.warning(
+                "%s; retrying in %ss",
+                msg,
+                delay,
+            )
+            time.sleep(delay)
+            continue
+
+        raise AssetServerError(
+            f"Asset server upload failed after {attempt} attempt(s) for "
+            f"{orig_filename}: " + "; ".join(errors)
+        )
+
+    raise AssetServerError(
+        f"Asset server upload failed after {max_attempts} attempts for "
+        f"{orig_filename}: " + "; ".join(errors)
+    )
 
 
 def migrate_unimus_original_to_asset_server(
