@@ -21,7 +21,9 @@ if "django" not in sys.modules:
 
 from flows.lib.asset_server_upload import (  # noqa: E402
     AssetServerError,
+    _is_retryable_download_status,
     _is_retryable_upload_status,
+    download_unimus_original,
     reset_asset_server_cache,
     upload_original_to_asset_server,
     validate_media_bytes,
@@ -62,6 +64,58 @@ class AssetServerUploadTests(unittest.TestCase):
         self.assertTrue(_is_retryable_upload_status(400))
         self.assertTrue(_is_retryable_upload_status(503))
         self.assertFalse(_is_retryable_upload_status(403))
+
+    def test_retryable_download_status_includes_503_not_404(self) -> None:
+        self.assertTrue(_is_retryable_download_status(503))
+        self.assertFalse(_is_retryable_download_status(404))
+
+    @patch("flows.lib.asset_server_upload.time.sleep")
+    @patch("flows.lib.asset_server_upload.requests.get")
+    def test_download_retries_premature_response(
+        self,
+        mock_get: MagicMock,
+        mock_sleep: MagicMock,
+    ) -> None:
+        import requests
+        from urllib3.exceptions import ProtocolError
+
+        ok = _mock_response(status_code=200, text="")
+        ok.content = b"II*\x00" + b"x" * 100
+
+        mock_get.side_effect = [
+            requests.exceptions.ChunkedEncodingError(ProtocolError("Response ended prematurely")),
+            ok,
+        ]
+
+        data, _ct = download_unimus_original(
+            13085828,
+            max_attempts=4,
+            retry_backoff_s=(0, 0, 0),
+        )
+
+        self.assertTrue(data.startswith(b"II"))
+        self.assertEqual(mock_get.call_count, 2)
+        mock_sleep.assert_called_once_with(0)
+
+    @patch("flows.lib.asset_server_upload.time.sleep")
+    @patch("flows.lib.asset_server_upload.requests.get")
+    def test_download_does_not_retry_404(
+        self,
+        mock_get: MagicMock,
+        mock_sleep: MagicMock,
+    ) -> None:
+        mock_get.return_value = _mock_response(status_code=404, text="not found")
+
+        with self.assertRaises(AssetServerError) as ctx:
+            download_unimus_original(
+                999,
+                max_attempts=4,
+                retry_backoff_s=(0, 0, 0),
+            )
+
+        self.assertEqual(mock_get.call_count, 1)
+        mock_sleep.assert_not_called()
+        self.assertIn("HTTP 404", str(ctx.exception))
 
     @patch("flows.lib.asset_server_upload.time.sleep")
     @patch("flows.lib.asset_server_upload.requests.post")

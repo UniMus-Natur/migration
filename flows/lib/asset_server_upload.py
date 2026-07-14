@@ -26,6 +26,10 @@ UNIMUS_ORIGINAL_URL = (
 UPLOAD_MAX_ATTEMPTS = 4
 UPLOAD_RETRY_BACKOFF_S = (5, 15, 30)
 
+# Unimus ``web_hent_bilde.php`` can drop long transfers under bulk load.
+DOWNLOAD_MAX_ATTEMPTS = 4
+DOWNLOAD_RETRY_BACKOFF_S = (5, 15, 30)
+
 _server_urls: dict[str, str] | None = None
 _server_time_delta: int = 0
 
@@ -136,19 +140,83 @@ def validate_media_bytes(file_bytes: bytes, *, source: str) -> str:
     return "unknown"
 
 
+def _is_retryable_download_status(status_code: int) -> bool:
+    """True for transient Unimus/proxy failures during large media downloads."""
+    return status_code in {408, 429, 500, 502, 503, 504}
+
+
 def download_unimus_original(
     media_group_id: int,
     *,
     timeout_s: int = 600,
+    max_attempts: int = DOWNLOAD_MAX_ATTEMPTS,
+    retry_backoff_s: tuple[int, ...] = DOWNLOAD_RETRY_BACKOFF_S,
 ) -> tuple[bytes, str | None]:
     """Download the original file bytes for a MUSIT media group."""
     url = UNIMUS_ORIGINAL_URL.format(media_group_id=int(media_group_id))
-    response = requests.get(url, timeout=timeout_s)
-    response.raise_for_status()
-    if not response.content:
-        raise AssetServerError(f"Empty response from Unimus for media_group_id={media_group_id}")
-    content_type = response.headers.get("Content-Type")
-    return response.content, content_type
+    source = f"unimus id={media_group_id} type=orig"
+    errors: list[str] = []
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = requests.get(url, timeout=timeout_s)
+            if response.status_code != 200:
+                msg = (
+                    f"Unimus download failed (attempt {attempt}/{max_attempts}) "
+                    f"for media_group_id={media_group_id}: HTTP {response.status_code}"
+                )
+                errors.append(msg)
+                if (
+                    attempt < max_attempts
+                    and _is_retryable_download_status(response.status_code)
+                ):
+                    delay = retry_backoff_s[min(attempt - 1, len(retry_backoff_s) - 1)]
+                    logger.warning("%s; retrying in %ss", msg, delay)
+                    time.sleep(delay)
+                    continue
+                raise AssetServerError(
+                    f"Unimus download failed for media_group_id={media_group_id}: "
+                    + "; ".join(errors)
+                )
+
+            if not response.content:
+                msg = (
+                    f"Unimus download failed (attempt {attempt}/{max_attempts}) "
+                    f"for media_group_id={media_group_id}: empty response"
+                )
+                errors.append(msg)
+                if attempt < max_attempts:
+                    delay = retry_backoff_s[min(attempt - 1, len(retry_backoff_s) - 1)]
+                    logger.warning("%s; retrying in %ss", msg, delay)
+                    time.sleep(delay)
+                    continue
+                raise AssetServerError(
+                    f"Unimus download failed for media_group_id={media_group_id}: "
+                    + "; ".join(errors)
+                )
+
+            validate_media_bytes(response.content, source=source)
+            return response.content, response.headers.get("Content-Type")
+        except requests.RequestException as exc:
+            msg = (
+                f"Unimus download failed (attempt {attempt}/{max_attempts}) "
+                f"for media_group_id={media_group_id}: {exc}"
+            )
+            errors.append(msg)
+            if attempt < max_attempts:
+                delay = retry_backoff_s[min(attempt - 1, len(retry_backoff_s) - 1)]
+                logger.warning("%s; retrying in %ss", msg, delay)
+                time.sleep(delay)
+                continue
+            raise AssetServerError(
+                f"Unimus download failed for media_group_id={media_group_id}: "
+                + "; ".join(errors)
+            ) from exc
+
+    raise AssetServerError(
+        f"Unimus download failed for media_group_id={media_group_id}: "
+        + "; ".join(errors)
+    )
 
 
 def _resolve_upload_mime(
@@ -305,14 +373,9 @@ def migrate_unimus_original_to_asset_server(
 ) -> dict[str, Any]:
     """Download the Unimus original and upload it to the asset server."""
     source = f"unimus id={media_group_id} type=orig"
-    try:
-        file_bytes, content_type = download_unimus_original(
-            media_group_id, timeout_s=timeout_s
-        )
-    except requests.RequestException as exc:
-        raise AssetServerError(
-            f"Unimus download failed for media_group_id={media_group_id}: {exc}"
-        ) from exc
+    file_bytes, content_type = download_unimus_original(
+        media_group_id, timeout_s=timeout_s
+    )
 
     media_kind = validate_media_bytes(file_bytes, source=source)
     resolved_mime = _resolve_upload_mime(
