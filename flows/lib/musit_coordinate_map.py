@@ -104,10 +104,86 @@ def verbatim_coordinate_string(coord: dict[str, Any]) -> str | None:
 
 
 def apply_verbatim_coordinate_fields(out: dict[str, Any], verbatim: str) -> None:
-    if len(verbatim) <= LAT1TEXT_MAX_LEN:
-        out["lat1text"] = verbatim
-        return
-    out["text3"] = verbatim
+    """Backward-compatible wrapper for tests and legacy callers."""
+    apply_latlong_text_fields(out, {}, verbatim)
+
+
+def _format_axis_text(value: Any) -> str | None:
+    num = _to_decimal_or_none(value)
+    if num is None:
+        return None
+    if float(num).is_integer():
+        return str(int(num))
+    text = f"{num}".rstrip("0").rstrip(".")
+    return text or str(num)
+
+
+def utm_axis_text_pair(coord: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Return UTM easting/northing text for ``lat1text``/``long1text`` when both axes exist."""
+    for x_key, y_key in (
+        ("utm_x", "utm_y"),
+        ("dc_utm_x", "dc_utm_y"),
+        ("utm33_x", "utm33_y"),
+        ("dc_utm33_x", "dc_utm33_y"),
+    ):
+        x = _format_axis_text(coord.get(x_key))
+        y = _format_axis_text(coord.get(y_key))
+        if x and y:
+            return x[:LAT1TEXT_MAX_LEN], y[:LAT1TEXT_MAX_LEN]
+    return None, None
+
+
+def split_grid_text_pair(verbatim: str) -> tuple[str | None, str | None]:
+    """Split a MUSIT grid/MGRS string like ``NM 71,56`` into two text axes."""
+    if "," not in verbatim:
+        return None, None
+    left, right = verbatim.split(",", 1)
+    left = left.strip()
+    right = right.strip()
+    if not left or not right:
+        return None, None
+    return left[:LAT1TEXT_MAX_LEN], right[:LAT1TEXT_MAX_LEN]
+
+
+def apply_latlong_text_fields(
+    out: dict[str, Any],
+    coord: dict[str, Any],
+    verbatim: str | None,
+) -> str | None:
+    """Populate ``lat1text``/``long1text`` from UTM axes or grid strings.
+
+  1. UTM easting/northing (``KOORDINATE_PLACE`` or ``DERIVED_COORDINATES``) → ``lat1text``/``long1text``
+  2. Else split ``coordinate_string`` on comma (Norwegian/MGRS grid)
+  3. Else single verbatim string in ``lat1text``, or ``text3`` when too long
+
+    Returns ``verbatim_stored_in`` when the full verbatim string is stored in ``text3``.
+    """
+    utm_x, utm_y = utm_axis_text_pair(coord)
+    if utm_x and utm_y:
+        out["lat1text"] = utm_x
+        out["long1text"] = utm_y
+        if verbatim:
+            compact = {utm_x, utm_y, f"{utm_x},{utm_y}", f"{utm_x}, {utm_y}"}
+            if verbatim not in compact:
+                if len(verbatim) <= LAT1TEXT_MAX_LEN:
+                    out["lat2text"] = verbatim
+                else:
+                    out["text3"] = verbatim
+                    return "text3"
+        return None
+
+    if verbatim:
+        left, right = split_grid_text_pair(verbatim)
+        if left and right:
+            out["lat1text"] = left
+            out["long1text"] = right
+            return None
+        if len(verbatim) <= LAT1TEXT_MAX_LEN:
+            out["lat1text"] = verbatim
+            return None
+        out["text3"] = verbatim
+        return "text3"
+    return None
 
 
 def _json_number_or_none(value: Any) -> float | int | None:
@@ -192,7 +268,7 @@ def build_coordinate_audit_json(
             "utm_senere": musit_flag_to_bool(coord.get("utm_senere")),
         },
         "migration_meta": {
-            "mapping_version": "musit-coordinates-v5",
+            "mapping_version": "musit-coordinates-v6",
         },
     }
     if conflict:
@@ -300,6 +376,10 @@ def locality_spatial_kwargs_from_musit_koordinate(
 
     kp_lat, kp_lon = stored_lat_lng_pair(coord.get("latitude_l"), coord.get("longitude_l"))
     dc_lat, dc_lon = stored_lat_lng_pair(coord.get("dc_latitude"), coord.get("dc_longitude"))
+    if dc_lat is None or dc_lon is None:
+        wgs_lat, wgs_lon = stored_lat_lng_pair(coord.get("dc_lat_wgs84"), coord.get("dc_lon_wgs84"))
+        if wgs_lat is not None and wgs_lon is not None:
+            dc_lat, dc_lon = wgs_lat, wgs_lon
 
     primary_source: str | None = None
     lat1: float | None = None
@@ -323,11 +403,7 @@ def locality_spatial_kwargs_from_musit_koordinate(
         out["longitude2"] = lon_h
 
     verbatim = verbatim_coordinate_string(coord)
-    verbatim_stored_in: str | None = None
-    if verbatim:
-        apply_verbatim_coordinate_fields(out, verbatim)
-        if len(verbatim) > LAT1TEXT_MAX_LEN:
-            verbatim_stored_in = "text3"
+    verbatim_stored_in = apply_latlong_text_fields(out, coord, verbatim)
 
     kp_datum_norm, kp_datum_raw = normalize_musit_datum(coord.get("datum"))
     dc_datum_norm, _dc_datum_raw = normalize_musit_datum(coord.get("dc_datum"))

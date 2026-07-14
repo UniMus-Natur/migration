@@ -17,10 +17,11 @@ from flows.lib.musit_coordinate_map import (
 
 
 class MusitCoordinateMapTests(unittest.TestCase):
-    def test_verbatim_short_goes_to_lat1text(self) -> None:
+    def test_verbatim_short_splits_on_comma(self) -> None:
         out: dict = {}
         apply_verbatim_coordinate_fields(out, "NM 71,56")
-        self.assertEqual(out["lat1text"], "NM 71,56")
+        self.assertEqual(out["lat1text"], "NM 71")
+        self.assertEqual(out["long1text"], "56")
         self.assertNotIn("text3", out)
 
     def test_verbatim_long_goes_to_text3(self) -> None:
@@ -45,7 +46,8 @@ class MusitCoordinateMapTests(unittest.TestCase):
         )
         self.assertEqual(out["latitude1"], 58.3511)
         self.assertEqual(out["longitude1"], 8.6506)
-        self.assertEqual(out["lat1text"], "MK 793-797,676-680")
+        self.assertEqual(out["lat1text"], "MK 793-797")
+        self.assertEqual(out["long1text"], "676-680")
         remarks = json.loads(out["remarks"])
         self.assertEqual(remarks["migration_meta"]["kind"], "musit-coordinate-notes")
         self.assertEqual(remarks["notes"]["coord_conflict"]["kp"], [59.27, 8.59])
@@ -66,6 +68,8 @@ class MusitCoordinateMapTests(unittest.TestCase):
         out = locality_spatial_kwargs_from_musit_koordinate(coord)
         self.assertEqual(out["latitude1"], 61.0865)
         self.assertEqual(out["longitude1"], 9.7030)
+        self.assertEqual(out["lat1text"], "NN 35")
+        self.assertEqual(out["long1text"], "50")
         audit = json.loads(out["text4"])
         self.assertEqual(audit["stored"]["primary_source"], "kp")
 
@@ -109,7 +113,37 @@ class MusitCoordinateMapTests(unittest.TestCase):
         self.assertNotIn("MUSIT PRECISION", out.get("remarks") or "")
         audit = json.loads(out["text4"])
         self.assertEqual(audit["uncertainty"]["musit_precision_m"], 100)
-        self.assertEqual(audit["migration_meta"]["mapping_version"], "musit-coordinates-v5")
+        self.assertEqual(audit["migration_meta"]["mapping_version"], "musit-coordinates-v6")
+
+    def test_mgrs_with_derived_utm_and_wgs(self) -> None:
+        """Regression for O-V-2002713: WGS decimals + UTM text axes + MGRS preserved."""
+        coord = {
+            "coordinate_string": "CS 163,372",
+            "mgrs_l": "CS 163,372",
+            "latitude_l": None,
+            "longitude_l": None,
+            "dc_latitude": 28.3486,
+            "dc_longitude": -16.8737,
+            "dc_utm_x": 316350,
+            "dc_utm_y": 3137250,
+            "zone": 28,
+            "belt": "R",
+            "datum": "WGS84",
+            "dc_datum": "WGS84",
+            "precision": 2236.068,
+            "coordinate_type_term": "MGRS",
+            "utm_senere": "1",
+            "koordinate_place_id": 201901,
+        }
+        out = locality_spatial_kwargs_from_musit_koordinate(
+            coord, owner="MUSIT_BOTANIKK_FELLES", place_id=461702
+        )
+        self.assertEqual(out["latitude1"], 28.3486)
+        self.assertEqual(out["longitude1"], -16.8737)
+        self.assertEqual(out["lat1text"], "316350")
+        self.assertEqual(out["long1text"], "3137250")
+        self.assertEqual(out["lat2text"], "CS 163,372")
+        self.assertIs(out["yesno2"], True)
 
     def test_remarks_json_when_long_verbatim(self) -> None:
         long_ref = "X" * (LAT1TEXT_MAX_LEN + 1)
