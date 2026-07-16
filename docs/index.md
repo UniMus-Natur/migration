@@ -19,6 +19,7 @@ This documentation covers the planning, architecture, and execution of migrating
 - [**Database Fields**](database_fields.md): Auto-generated schema reference and ERD.
 - [**Oracle Schema Overview**](oracle_schema_overview.md): Deep analysis and grouping of the legacy source schemas and tables.
 - [**Oracle botany datasets**](oracle_botany_datasets.md): MUSIT `DATASET` / `PROJECT_NAME`, legacy USD botany schemas, extractable dimensions, and SQL.
+- [**MUSIT coordinate migration**](musit_coordinate_migration.md): How WGS, MGRS, and UTM land on Specify `Locality` (`text3` / `text5` / audit JSON).
 - [**Migration Strategy (Phased)**](migration_strategy.md): Strategy for merging shared data and iteratively migrating datasets to Specify 7.
 - [**NorTaxa taxon trees**](nortaxa_taxon_trees.md): NorTaxa API → Specify taxon tree sync (Phase 1.3): bulk merge, changelog, discipline slices, future scenarios.
 - [**User migration report**](user_migration_report.md): `migration_report.json` from the Migrate Users Prefect flow (Phase 1.4).

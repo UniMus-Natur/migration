@@ -6,9 +6,10 @@ import json
 import unittest
 
 from flows.lib.musit_coordinate_map import (
-    LAT1TEXT_MAX_LEN,
+    MAPPING_VERSION,
     apply_verbatim_coordinate_fields,
     build_coordinate_remarks_payload,
+    build_utm_geojson,
     format_locality_remarks_json,
     locality_spatial_kwargs_from_musit_koordinate,
     normalize_musit_datum,
@@ -17,18 +18,11 @@ from flows.lib.musit_coordinate_map import (
 
 
 class MusitCoordinateMapTests(unittest.TestCase):
-    def test_verbatim_short_goes_to_lat1text(self) -> None:
+    def test_verbatim_mgrs_goes_to_text3(self) -> None:
         out: dict = {}
         apply_verbatim_coordinate_fields(out, "NM 71,56")
-        self.assertEqual(out["lat1text"], "NM 71,56")
-        self.assertNotIn("text3", out)
-
-    def test_verbatim_long_goes_to_text3(self) -> None:
-        long_ref = "X" * (LAT1TEXT_MAX_LEN + 1)
-        out: dict = {}
-        apply_verbatim_coordinate_fields(out, long_ref)
+        self.assertEqual(out["text3"], "NM 71,56")
         self.assertNotIn("lat1text", out)
-        self.assertEqual(out["text3"], long_ref)
 
     def test_primary_decimal_prefers_derived_over_kp(self) -> None:
         coord = {
@@ -39,19 +33,25 @@ class MusitCoordinateMapTests(unittest.TestCase):
             "coordinate_string": "MK 793-797,676-680",
             "datum": "WGS84",
             "koordinate_place_id": 1,
+            "coordinate_type_term": "MGRS",
         }
         out = locality_spatial_kwargs_from_musit_koordinate(
             coord, owner="MUSIT_BOTANIKK_FELLES", place_id=99
         )
         self.assertEqual(out["latitude1"], 58.3511)
         self.assertEqual(out["longitude1"], 8.6506)
-        self.assertEqual(out["lat1text"], "MK 793-797,676-680")
+        self.assertEqual(out["lat1text"], "58.3511")
+        self.assertEqual(out["long1text"], "8.6506")
+        self.assertEqual(out["latlongtype"], "Point")
+        self.assertEqual(out["text3"], "MK 793-797,676-680")
+        self.assertNotIn("latitude2", out)
         remarks = json.loads(out["remarks"])
         self.assertEqual(remarks["migration_meta"]["kind"], "musit-coordinate-notes")
         self.assertEqual(remarks["notes"]["coord_conflict"]["kp"], [59.27, 8.59])
         audit = json.loads(out["text4"])
         self.assertEqual(audit["stored"]["primary_source"], "dc")
         self.assertIsNotNone(audit["stored"]["conflict"])
+        self.assertEqual(audit["migration_meta"]["mapping_version"], MAPPING_VERSION)
 
     def test_kp_decimals_used_when_derived_missing(self) -> None:
         coord = {
@@ -62,10 +62,12 @@ class MusitCoordinateMapTests(unittest.TestCase):
             "coordinate_string": "NN 35,50",
             "datum": "ED50",
             "koordinate_place_id": 2,
+            "coordinate_type_term": "MGRS",
         }
         out = locality_spatial_kwargs_from_musit_koordinate(coord)
         self.assertEqual(out["latitude1"], 61.0865)
         self.assertEqual(out["longitude1"], 9.7030)
+        self.assertEqual(out["text3"], "NN 35,50")
         audit = json.loads(out["text4"])
         self.assertEqual(audit["stored"]["primary_source"], "kp")
 
@@ -81,10 +83,9 @@ class MusitCoordinateMapTests(unittest.TestCase):
         out = locality_spatial_kwargs_from_musit_koordinate(coord)
         self.assertNotIn("latitude1", out)
         self.assertNotIn("longitude1", out)
-        self.assertIn(
-            "59°48.185'N 10°44.478'E",
-            out.get("lat1text") or out.get("text3", ""),
-        )
+        self.assertNotIn("text3", out)
+        remarks = json.loads(out["remarks"])
+        self.assertEqual(remarks["notes"]["verbatim_coordinate"], "59°48.185'N 10°44.478'E")
 
     def test_mgrs_l_fallback_for_verbatim(self) -> None:
         coord = {"coordinate_string": None, "mgrs_l": "KN 80,05"}
@@ -103,23 +104,85 @@ class MusitCoordinateMapTests(unittest.TestCase):
             "coordinate_string": "NL 9435,9010",
             "datum": "WGS84",
             "koordinate_place_id": 4,
+            "coordinate_type_term": "MGRS",
         }
         out = locality_spatial_kwargs_from_musit_koordinate(coord)
         self.assertEqual(out["latlongaccuracy"], 100.0)
         self.assertNotIn("MUSIT PRECISION", out.get("remarks") or "")
         audit = json.loads(out["text4"])
         self.assertEqual(audit["uncertainty"]["musit_precision_m"], 100)
-        self.assertEqual(audit["migration_meta"]["mapping_version"], "musit-coordinates-v5")
+        self.assertEqual(audit["migration_meta"]["mapping_version"], MAPPING_VERSION)
 
-    def test_remarks_json_when_long_verbatim(self) -> None:
-        long_ref = "X" * (LAT1TEXT_MAX_LEN + 1)
+    def test_mgrs_with_derived_utm_and_wgs(self) -> None:
+        """Regression for O-V-2002713: WGS decimals + UTM GeoJSON + MGRS text3."""
         coord = {
-            "coordinate_string": long_ref,
-            "koordinate_place_id": 6,
+            "coordinate_string": "CS 163,372",
+            "mgrs_l": "CS 163,372",
+            "latitude_l": None,
+            "longitude_l": None,
+            "dc_latitude": 28.3486,
+            "dc_longitude": -16.8737,
+            "dc_utm_x": 316350,
+            "dc_utm_y": 3137250,
+            "zone": 28,
+            "belt": "R",
+            "datum": "WGS84",
+            "dc_datum": "WGS84",
+            "precision": 2236.068,
+            "coordinate_type_term": "MGRS",
+            "utm_senere": "1",
+            "koordinate_place_id": 201901,
+        }
+        out = locality_spatial_kwargs_from_musit_koordinate(
+            coord, owner="MUSIT_BOTANIKK_FELLES", place_id=461702
+        )
+        self.assertEqual(out["latitude1"], 28.3486)
+        self.assertEqual(out["longitude1"], -16.8737)
+        self.assertEqual(out["lat1text"], "28.3486")
+        self.assertEqual(out["long1text"], "-16.8737")
+        self.assertEqual(out["latlongtype"], "Point")
+        self.assertEqual(out["text3"], "CS 163,372")
+        self.assertNotIn("lat2text", out)
+        self.assertNotIn("latitude2", out)
+        self.assertIs(out["yesno2"], True)
+        geo = json.loads(out["text5"])
+        self.assertEqual(geo["type"], "Feature")
+        self.assertEqual(geo["geometry"]["coordinates"], [316350, 3137250])
+        self.assertEqual(geo["properties"]["zone"], 28)
+        self.assertEqual(geo["properties"]["crs"], "EPSG:32628")
+        self.assertEqual(geo["properties"]["source"], "dc")
+
+    def test_utm_geojson_includes_high_corner(self) -> None:
+        geo = build_utm_geojson(
+            {
+                "utm_x": 479519,
+                "utm_y": 6569492,
+                "utm_x_h": 479619,
+                "utm_y_h": 6569592,
+                "zone": 32,
+                "belt": "V",
+            }
+        )
+        assert geo is not None
+        self.assertEqual(geo["geometry"]["coordinates"], [479519, 6569492])
+        self.assertEqual(geo["properties"]["high"], [479619, 6569592])
+
+    def test_does_not_map_ll_high_to_lat2(self) -> None:
+        coord = {
+            "latitude_l": 17.117,
+            "longitude_l": -25.033,
+            "latitude_h": 17.133,
+            "longitude_h": None,
+            "coordinate_string": "17°7'-17°8'N 25°2'-25°4'W",
+            "coordinate_type_term": "UNKNOWN",
+            "koordinate_place_id": 9,
         }
         out = locality_spatial_kwargs_from_musit_koordinate(coord)
-        remarks = json.loads(out["remarks"])
-        self.assertEqual(remarks["notes"]["verbatim_stored_in"], "text3")
+        self.assertEqual(out["latitude1"], 17.117)
+        self.assertEqual(out["longitude1"], -25.033)
+        self.assertNotIn("latitude2", out)
+        self.assertNotIn("longitude2", out)
+        self.assertEqual(out["latlongtype"], "Point")
 
     def test_remarks_omitted_when_nothing_to_note(self) -> None:
         coord = {
@@ -128,6 +191,7 @@ class MusitCoordinateMapTests(unittest.TestCase):
             "coordinate_string": "NL 9435,9010",
             "datum": "WGS84",
             "koordinate_place_id": 7,
+            "coordinate_type_term": "MGRS",
         }
         out = locality_spatial_kwargs_from_musit_koordinate(coord)
         self.assertNotIn("remarks", out)
@@ -152,6 +216,7 @@ class MusitCoordinateMapTests(unittest.TestCase):
             "ca_utm": "1",
             "utm_senere": "0",
             "koordinate_place_id": 5,
+            "coordinate_type_term": "MGRS",
         }
         out = locality_spatial_kwargs_from_musit_koordinate(coord)
         self.assertIs(out["yesno1"], True)

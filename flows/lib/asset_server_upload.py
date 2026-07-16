@@ -22,6 +22,14 @@ UNIMUS_ORIGINAL_URL = (
     "https://www.unimus.no/felles/bilder/web_hent_bilde.php?id={media_group_id}&type=orig"
 )
 
+# Intermittent asset-server/S3 failures during large TIFF uploads (~0.3% in staging).
+UPLOAD_MAX_ATTEMPTS = 4
+UPLOAD_RETRY_BACKOFF_S = (5, 15, 30)
+
+# Unimus ``web_hent_bilde.php`` can drop long transfers under bulk load.
+DOWNLOAD_MAX_ATTEMPTS = 4
+DOWNLOAD_RETRY_BACKOFF_S = (5, 15, 30)
+
 _server_urls: dict[str, str] | None = None
 _server_time_delta: int = 0
 
@@ -111,19 +119,153 @@ def reset_asset_server_cache() -> None:
     _server_time_delta = 0
 
 
+def validate_media_bytes(file_bytes: bytes, *, source: str) -> str:
+    """Reject HTML/empty downloads; return a coarse media kind for logging."""
+    if not file_bytes:
+        raise AssetServerError(f"Empty response from {source}")
+    head = file_bytes[:512].lstrip().lower()
+    if head.startswith((b"<!doctype", b"<html", b"<?xml")):
+        snippet = file_bytes[:200].decode("utf-8", errors="replace")
+        raise AssetServerError(
+            f"Expected media bytes but got HTML/XML from {source}: {snippet[:120]}"
+        )
+    if file_bytes.startswith((b"II", b"MM")):
+        return "tiff"
+    if file_bytes.startswith(b"\xff\xd8\xff"):
+        return "jpeg"
+    if file_bytes.startswith(b"\x89PNG"):
+        return "png"
+    if file_bytes[:4] == b"%PDF":
+        return "pdf"
+    return "unknown"
+
+
+def _is_retryable_download_status(status_code: int) -> bool:
+    """True for transient Unimus/proxy failures during large media downloads."""
+    return status_code in {408, 429, 500, 502, 503, 504}
+
+
 def download_unimus_original(
     media_group_id: int,
     *,
     timeout_s: int = 600,
+    max_attempts: int = DOWNLOAD_MAX_ATTEMPTS,
+    retry_backoff_s: tuple[int, ...] = DOWNLOAD_RETRY_BACKOFF_S,
 ) -> tuple[bytes, str | None]:
     """Download the original file bytes for a MUSIT media group."""
     url = UNIMUS_ORIGINAL_URL.format(media_group_id=int(media_group_id))
-    response = requests.get(url, timeout=timeout_s)
-    response.raise_for_status()
-    if not response.content:
-        raise AssetServerError(f"Empty response from Unimus for media_group_id={media_group_id}")
-    content_type = response.headers.get("Content-Type")
-    return response.content, content_type
+    source = f"unimus id={media_group_id} type=orig"
+    errors: list[str] = []
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = requests.get(url, timeout=timeout_s)
+            if response.status_code != 200:
+                msg = (
+                    f"Unimus download failed (attempt {attempt}/{max_attempts}) "
+                    f"for media_group_id={media_group_id}: HTTP {response.status_code}"
+                )
+                errors.append(msg)
+                if (
+                    attempt < max_attempts
+                    and _is_retryable_download_status(response.status_code)
+                ):
+                    delay = retry_backoff_s[min(attempt - 1, len(retry_backoff_s) - 1)]
+                    logger.warning("%s; retrying in %ss", msg, delay)
+                    time.sleep(delay)
+                    continue
+                raise AssetServerError(
+                    f"Unimus download failed for media_group_id={media_group_id}: "
+                    + "; ".join(errors)
+                )
+
+            if not response.content:
+                msg = (
+                    f"Unimus download failed (attempt {attempt}/{max_attempts}) "
+                    f"for media_group_id={media_group_id}: empty response"
+                )
+                errors.append(msg)
+                if attempt < max_attempts:
+                    delay = retry_backoff_s[min(attempt - 1, len(retry_backoff_s) - 1)]
+                    logger.warning("%s; retrying in %ss", msg, delay)
+                    time.sleep(delay)
+                    continue
+                raise AssetServerError(
+                    f"Unimus download failed for media_group_id={media_group_id}: "
+                    + "; ".join(errors)
+                )
+
+            validate_media_bytes(response.content, source=source)
+            return response.content, response.headers.get("Content-Type")
+        except requests.RequestException as exc:
+            msg = (
+                f"Unimus download failed (attempt {attempt}/{max_attempts}) "
+                f"for media_group_id={media_group_id}: {exc}"
+            )
+            errors.append(msg)
+            if attempt < max_attempts:
+                delay = retry_backoff_s[min(attempt - 1, len(retry_backoff_s) - 1)]
+                logger.warning("%s; retrying in %ss", msg, delay)
+                time.sleep(delay)
+                continue
+            raise AssetServerError(
+                f"Unimus download failed for media_group_id={media_group_id}: "
+                + "; ".join(errors)
+            ) from exc
+
+    raise AssetServerError(
+        f"Unimus download failed for media_group_id={media_group_id}: "
+        + "; ".join(errors)
+    )
+
+
+def _resolve_upload_mime(
+    orig_filename: str,
+    mime_type: str,
+    content_type: str | None,
+    media_kind: str,
+) -> str:
+    if mime_type:
+        return mime_type
+    guessed, _ = mimetypes.guess_type(orig_filename)
+    if guessed:
+        return guessed
+    if content_type:
+        return content_type.split(";", 1)[0].strip()
+    if media_kind == "jpeg":
+        return "image/jpeg"
+    if media_kind == "tiff":
+        return "image/tiff"
+    if media_kind == "png":
+        return "image/png"
+    if media_kind == "pdf":
+        return "application/pdf"
+    return "application/octet-stream"
+
+
+def _is_retryable_upload_status(status_code: int) -> bool:
+    """True for transient asset-server/proxy failures seen during bulk migration."""
+    return status_code in {400, 408, 429, 502, 503, 504}
+
+
+def _upload_failure_message(
+    *,
+    status_code: int | None,
+    orig_filename: str,
+    file_bytes: bytes,
+    response_text: str,
+    attempt: int,
+    max_attempts: int,
+    exc: Exception | None = None,
+) -> str:
+    size_mb = len(file_bytes) / (1024 * 1024)
+    prefix = f"Asset server upload failed (attempt {attempt}/{max_attempts})"
+    if status_code is not None:
+        return (
+            f"{prefix} ({status_code}) for {orig_filename} "
+            f"({size_mb:.1f} MB): {response_text[:500]}"
+        )
+    return f"{prefix} for {orig_filename} ({size_mb:.1f} MB): {exc}"
 
 
 def upload_original_to_asset_server(
@@ -133,31 +275,92 @@ def upload_original_to_asset_server(
     mime_type: str,
     collection_name: str,
     timeout_s: int = 600,
+    max_attempts: int = UPLOAD_MAX_ATTEMPTS,
+    retry_backoff_s: tuple[int, ...] = UPLOAD_RETRY_BACKOFF_S,
 ) -> str:
     """Upload bytes to the asset server and return ``attachmentlocation`` (stored filename)."""
     server_urls = _ensure_server_urls()
-    attachment_location = make_attachment_filename(orig_filename)
-    token = _generate_token(_get_timestamp(), attachment_location)
+    write_url = server_urls["write"]
+    resolved_mime = mime_type or "application/octet-stream"
+    errors: list[str] = []
 
-    response = requests.post(
-        server_urls["write"],
-        data={
-            "token": token,
-            "store": attachment_location,
-            "type": "O",
-            "coll": collection_name,
-        },
-        files={
-            "file": (orig_filename, file_bytes, mime_type or "application/octet-stream"),
-        },
-        timeout=timeout_s,
-    )
-    _update_time_delta(response)
-    if response.status_code != 200:
-        raise AssetServerError(
-            f"Asset server upload failed ({response.status_code}): {response.text[:500]}"
+    for attempt in range(1, max_attempts + 1):
+        attachment_location = make_attachment_filename(orig_filename)
+        token = _generate_token(_get_timestamp(), attachment_location)
+        try:
+            response = requests.post(
+                write_url,
+                data={
+                    "token": token,
+                    "store": attachment_location,
+                    "type": "O",
+                    "coll": collection_name,
+                },
+                files={
+                    "file": (orig_filename, file_bytes, resolved_mime),
+                },
+                timeout=timeout_s,
+            )
+        except requests.RequestException as exc:
+            msg = _upload_failure_message(
+                status_code=None,
+                orig_filename=orig_filename,
+                file_bytes=file_bytes,
+                response_text="",
+                attempt=attempt,
+                max_attempts=max_attempts,
+                exc=exc,
+            )
+            errors.append(msg)
+            if attempt < max_attempts:
+                delay = retry_backoff_s[min(attempt - 1, len(retry_backoff_s) - 1)]
+                logger.warning(
+                    "%s; retrying in %ss",
+                    msg,
+                    delay,
+                )
+                time.sleep(delay)
+                continue
+            raise AssetServerError(
+                f"Asset server upload failed after {max_attempts} attempts for "
+                f"{orig_filename}: " + "; ".join(errors)
+            ) from exc
+
+        _update_time_delta(response)
+        if response.status_code == 200:
+            return attachment_location
+
+        msg = _upload_failure_message(
+            status_code=response.status_code,
+            orig_filename=orig_filename,
+            file_bytes=file_bytes,
+            response_text=response.text,
+            attempt=attempt,
+            max_attempts=max_attempts,
         )
-    return attachment_location
+        errors.append(msg)
+        if (
+            attempt < max_attempts
+            and _is_retryable_upload_status(response.status_code)
+        ):
+            delay = retry_backoff_s[min(attempt - 1, len(retry_backoff_s) - 1)]
+            logger.warning(
+                "%s; retrying in %ss",
+                msg,
+                delay,
+            )
+            time.sleep(delay)
+            continue
+
+        raise AssetServerError(
+            f"Asset server upload failed after {attempt} attempt(s) for "
+            f"{orig_filename}: " + "; ".join(errors)
+        )
+
+    raise AssetServerError(
+        f"Asset server upload failed after {max_attempts} attempts for "
+        f"{orig_filename}: " + "; ".join(errors)
+    )
 
 
 def migrate_unimus_original_to_asset_server(
@@ -168,21 +371,26 @@ def migrate_unimus_original_to_asset_server(
     collection_name: str,
     timeout_s: int = 600,
 ) -> dict[str, Any]:
-    """Download from Unimus and upload to the asset server."""
-    file_bytes, content_type = download_unimus_original(media_group_id, timeout_s=timeout_s)
-    if not mime_type:
-        guessed, _ = mimetypes.guess_type(orig_filename)
-        mime_type = guessed or (content_type.split(";", 1)[0].strip() if content_type else "application/octet-stream")
+    """Download the Unimus original and upload it to the asset server."""
+    source = f"unimus id={media_group_id} type=orig"
+    file_bytes, content_type = download_unimus_original(
+        media_group_id, timeout_s=timeout_s
+    )
 
+    media_kind = validate_media_bytes(file_bytes, source=source)
+    resolved_mime = _resolve_upload_mime(
+        orig_filename, mime_type, content_type, media_kind
+    )
     attachment_location = upload_original_to_asset_server(
         file_bytes=file_bytes,
         orig_filename=orig_filename,
-        mime_type=mime_type,
+        mime_type=resolved_mime,
         collection_name=collection_name,
         timeout_s=timeout_s,
     )
     return {
         "attachmentlocation": attachment_location,
         "bytes": len(file_bytes),
-        "mime_type": mime_type,
+        "mime_type": resolved_mime,
+        "media_kind": media_kind,
     }
