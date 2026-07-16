@@ -1,17 +1,34 @@
 """Map MUSIT ``KOORDINATE_PLACE`` / ``DERIVED_COORDINATES`` rows to Specify locality fields.
 
+Layout (v7)
+-----------
+- ``latitude1`` / ``longitude1`` — WGS decimal degrees only
+- ``lat1text`` / ``long1text`` — text mirror of those WGS values (LatLonUI)
+- ``latLongType`` — ``Point`` when WGS is present (O-V has no real rectangles)
+- ``text3`` — MGRS / grid verbatim string
+- ``text5`` — UTM as GeoJSON (clean contract for future Specify UTM support)
+- ``text4`` — full migration audit JSON
+- ``yesNo1`` / ``yesNo2`` — Ca coordinate / Coordinate added later
+
 Copy-only: no grid conversion, DMS parsing, or reprojection during migration.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 COORD_CONFLICT_THRESHOLD_DEG = 0.01
 LAT1TEXT_MAX_LEN = 50
 REMARKS_JSON_MAX_LEN = 4000
+MAPPING_VERSION = "musit-coordinates-v7"
 _KNOWN_GEODETIC_DATUMS = frozenset({"WGS84", "ED50", "ETRS89", "EUREF89", "OSGB36", "NAD83", "NAD27"})
+# Norwegian/MGRS-ish grids: "ML 796,697", "CS 163,372", "NM 71,56", "MK 793-797,676-680"
+_MGRS_LIKE = re.compile(
+    r"^[A-Z]{1,3}\s+\d[\d\-]*(?:\s*,\s*\d[\d\-]*)?$",
+    re.IGNORECASE,
+)
 
 
 def _to_decimal_or_none(v: Any) -> float | None:
@@ -103,99 +120,129 @@ def verbatim_coordinate_string(coord: dict[str, Any]) -> str | None:
     return None
 
 
-def apply_verbatim_coordinate_fields(out: dict[str, Any], verbatim: str) -> None:
-    """Backward-compatible wrapper for tests and legacy callers."""
-    apply_latlong_text_fields(out, {}, verbatim)
+def looks_like_mgrs_or_grid(text: str) -> bool:
+    return bool(_MGRS_LIKE.match(text.strip()))
 
 
-def _format_axis_text(value: Any) -> str | None:
+def mgrs_verbatim_from_coord(coord: dict[str, Any]) -> str | None:
+    """Return MGRS/grid text for ``Locality.text3``, or None."""
+    for key in ("mgrs_l", "mgrs_h"):
+        text = non_empty_text(coord.get(key))
+        if text:
+            return text
+    term = (non_empty_text(coord.get("coordinate_type_term")) or "").upper()
+    for key in ("coordinate_string", "coordinate_string_actual"):
+        text = non_empty_text(coord.get(key))
+        if not text:
+            continue
+        if term == "MGRS" or looks_like_mgrs_or_grid(text):
+            return text
+    return None
+
+
+def _format_axis_number(value: Any) -> float | int | None:
     num = _to_decimal_or_none(value)
     if num is None:
         return None
     if float(num).is_integer():
-        return str(int(num))
-    text = f"{num}".rstrip("0").rstrip(".")
-    return text or str(num)
+        return int(num)
+    return num
 
 
-def utm_axis_text_pair(coord: dict[str, Any]) -> tuple[str | None, str | None]:
-    """Return UTM easting/northing text for ``lat1text``/``long1text`` when both axes exist."""
-    for x_key, y_key in (
-        ("utm_x", "utm_y"),
-        ("dc_utm_x", "dc_utm_y"),
-        ("utm33_x", "utm33_y"),
-        ("dc_utm33_x", "dc_utm33_y"),
-    ):
-        x = _format_axis_text(coord.get(x_key))
-        y = _format_axis_text(coord.get(y_key))
-        if x and y:
-            return x[:LAT1TEXT_MAX_LEN], y[:LAT1TEXT_MAX_LEN]
-    return None, None
+def _format_wgs_text(value: float) -> str:
+    text = f"{value}".rstrip("0").rstrip(".") if isinstance(value, float) else str(value)
+    return text[:LAT1TEXT_MAX_LEN]
 
 
-def split_grid_text_pair(verbatim: str) -> tuple[str | None, str | None]:
-    """Split a MUSIT grid/MGRS string like ``NM 71,56`` into two text axes."""
-    if "," not in verbatim:
-        return None, None
-    left, right = verbatim.split(",", 1)
-    left = left.strip()
-    right = right.strip()
-    if not left or not right:
-        return None, None
-    return left[:LAT1TEXT_MAX_LEN], right[:LAT1TEXT_MAX_LEN]
-
-
-def apply_latlong_text_fields(
-    out: dict[str, Any],
-    coord: dict[str, Any],
-    verbatim: str | None,
-) -> str | None:
-    """Populate ``lat1text``/``long1text`` from UTM axes or grid strings.
-
-  1. UTM easting/northing (``KOORDINATE_PLACE`` or ``DERIVED_COORDINATES``) → ``lat1text``/``long1text``
-  2. Else split ``coordinate_string`` on comma (Norwegian/MGRS grid)
-  3. Else single verbatim string in ``lat1text``, or ``text3`` when too long
-
-    Returns ``verbatim_stored_in`` when the full verbatim string is stored in ``text3``.
-    """
-    utm_x, utm_y = utm_axis_text_pair(coord)
-    if utm_x and utm_y:
-        out["lat1text"] = utm_x
-        out["long1text"] = utm_y
-        if verbatim:
-            compact = {utm_x, utm_y, f"{utm_x},{utm_y}", f"{utm_x}, {utm_y}"}
-            if verbatim not in compact:
-                if len(verbatim) <= LAT1TEXT_MAX_LEN:
-                    out["lat2text"] = verbatim
-                else:
-                    out["text3"] = verbatim
-                    return "text3"
-        return None
-
-    if verbatim:
-        left, right = split_grid_text_pair(verbatim)
-        if left and right:
-            out["lat1text"] = left
-            out["long1text"] = right
-            return None
-        if len(verbatim) <= LAT1TEXT_MAX_LEN:
-            out["lat1text"] = verbatim
-            return None
-        out["text3"] = verbatim
-        return "text3"
+def _utm_zone_int(coord: dict[str, Any]) -> int | None:
+    for key in ("zone", "dc_zone"):
+        raw = coord.get(key)
+        if raw is None:
+            continue
+        try:
+            zone = int(float(raw))
+        except (TypeError, ValueError):
+            continue
+        if 1 <= zone <= 60:
+            return zone
     return None
 
 
+def _utm_band(coord: dict[str, Any]) -> str | None:
+    for key in ("belt", "dc_band"):
+        text = non_empty_text(coord.get(key))
+        if text:
+            return text[:8]
+    return None
+
+
+def _epsg_for_utm_zone(zone: int | None, band: str | None) -> str | None:
+    if zone is None:
+        return None
+    # Latitude bands C–M are southern hemisphere in MGRS; N–X northern.
+    southern = bool(band and band[:1].upper() < "N")
+    base = 32700 if southern else 32600
+    return f"EPSG:{base + zone}"
+
+
+def pick_utm_axes(coord: dict[str, Any]) -> tuple[float | int | None, float | int | None, str | None]:
+    """Return easting, northing, and source label from the best available UTM pair."""
+    for source, x_key, y_key in (
+        ("kp", "utm_x", "utm_y"),
+        ("dc", "dc_utm_x", "dc_utm_y"),
+        ("kp_utm33", "utm33_x", "utm33_y"),
+        ("dc_utm33", "dc_utm33_x", "dc_utm33_y"),
+    ):
+        x = _format_axis_number(coord.get(x_key))
+        y = _format_axis_number(coord.get(y_key))
+        if x is not None and y is not None:
+            return x, y, source
+    return None, None, None
+
+
+def build_utm_geojson(coord: dict[str, Any]) -> dict[str, Any] | None:
+    """Clean GeoJSON Feature for ``Locality.text5`` (Point; optional high corner in properties)."""
+    x, y, source = pick_utm_axes(coord)
+    if x is None or y is None or source is None:
+        return None
+
+    zone = _utm_zone_int(coord)
+    band = _utm_band(coord)
+    props: dict[str, Any] = {
+        "source": source,
+        "crs": _epsg_for_utm_zone(zone, band),
+        "zone": zone,
+        "band": band,
+    }
+
+    x_h = _format_axis_number(coord.get("utm_x_h"))
+    y_h = _format_axis_number(coord.get("utm_y_h"))
+    if x_h is not None and y_h is not None and (x_h != x or y_h != y):
+        props["high"] = [x_h, y_h]
+
+    # Prefer dedicated UTM33 axes in properties when present alongside primary.
+    u33_x = _format_axis_number(coord.get("utm33_x") or coord.get("dc_utm33_x"))
+    u33_y = _format_axis_number(coord.get("utm33_y") or coord.get("dc_utm33_y"))
+    if u33_x is not None and u33_y is not None and source not in {"kp_utm33", "dc_utm33"}:
+        props["utm33"] = [u33_x, u33_y]
+
+    # Drop null property values for a compact payload.
+    props = {k: v for k, v in props.items() if v is not None}
+
+    return {
+        "type": "Feature",
+        "geometry": {"type": "Point", "coordinates": [x, y]},
+        "properties": props,
+    }
+
+
+def apply_verbatim_coordinate_fields(out: dict[str, Any], verbatim: str) -> None:
+    """Backward-compatible helper: store verbatim coordinate text on ``text3``."""
+    out["text3"] = verbatim
+
+
 def _json_number_or_none(value: Any) -> float | int | None:
-    if value is None:
-        return None
-    try:
-        num = float(value)
-    except (TypeError, ValueError):
-        return None
-    if num.is_integer():
-        return int(num)
-    return num
+    return _format_axis_number(value)
 
 
 def build_coordinate_audit_json(
@@ -268,7 +315,7 @@ def build_coordinate_audit_json(
             "utm_senere": musit_flag_to_bool(coord.get("utm_senere")),
         },
         "migration_meta": {
-            "mapping_version": "musit-coordinates-v6",
+            "mapping_version": MAPPING_VERSION,
         },
     }
     if conflict:
@@ -293,13 +340,13 @@ def build_coordinate_remarks_payload(
     coord: dict[str, Any],
     *,
     conflict: dict[str, Any] | None = None,
-    verbatim_stored_in: str | None = None,
+    verbatim_non_mgrs: str | None = None,
     kp_datum_unmapped: str | None = None,
 ) -> dict[str, Any] | None:
     """Structured migration notes for ``Locality.remarks`` (machine-readable JSON)."""
     notes: dict[str, Any] = {}
-    if verbatim_stored_in:
-        notes["verbatim_stored_in"] = verbatim_stored_in
+    if verbatim_non_mgrs:
+        notes["verbatim_coordinate"] = verbatim_non_mgrs[:200]
 
     ca_alt = non_empty_text(coord.get("ca_altitude"))
     if ca_alt:
@@ -323,7 +370,7 @@ def build_coordinate_remarks_payload(
         return None
 
     return {
-        "migration_meta": {"kind": "musit-coordinate-notes", "version": 1},
+        "migration_meta": {"kind": "musit-coordinate-notes", "version": 2},
         "notes": notes,
     }
 
@@ -335,7 +382,7 @@ def format_locality_remarks_json(payload: dict[str, Any]) -> str:
         "utm_zone",
         "ca_altitude",
         "kp_datum_unmapped",
-        "verbatim_stored_in",
+        "verbatim_coordinate",
         "coord_conflict",
     )
 
@@ -348,7 +395,7 @@ def format_locality_remarks_json(payload: dict[str, Any]) -> str:
         if not isinstance(notes, dict) or not notes:
             payload = {
                 "migration_meta": payload.get("migration_meta")
-                or {"kind": "musit-coordinate-notes", "version": 1},
+                or {"kind": "musit-coordinate-notes", "version": 2},
                 "notes": {"truncated": True},
             }
             text = _dump()
@@ -391,19 +438,30 @@ def locality_spatial_kwargs_from_musit_koordinate(
         lat1, lon1 = kp_lat, kp_lon
         primary_source = "kp"
 
-    if lat1 is not None:
+    if lat1 is not None and lon1 is not None:
         out["latitude1"] = lat1
-    if lon1 is not None:
         out["longitude1"] = lon1
+        out["lat1text"] = _format_wgs_text(lat1)
+        out["long1text"] = _format_wgs_text(lon1)
+        out["latlongtype"] = "Point"
 
-    lat_h, lon_h = stored_lat_lng_pair(coord.get("latitude_h"), coord.get("longitude_h"))
-    if lat_h is not None:
-        out["latitude2"] = lat_h
-    if lon_h is not None:
-        out["longitude2"] = lon_h
+    # Do not map latitude_h/longitude_h or utm_*_h into lat2/lon2 — O-V has no
+    # complete WGS rectangles; UTM high corners are MGRS cell extents.
+
+    mgrs = mgrs_verbatim_from_coord(coord)
+    if mgrs:
+        out["text3"] = mgrs
+
+    utm_geojson = build_utm_geojson(coord)
+    if utm_geojson:
+        out["text5"] = json.dumps(utm_geojson, ensure_ascii=False, separators=(",", ":"), default=str)
 
     verbatim = verbatim_coordinate_string(coord)
-    verbatim_stored_in = apply_latlong_text_fields(out, coord, verbatim)
+    verbatim_non_mgrs: str | None = None
+    if verbatim and not mgrs:
+        verbatim_non_mgrs = verbatim
+    elif verbatim and mgrs and verbatim != mgrs and not looks_like_mgrs_or_grid(verbatim):
+        verbatim_non_mgrs = verbatim
 
     kp_datum_norm, kp_datum_raw = normalize_musit_datum(coord.get("datum"))
     dc_datum_norm, _dc_datum_raw = normalize_musit_datum(coord.get("dc_datum"))
@@ -415,10 +473,6 @@ def locality_spatial_kwargs_from_musit_koordinate(
     if kp_lat is not None and kp_lon is not None and dc_lat is not None and dc_lon is not None:
         if coords_materially_differ(kp_lat, kp_lon, dc_lat, dc_lon):
             conflict = {"kp": [kp_lat, kp_lon], "dc": [dc_lat, dc_lon]}
-
-    coord_type_term = non_empty_text(coord.get("coordinate_type_term"))
-    if coord_type_term:
-        out["latlongtype"] = coord_type_term[:50]
 
     alt_l = _to_decimal_or_none(coord.get("alt_l"))
     alt_h = _to_decimal_or_none(coord.get("alt_h"))
@@ -459,7 +513,7 @@ def locality_spatial_kwargs_from_musit_koordinate(
     remarks_payload = build_coordinate_remarks_payload(
         coord,
         conflict=conflict,
-        verbatim_stored_in=verbatim_stored_in,
+        verbatim_non_mgrs=verbatim_non_mgrs,
         kp_datum_unmapped=kp_datum_raw if kp_datum_raw and not kp_datum_norm else None,
     )
     if remarks_payload:
