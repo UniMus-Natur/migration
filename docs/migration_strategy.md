@@ -147,7 +147,7 @@ MUSIT already solved this — `ADMINISTRATIVE_PLACE` was built to hold historica
 | USD each schema | `COUNTRIES` | Country list |
 
 **What does NOT go in Geography tree:**
-- `KOORDINATE_PLACE` → maps to Specify `Locality` (specific collecting sites with coordinates), not to Geography nodes. Localities live at Collection level; Geography nodes are shared. **`KOORDINATE_PLACE_ID` is not global** across Oracle schemas (same integer can mean different coordinates in botany vs entomology); always qualify with the owning schema.
+- `KOORDINATE_PLACE` → maps to Specify `Locality` (specific collecting sites with coordinates), not to Geography nodes. Localities live at Collection level; Geography nodes are shared. **`KOORDINATE_PLACE_ID` is not global** across Oracle schemas (same integer can mean different coordinates in botany vs entomology); always qualify with the owning schema. Field-level mapping: [MUSIT coordinate migration](musit_coordinate_migration.md).
 - `INDEXED_LOCALITY`, `LOCALITY_PLACE` → also Specify `Locality`, not Geography.
 
 **Hierarchy depth in Specify:**
