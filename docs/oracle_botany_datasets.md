@@ -638,7 +638,8 @@ Suggested archival key: `MUSIT_BOTANIKK_FELLES:OBJECT_ID:<id>`.
 | `CLASSIFICATION_EVENT.EVENT_ID` | `Determination` source event key | Keep | Attach determinations to object via event chain. |
 | `CLASSIFICATION_EVENT.CLASSIFICATION_TYPE_ID` | `Determination` qualifier/provenance | Keep | E.g., original determination, redetermination, confirmation. |
 | `CLASSIFICATION_EVENT.CLASS_TERM_ID` | determination concept join | Keep | Bridge to term/name rows. |
-| `CLASSIFICATION_TERM.CLASSTERM`, `ENTERED_CLASSTERM`, `VALID_CLASSTERM` | `Determination.remarks` / verbatim identification | Keep | Keep all textual variants. |
+| `CLASSIFICATION_TERM.CLASSTERM`, `ENTERED_CLASSTERM`, `VALID_CLASSTERM` | `Determination.text1` / `text2` / remarks | Keep | Entered and valid name strings; remarks hold classification notes. |
+| `CLASSIFICATION_TERM.SENSU_TERM` | `Determination.addendum` | Keep | Standard values `s.lat.`, `s.str.` only; outliers archived in `CollectionObject.text3` → `classification_sensu_outliers`. |
 | `CLASSTERM_LATIN_NAME.LATIN_NAME_ID` | taxon join key | Keep | Needed for stable taxon mapping. |
 | `LATIN_NAMES.LATIN_NAME` | `Taxon.name` / `Determination.text1` fallback | Keep | Core scientific name. |
 | `LATIN_NAMES.FULL_NAME`, `FULL_NAME_AUTHOR` | `Taxon.fullname`, `Taxon.author` | Keep | Preferred authoritative formatting. |
