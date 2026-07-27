@@ -42,6 +42,10 @@ from flows.lib.musit_field_number_map import (
     resolve_field_number_from_legnr_rows,
 )
 from flows.lib.musit_determination_remarks import determination_remarks as _determination_remarks
+from flows.lib.musit_sensu_addendum import (
+    classification_sensu_outliers,
+    resolve_sensu_addendum,
+)
 from flows.lib.musit_taxon_match import (
     binomial_prefix_from_valid_classterm as _binomial_prefix_from_valid_classterm,
     taxon_matches_valid_classterm as _taxon_matches_valid_classterm,
@@ -1918,6 +1922,7 @@ def _write_one_object(
                 "dataset": config.dataset_label,
             },
             "unmapped": unmapped,
+            "classification_sensu_outliers": classification_sensu_outliers(rows),
             "field_number": {
                 "musit_identifier_num": musit_object_number,
                 "specify_integer1": musit_object_number,
@@ -2301,6 +2306,9 @@ def _write_one_object(
                 type_status = _trunc(obj_row.get("type_status"), 50) if is_current else None
 
                 det_remarks = _determination_remarks(dr, determiner=determiner)
+                sensu_addendum, _sensu_archived, _sensu_outlier = resolve_sensu_addendum(
+                    dr.get("sensu_term")
+                )
                 det = Determination(
                     collectionobject=co,
                     taxon=taxon,
@@ -2309,7 +2317,7 @@ def _write_one_object(
                     text1=_trunc(dr.get("classterm"), 255),
                     text2=_trunc(dr.get("valid_classterm"), 255),
                     text3=infraspes_text,
-                    text4=_trunc(dr.get("sensu_term"), 128),  # Sensu
+                    addendum=_trunc(sensu_addendum, 16),
                     determiner=determiner,
                     determineddate=det_datetime,
                     determineddateprecision=(1 if det_datetime is not None else None),

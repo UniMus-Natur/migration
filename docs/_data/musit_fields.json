@@ -51,7 +51,7 @@
             "Felt": "Sensu",
             "Tabell": "CLASSIFICATION_TERM",
             "Feltnavn i tabell": "SENSU_TERM",
-            "Kommentar": "s.str s.lat"
+            "Kommentar": "s.lat. / s.str. → Specify Determination.addendum"
           },
           {
             "Felt": "Note",
