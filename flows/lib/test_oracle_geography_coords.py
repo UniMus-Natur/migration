@@ -215,16 +215,19 @@ class MusitCoordinateMapTests(unittest.TestCase):
             "datum": "WGS84",
             "ca_utm": "1",
             "utm_senere": "0",
+            "ca_altitude": "1",
             "koordinate_place_id": 5,
             "coordinate_type_term": "MGRS",
         }
         out = locality_spatial_kwargs_from_musit_koordinate(coord)
         self.assertIs(out["yesno1"], True)
         self.assertIs(out["yesno2"], False)
+        self.assertIs(out["yesno3"], True)
         self.assertNotIn("remarks", out)
         audit = json.loads(out["text4"])
         self.assertIs(audit["flags"]["ca_utm"], True)
         self.assertIs(audit["flags"]["utm_senere"], False)
+        self.assertIs(audit["flags"]["ca_altitude"], True)
 
 
 if __name__ == "__main__":

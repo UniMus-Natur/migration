@@ -12,7 +12,7 @@ How vascular-plant specimen coordinates from Oracle MUSIT are written onto Speci
 |--|--|
 | **Mapping code** | `flows/lib/musit_coordinate_map.py` |
 | **Callers** | `musit_dataset_loader.py`, `oracle_geography_load.py` |
-| **Mapping version** | `musit-coordinates-v7` (stored in `Locality.text4` audit JSON) |
+| **Mapping version** | `musit-coordinates-v8` (stored in `Locality.text4` audit JSON) |
 | **UI** | `specify7-forms` — Locality / CollectingEvent / CollectingEventSub forms + botany schema labels |
 
 Policy is **copy-only**: no DMS parsing, no grid→WGS conversion, no reprojection in the ETL. Prefer values already present as decimal degrees or structured UTM/MGRS in MUSIT.
@@ -52,7 +52,7 @@ For Oslo vascular plants (`institutioncode=O`, `collectioncode=V`), PROD analysi
 - Most “high” UTM corners are **MGRS grid-cell extents** (e.g. 100 m / 1 km), not collecting polygons.
 - Migration therefore sets Specify **`latLongType = Point`** whenever WGS decimals exist, and does **not** populate `latitude2` / `longitude2`.
 
-## Specify `Locality` field layout (v7)
+## Specify `Locality` field layout (v8)
 
 | Specify field | Content |
 |---------------|---------|
@@ -69,6 +69,7 @@ For Oslo vascular plants (`institutioncode=O`, `collectioncode=V`), PROD analysi
 | `text5` | **UTM as GeoJSON** `Feature` (clean contract for future Specify UTM UI) |
 | `yesNo1` | Ca coordinate (`CA_UTM`) |
 | `yesNo2` | Coordinate added later (`UTM_SENERE`) |
+| `yesNo3` | Ca altitude (`CA_ALTITUDE`) |
 | `remarks` | Compact notes JSON when needed (conflicts, unmapped datum, non-MGRS verbatim, …) |
 
 Elevation (`minElevation` / `maxElevation` / `verbatimElevation` / …) is mapped separately from altitude columns when present.
