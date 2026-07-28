@@ -19,6 +19,16 @@ TABLE_NAME = "migration_oracle_objectmap"
 _SOURCE_KIND_CO = "collectionobject"
 
 
+def collectionobject_guid_prefix(source_owner: str) -> str:
+    """Return the GUID prefix used for migrated CollectionObjects from ``source_owner``."""
+    return f"urn:oracle:{source_owner.lower()}:object:"
+
+
+def collectionobject_guid(source_owner: str, object_id: int) -> str:
+    """Stable GUID written on migrated CollectionObjects for ``object_id``."""
+    return f"{collectionobject_guid_prefix(source_owner)}{int(object_id)}"[:128]
+
+
 def ensure_objectmap_table(*, dry_run: bool) -> dict[str, Any]:
     """Create ``migration_oracle_objectmap`` if missing (idempotent)."""
     out: dict[str, Any] = {"table": TABLE_NAME, "created": False, "dry_run": dry_run}
@@ -78,24 +88,64 @@ def upsert_objectmap_row(
         )
 
 
-def object_ids_already_migrated(
+def is_object_already_migrated(
+    *,
     source_owner: str,
+    object_id: int,
     specify_collection_id: int,
-) -> set[int]:
-    """Return the set of Oracle OBJECT_IDs already present in the objectmap for this collection.
+    run_ts: str | None = None,
+    backfill_objectmap: bool = True,
+) -> bool:
+    """Return True when this Oracle OBJECT_ID is already present in Specify.
 
-    Used at flow start to build an in-memory skip-set for idempotent re-runs.
+    Checks ``migration_oracle_objectmap`` first (indexed unique key), then falls back to
+    the deterministic CollectionObject GUID. When found only via GUID and
+    ``backfill_objectmap`` is True, writes the missing objectmap row.
     """
+    owner = source_owner.upper()
+    oid = int(object_id)
     sql = f"""
-    SELECT source_id
+    SELECT specify_co_id
       FROM {TABLE_NAME}
      WHERE source_owner = %s
        AND source_kind  = %s
+       AND source_id    = %s
        AND specify_collection_id = %s
+     LIMIT 1
     """
     try:
         with connection.cursor() as cur:
-            cur.execute(sql, [source_owner[:64], _SOURCE_KIND_CO, specify_collection_id])
-            return {int(row[0]) for row in cur.fetchall()}
+            cur.execute(
+                sql,
+                [owner[:64], _SOURCE_KIND_CO, str(oid)[:64], int(specify_collection_id)],
+            )
+            row = cur.fetchone()
+            if row is not None:
+                return True
     except Exception:  # table may not exist yet on first run
-        return set()
+        pass
+
+    from specifyweb.specify.models import Collectionobject
+
+    guid = collectionobject_guid(owner, oid)
+    co_id = (
+        Collectionobject.objects.filter(
+            collection_id=int(specify_collection_id),
+            guid=guid,
+        )
+        .values_list("id", flat=True)
+        .first()
+    )
+    if co_id is None:
+        return False
+
+    if backfill_objectmap and run_ts:
+        upsert_objectmap_row(
+            source_owner=owner,
+            source_id=str(oid),
+            specify_co_id=int(co_id),
+            specify_collection_id=int(specify_collection_id),
+            run_ts=run_ts,
+            dry_run=False,
+        )
+    return True

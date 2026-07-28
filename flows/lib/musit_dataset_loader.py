@@ -21,7 +21,9 @@ Design constraints
 * Never creates or modifies ``Agent`` or ``Taxon``.
 * Each specimen is wrapped in ``transaction.atomic`` so partial failures roll back
   cleanly without leaving orphan records.
-* Idempotent: objects already in ``migration_oracle_objectmap`` are skipped on re-run.
+* Idempotent / resumable: before each object is migrated, the loader checks
+  ``migration_oracle_objectmap`` (and the deterministic CollectionObject GUID) and
+  skips objects already present so OOM/cancel can resume without OFFSET tricks.
 """
 
 from __future__ import annotations
@@ -113,14 +115,15 @@ class DatasetLoadStats:
 # Oracle SQL
 # ---------------------------------------------------------------------------
 
-# Phase 1 — page OBJECT_IDs in stable sorted order.
+# Phase 1 — page OBJECT_IDs in stable sorted order (keyset pagination over Oracle).
 _PAGE_SQL = """
     SELECT voa.object_id
       FROM {schema}.v_object_attributes voa
      WHERE voa.institutioncode = :icode
        AND voa.collectioncode  = :ccode
+       AND voa.object_id > :after_id
      ORDER BY voa.object_id
-     OFFSET :skip ROWS FETCH NEXT :batch ROWS ONLY
+     FETCH NEXT :batch ROWS ONLY
 """
 
 # Phase 2 — one query per page: full multi-join envelope.
@@ -2347,13 +2350,20 @@ def _write_one_object(
 def _fetch_page_object_ids(
     oracle_cursor: Any,
     config: MusitDatasetConfig,
-    skip: int,
+    *,
+    after_id: int,
     batch: int,
 ) -> list[int]:
+    """Fetch the next page of OBJECT_IDs strictly after ``after_id`` (keyset pagination)."""
     sql = _PAGE_SQL.format(schema=config.oracle_schema)
     oracle_cursor.execute(
         sql,
-        {"icode": config.institutioncode, "ccode": config.collectioncode, "skip": skip, "batch": batch},
+        {
+            "icode": config.institutioncode,
+            "ccode": config.collectioncode,
+            "after_id": after_id,
+            "batch": batch,
+        },
     )
     return [int(row[0]) for row in oracle_cursor.fetchall()]
 
@@ -2444,7 +2454,7 @@ def load_musit_dataset(
     """
     from flows.lib.migration_oracle_objectmap import (
         ensure_objectmap_table,
-        object_ids_already_migrated,
+        is_object_already_migrated,
     )
     from flows.lib.migration_oracle_placemap import ensure_placemap_table
 
@@ -2461,17 +2471,6 @@ def load_musit_dataset(
     ensure_objectmap_table(dry_run=dry_run)
     ensure_placemap_table(dry_run=dry_run)
 
-    # Load already-migrated OBJECT_IDs for idempotency.
-    already_done: set[int] = set()
-    if not dry_run:
-        already_done = object_ids_already_migrated(
-            source_owner=config.oracle_schema.upper(),
-            specify_collection_id=int(collection.id),
-        )
-        if already_done:
-            _log("info", "load_musit_dataset | idempotency: %s objects already in objectmap → will skip",
-                 len(already_done))
-
     total_oracle = _count_total_objects(oracle_cursor, config)
     _log("info", "load_musit_dataset | total Oracle objects for filter: %s", total_oracle)
 
@@ -2487,22 +2486,40 @@ def load_musit_dataset(
 
     # In-memory locality cache: (discipline_id, place_id) → specify locality pk
     locality_cache: dict[tuple[int, int], int] = {}
-    total_processed = 0
-    skip = 0
+    total_seen = 0          # Oracle objects visited (including skipped)
+    total_processed = 0     # New objects written this run
 
+    after_id = 0
     while True:
         # Periodic Django connection refresh (long-running flow protection).
-        if total_processed > 0 and total_processed % 5000 == 0:
+        if total_seen > 0 and total_seen % 5000 == 0:
             close_old_connections()
 
-        page_ids = _fetch_page_object_ids(oracle_cursor, config, skip=skip, batch=page_size)
+        page_ids = _fetch_page_object_ids(
+            oracle_cursor, config, after_id=after_id, batch=page_size,
+        )
         if not page_ids:
             break
+        after_id = page_ids[-1]
 
-        # Filter already-migrated.
-        ids_to_process = [oid for oid in page_ids if oid not in already_done]
+        # Per-object idempotency check before fetching heavy Oracle joins.
+        ids_to_process: list[int] = []
+        for oid in page_ids:
+            total_seen += 1
+            if (
+                not dry_run
+                and is_object_already_migrated(
+                    source_owner=config.oracle_schema.upper(),
+                    object_id=oid,
+                    specify_collection_id=int(collection.id),
+                    run_ts=run_ts,
+                )
+            ):
+                stats.co_skipped += 1
+                continue
+            ids_to_process.append(oid)
 
-        # Fetch full specimen rows for this page (one round-trip).
+        # Fetch full specimen rows for pending objects only (one round-trip per page).
         if ids_to_process:
             specimen_rows = _fetch_specimen_rows(oracle_cursor, config, ids_to_process)
             grouped = _group_rows_by_object_id(specimen_rows)
@@ -2515,11 +2532,7 @@ def load_musit_dataset(
             grouped = {}
             avbilder_by_object = {}
 
-        for oid in page_ids:
-            if oid in already_done:
-                stats.co_skipped += 1
-                continue
-
+        for oid in ids_to_process:
             rows = grouped.get(oid)
             if not rows:
                 # Object visible in V_OBJECT_ATTRIBUTES but no rows in join — skip.
@@ -2542,17 +2555,18 @@ def load_musit_dataset(
 
             total_processed += 1
 
-            if total_processed % _PROGRESS_EVERY == 0 or total_processed == 1:
+            if total_seen % _PROGRESS_EVERY == 0 or total_seen == 1:
                 elapsed = time.monotonic() - t0
-                pct = 100.0 * total_processed / total_oracle if total_oracle else 0.0
+                pct = 100.0 * total_seen / total_oracle if total_oracle else 0.0
                 _log(
                     "info",
-                    "load_musit_dataset | %s/%s (%.1f%%) co=%s ce=%s loc_new=%s det=%s"
+                    "load_musit_dataset | %s/%s (%.1f%%) co=%s skipped=%s ce=%s loc_new=%s det=%s"
                     " taxon_ok=%s taxon_fallback=%s taxon_unresolved=%s agent_ok=%s err=%s elapsed=%s",
-                    total_processed,
+                    total_seen,
                     total_oracle,
                     pct,
                     stats.co_created,
+                    stats.co_skipped,
                     stats.ce_created,
                     stats.locality_created,
                     stats.determination_created,
@@ -2581,15 +2595,15 @@ def load_musit_dataset(
                 stats.elapsed_s = elapsed
                 return stats
 
-        skip += page_size
         if len(page_ids) < page_size:
             break  # last page
 
     stats.elapsed_s = time.monotonic() - t0
     _log(
         "info",
-        "load_musit_dataset | done total_processed=%s co=%s ce=%s loc_new=%s det=%s"
+        "load_musit_dataset | done seen=%s migrated=%s co=%s ce=%s loc_new=%s det=%s"
         " taxon_ok=%s agent_ok=%s skipped=%s err=%s elapsed=%s",
+        total_seen,
         total_processed,
         stats.co_created,
         stats.ce_created,

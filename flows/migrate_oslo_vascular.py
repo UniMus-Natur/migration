@@ -15,8 +15,9 @@ Target
 
 Idempotency
 -----------
-    Already-migrated ``OBJECT_ID`` rows are tracked in ``migration_oracle_objectmap``
-    and skipped on re-run.  ``Locality`` rows are tracked in ``migration_oracle_placemap``.
+    Before each object is migrated, the loader checks ``migration_oracle_objectmap``
+    and the deterministic CollectionObject GUID; already-present objects are skipped.
+    Re-run without ``purge_before_run`` to resume after OOM/cancel.
 
 Test run
 --------
