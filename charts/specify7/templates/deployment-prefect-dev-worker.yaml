@@ -8,6 +8,9 @@ metadata:
     component: prefect-dev-worker
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
+    rollingUpdate: null
   selector:
     matchLabels:
       {{- include "specify7.selectorLabels" . | nindent 6 }}

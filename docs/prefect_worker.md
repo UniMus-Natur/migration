@@ -28,6 +28,7 @@ In `charts/specify7/staging.values.yaml`:
 - `prefect.devWorker.enabled: true`
 - `prefect.devWorker.workPool: "dev-process"`
 - `prefect.devWorker.image.*` points to your migration image tag.
+- `prefect.devWorker.resources.limits.memory`: long specimen migrations (Django + Oracle + media uploads) need more than **1Gi**. Staging uses **4Gi** (namespace quota is **32G** with ~25Gi already allocated; **8Gi** cannot schedule). Limit/request ratio must be ≤ **2:1**.
 - `secrets.existingSecret` points to the env secret with Oracle and Prefect vars.
 
 ## Daily Dev Loop
@@ -126,6 +127,9 @@ kubectl logs -f -l component=prefect-dev-worker
 - `S3 upload errors`  
   Verify `S3_BUCKET`, credentials, endpoint/region, and path-style settings in your secret.
   For MinIO/proxy setups with `XAmzContentSHA256Mismatch`, set `S3_PAYLOAD_SIGNING_ENABLED=false`.
+
+- `Process exited with status code -9` / `SIGKILL` / memory allocation message  
+  The dev worker pod hit its cgroup memory limit (check `kubectl describe pod -l component=prefect-dev-worker` → Limits). Raise `prefect.devWorker.resources.limits.memory` in Helm and restart the deployment.
 
 ## Practical Tips
 
