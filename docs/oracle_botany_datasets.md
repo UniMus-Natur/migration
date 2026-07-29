@@ -784,7 +784,15 @@ https://www.unimus.no/felles/bilder/web_hent_bilde.php?id=<MEDIAGRUPPE_ENHETS_ID
 | Query part | Meaning |
 |------------|---------|
 | **`id`** | **`USD_FELLES.MEDIAGRUPPE_ENHET.MEDIAGRUPPE_ENHETS_ID`** and **`MUSIT_BOTANIKK_FELLES.MUSEUM_OBJECT.MEDIAGRUPPE_ENHETS_ID`** (one group → one “hero” image stream in the UI). |
-| **`type`** | Output format served to the browser (example: **`jpeg`** for a web-friendly derivative). Other values may exist (e.g. master **`tif`**); confirm per use case in the UI or by trial. |
+| **`type`** | Output format served to the browser (example: **`jpeg`** for a web-friendly derivative). Use **`orig`** for the master TIFF/JPEG original. |
+
+**Bulk migration:** the public host is scraping-blocked / rate-limited under load. Specimen migration downloads use a **private** Unimus image API base URL injected as the Kubernetes secret env var **`UNIMUS_IMAGE_API_BASE`** (shape `https://api.unimus.no/img-<token>` — token stays out of git). When set, originals are fetched as:
+
+```text
+{UNIMUS_IMAGE_API_BASE}/web_hent_bilde.php?id=<MEDIAGRUPPE_ENHETS_ID>&type=orig
+```
+
+The same private host also supports `filename=<OPPRINNELIG_FILNAVN>` for named derivatives.
 
 **Worked example (vascular herbarium sheet, TRH)**
 

@@ -10,7 +10,7 @@ from os.path import splitext
 from typing import Any
 from uuid import uuid4
 from xml.etree import ElementTree
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import hmac
 import requests
@@ -18,17 +18,29 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-UNIMUS_ORIGINAL_URL = (
+# Public (rate-limited / scraping-blocked under bulk load). Used only when
+# ``UNIMUS_IMAGE_API_BASE`` is unset.
+UNIMUS_PUBLIC_ORIGINAL_URL = (
     "https://www.unimus.no/felles/bilder/web_hent_bilde.php?id={media_group_id}&type=orig"
 )
+
+# Back-compat alias for older imports/tests.
+UNIMUS_ORIGINAL_URL = UNIMUS_PUBLIC_ORIGINAL_URL
+
+# Env: private Unimus image API base URL including the path token, e.g.
+#   https://api.unimus.no/img-<token>
+# Injected via Kubernetes Secret (``specify-secret``). Never commit the real value.
+UNIMUS_IMAGE_API_BASE_ENV = "UNIMUS_IMAGE_API_BASE"
 
 # Intermittent asset-server/S3 failures during large TIFF uploads (~0.3% in staging).
 UPLOAD_MAX_ATTEMPTS = 4
 UPLOAD_RETRY_BACKOFF_S = (5, 15, 30)
 
-# Unimus ``web_hent_bilde.php`` can drop long transfers under bulk load.
-DOWNLOAD_MAX_ATTEMPTS = 4
+# Unimus downloads can still stall on large originals; keep retries short on the
+# private API (no scraping throttle) so one bad file does not block for 40+ min.
+DOWNLOAD_MAX_ATTEMPTS = 3
 DOWNLOAD_RETRY_BACKOFF_S = (5, 15, 30)
+DOWNLOAD_TIMEOUT_S = 120
 
 _server_urls: dict[str, str] | None = None
 _server_time_delta: int = 0
@@ -145,16 +157,76 @@ def _is_retryable_download_status(status_code: int) -> bool:
     return status_code in {408, 429, 500, 502, 503, 504}
 
 
+def unimus_image_api_base() -> str | None:
+    """Return the private Unimus image API base URL from the environment, if set."""
+    base = (os.environ.get(UNIMUS_IMAGE_API_BASE_ENV) or "").strip().rstrip("/")
+    return base or None
+
+
+def build_unimus_original_url(
+    *,
+    media_group_id: int,
+    filename: str | None = None,
+) -> str:
+    """Build the Unimus original-download URL.
+
+    When ``UNIMUS_IMAGE_API_BASE`` is set (K8s secret), use the private API host
+    with path token. Prefer ``filename=<OPPRINNELIG_FILNAVN>`` when that name looks
+    like a master (``.tif`` / ``.tiff`` / ``.jpg`` master under ``OPPRINNELIG_FILNAVN``);
+    otherwise ``id=<media_group_id>&type=orig``. Both return the same TIFF for botany
+    masters (verified: size matches ``MEDIA_FIL.FIL_STORRELSE``).
+
+    Note: ``filename=`` with derivative ``ID_I_SAMLING`` JPEG names returns a small
+    web/thumb image — only use ``OPPRINNELIG_FILNAVN`` for masters.
+
+    Without the env var, use the public ``www.unimus.no`` endpoint (rate-limited /
+    scraping-blocked under bulk load).
+    """
+    base = unimus_image_api_base()
+    gid = int(media_group_id)
+    fname = (filename or "").strip() or None
+    if base:
+        if fname and _looks_like_master_filename(fname):
+            return (
+                f"{base}/web_hent_bilde.php?type=orig&filename={quote(fname, safe='')}"
+            )
+        return f"{base}/web_hent_bilde.php?id={gid}&type=orig"
+    return UNIMUS_PUBLIC_ORIGINAL_URL.format(media_group_id=gid)
+
+
+def _looks_like_master_filename(filename: str) -> bool:
+    """True for Oracle ``OPPRINNELIG_FILNAVN`` masters (not ``ID_I_SAMLING`` derivatives)."""
+    lower = filename.strip().lower()
+    if lower.startswith("musit_") and lower.endswith(".jpg"):
+        # Derivative naming convention: MUSIT_<SCHEMA>_FOTO_<n>.jpg
+        return False
+    return lower.endswith((".tif", ".tiff", ".jpg", ".jpeg", ".png", ".pdf"))
+
+
+def build_unimus_filename_url(*, filename: str) -> str | None:
+    """Private-API URL by filename (any name; caller must pass a master name for TIFF)."""
+    base = unimus_image_api_base()
+    fname = (filename or "").strip()
+    if not base or not fname:
+        return None
+    return f"{base}/web_hent_bilde.php?type=orig&filename={quote(fname, safe='')}"
+
+
+
 def download_unimus_original(
     media_group_id: int,
     *,
-    timeout_s: int = 600,
+    filename: str | None = None,
+    timeout_s: int = DOWNLOAD_TIMEOUT_S,
     max_attempts: int = DOWNLOAD_MAX_ATTEMPTS,
     retry_backoff_s: tuple[int, ...] = DOWNLOAD_RETRY_BACKOFF_S,
 ) -> tuple[bytes, str | None]:
     """Download the original file bytes for a MUSIT media group."""
-    url = UNIMUS_ORIGINAL_URL.format(media_group_id=int(media_group_id))
-    source = f"unimus id={media_group_id} type=orig"
+    url = build_unimus_original_url(media_group_id=media_group_id, filename=filename)
+    via = "private-api" if unimus_image_api_base() else "public"
+    source = f"unimus id={media_group_id} type=orig via={via}"
+    if filename:
+        source = f"{source} filename={filename}"
     errors: list[str] = []
 
     for attempt in range(1, max_attempts + 1):
@@ -369,12 +441,14 @@ def migrate_unimus_original_to_asset_server(
     orig_filename: str,
     mime_type: str,
     collection_name: str,
-    timeout_s: int = 600,
+    timeout_s: int = DOWNLOAD_TIMEOUT_S,
 ) -> dict[str, Any]:
     """Download the Unimus original and upload it to the asset server."""
     source = f"unimus id={media_group_id} type=orig"
     file_bytes, content_type = download_unimus_original(
-        media_group_id, timeout_s=timeout_s
+        media_group_id,
+        filename=orig_filename or None,
+        timeout_s=timeout_s,
     )
 
     media_kind = validate_media_bytes(file_bytes, source=source)

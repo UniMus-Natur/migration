@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import types
 import unittest
@@ -23,6 +24,7 @@ from flows.lib.asset_server_upload import (  # noqa: E402
     AssetServerError,
     _is_retryable_download_status,
     _is_retryable_upload_status,
+    build_unimus_original_url,
     download_unimus_original,
     reset_asset_server_cache,
     upload_original_to_asset_server,
@@ -68,6 +70,56 @@ class AssetServerUploadTests(unittest.TestCase):
     def test_retryable_download_status_includes_503_not_404(self) -> None:
         self.assertTrue(_is_retryable_download_status(503))
         self.assertFalse(_is_retryable_download_status(404))
+
+    def test_build_url_uses_public_host_without_secret(self) -> None:
+        with patch.dict("os.environ", {}, clear=False):
+            # Ensure unset even if shell has it.
+            env = {k: v for k, v in os.environ.items() if k != "UNIMUS_IMAGE_API_BASE"}
+            with patch.dict("os.environ", env, clear=True):
+                url = build_unimus_original_url(media_group_id=42)
+        self.assertIn("www.unimus.no", url)
+        self.assertIn("id=42", url)
+        self.assertIn("type=orig", url)
+
+    def test_build_url_uses_private_base_from_env(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"UNIMUS_IMAGE_API_BASE": "https://api.unimus.no/img-testdev"},
+            clear=False,
+        ):
+            url = build_unimus_original_url(media_group_id=13081392)
+        self.assertEqual(
+            url,
+            "https://api.unimus.no/img-testdev/web_hent_bilde.php?id=13081392&type=orig",
+        )
+        self.assertNotIn("www.unimus.no", url)
+
+    def test_build_url_prefers_tiff_filename_on_private_api(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"UNIMUS_IMAGE_API_BASE": "https://api.unimus.no/img-testdev"},
+            clear=False,
+        ):
+            url = build_unimus_original_url(
+                media_group_id=13081392,
+                filename="O-V-2011266-01.tif",
+            )
+        self.assertIn("filename=O-V-2011266-01.tif", url)
+        self.assertIn("type=orig", url)
+        self.assertNotIn("id=", url)
+
+    def test_build_url_ignores_derivative_jpg_filename(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"UNIMUS_IMAGE_API_BASE": "https://api.unimus.no/img-testdev"},
+            clear=False,
+        ):
+            url = build_unimus_original_url(
+                media_group_id=13081392,
+                filename="MUSIT_BOTANIKK_FELLES_FOTO_7357555.jpg",
+            )
+        self.assertIn("id=13081392", url)
+        self.assertNotIn("filename=", url)
 
     @patch("flows.lib.asset_server_upload.time.sleep")
     @patch("flows.lib.asset_server_upload.requests.get")
