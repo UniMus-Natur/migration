@@ -102,50 +102,87 @@ def is_object_already_migrated(
     the deterministic CollectionObject GUID. When found only via GUID and
     ``backfill_objectmap`` is True, writes the missing objectmap row.
     """
-    owner = source_owner.upper()
-    oid = int(object_id)
-    sql = f"""
-    SELECT specify_co_id
-      FROM {TABLE_NAME}
-     WHERE source_owner = %s
-       AND source_kind  = %s
-       AND source_id    = %s
-       AND specify_collection_id = %s
-     LIMIT 1
+    done = filter_already_migrated_object_ids(
+        source_owner=source_owner,
+        object_ids=[int(object_id)],
+        specify_collection_id=specify_collection_id,
+        run_ts=run_ts,
+        backfill_objectmap=backfill_objectmap,
+    )
+    return int(object_id) in done
+
+
+def filter_already_migrated_object_ids(
+    *,
+    source_owner: str,
+    object_ids: list[int],
+    specify_collection_id: int,
+    run_ts: str | None = None,
+    backfill_objectmap: bool = True,
+) -> set[int]:
+    """Return the subset of ``object_ids`` already present in Specify.
+
+    One objectmap IN-query plus one GUID IN-query for the remainder — avoids a
+    per-object round-trip when paging Oracle IDs.
     """
+    if not object_ids:
+        return set()
+
+    owner = source_owner.upper()
+    coll_id = int(specify_collection_id)
+    wanted = {int(oid) for oid in object_ids}
+    found: set[int] = set()
+
+    id_list = sorted(wanted)
+    # Chunk IN-lists to keep query size bounded.
+    chunk = 500
     try:
         with connection.cursor() as cur:
-            cur.execute(
-                sql,
-                [owner[:64], _SOURCE_KIND_CO, str(oid)[:64], int(specify_collection_id)],
-            )
-            row = cur.fetchone()
-            if row is not None:
-                return True
+            for i in range(0, len(id_list), chunk):
+                part = id_list[i : i + chunk]
+                placeholders = ", ".join(["%s"] * len(part))
+                sql = f"""
+                SELECT source_id
+                  FROM {TABLE_NAME}
+                 WHERE source_owner = %s
+                   AND source_kind  = %s
+                   AND specify_collection_id = %s
+                   AND source_id IN ({placeholders})
+                """
+                cur.execute(
+                    sql,
+                    [owner[:64], _SOURCE_KIND_CO, coll_id, *[str(oid)[:64] for oid in part]],
+                )
+                for (source_id,) in cur.fetchall():
+                    found.add(int(source_id))
     except Exception:  # table may not exist yet on first run
         pass
 
+    missing = sorted(wanted - found)
+    if not missing:
+        return found
+
     from specifyweb.specify.models import Collectionobject
 
-    guid = collectionobject_guid(owner, oid)
-    co_id = (
-        Collectionobject.objects.filter(
-            collection_id=int(specify_collection_id),
-            guid=guid,
-        )
-        .values_list("id", flat=True)
-        .first()
-    )
-    if co_id is None:
-        return False
-
-    if backfill_objectmap and run_ts:
-        upsert_objectmap_row(
-            source_owner=owner,
-            source_id=str(oid),
-            specify_co_id=int(co_id),
-            specify_collection_id=int(specify_collection_id),
-            run_ts=run_ts,
-            dry_run=False,
-        )
-    return True
+    guid_to_oid = {collectionobject_guid(owner, oid): oid for oid in missing}
+    for i in range(0, len(missing), chunk):
+        part_guids = [collectionobject_guid(owner, oid) for oid in missing[i : i + chunk]]
+        rows = Collectionobject.objects.filter(
+            collection_id=coll_id,
+            guid__in=part_guids,
+        ).values_list("id", "guid")
+        for co_id, guid in rows:
+            oid = guid_to_oid.get(str(guid))
+            if oid is None:
+                continue
+            found.add(oid)
+            if backfill_objectmap and run_ts:
+                upsert_objectmap_row(
+                    source_owner=owner,
+                    source_id=str(oid),
+                    specify_co_id=int(co_id),
+                    specify_collection_id=coll_id,
+                    run_ts=run_ts,
+                    dry_run=False,
+                )
+    return found

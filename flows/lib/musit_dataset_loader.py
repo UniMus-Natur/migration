@@ -653,15 +653,55 @@ def _resolve_or_create_taxon(
     return None, created_nodes
 
 
-def _resolve_agent(schema: str, actor_id: Any) -> Any:
-    """Look up an existing Specify ``Agent`` by remarks marker; never creates one."""
+def _resolve_agent(
+    schema: str,
+    actor_id: Any,
+    agent_cache: dict[int, int] | None = None,
+) -> Any:
+    """Look up an existing Specify ``Agent`` by remarks marker; never creates one.
+
+    Prefer ``agent_cache`` (built once per dataset run) — ``remarks__startswith`` is an
+    unindexed full table scan on ~250k Agent rows and dominates specimen throughput.
+    """
     if actor_id is None:
         return None
+    aid = int(actor_id)
+    from specifyweb.specify.models import Agent
+
+    if agent_cache is not None:
+        pk = agent_cache.get(aid)
+        if pk is None:
+            return None
+        # PK-only stub is enough for ForeignKey assignment (avoids re-query).
+        return Agent(id=int(pk))
+
+    sch = str(schema).strip().upper()
+    marker = f"MUSIT-migration: ACTOR; schema={sch}; ACTOR_ID={aid}"
+    return Agent.objects.filter(remarks__startswith=marker).first()
+
+
+_AGENT_REMARKS_ACTOR_RE = re.compile(
+    r"MUSIT-migration:\s*ACTOR;\s*schema=(?P<schema>[^;]+);\s*ACTOR_ID=(?P<actor_id>\d+)",
+    re.IGNORECASE,
+)
+
+
+def _load_musit_agent_cache(schema: str) -> dict[int, int]:
+    """Load ``{actor_id: agent_pk}`` for one Oracle schema (one scan of Agent.remarks)."""
     from specifyweb.specify.models import Agent
 
     sch = str(schema).strip().upper()
-    marker = f"MUSIT-migration: ACTOR; schema={sch}; ACTOR_ID={int(actor_id)}"
-    return Agent.objects.filter(remarks__startswith=marker).first()
+    prefix = f"MUSIT-migration: ACTOR; schema={sch}; ACTOR_ID="
+    cache: dict[int, int] = {}
+    qs = Agent.objects.filter(remarks__startswith=prefix).values_list("id", "remarks")
+    for agent_pk, remarks in qs.iterator(chunk_size=5000):
+        m = _AGENT_REMARKS_ACTOR_RE.match(remarks or "")
+        if not m:
+            continue
+        if m.group("schema").strip().upper() != sch:
+            continue
+        cache[int(m.group("actor_id"))] = int(agent_pk)
+    return cache
 
 
 def _determination_dedupe_key(r: dict[str, Any]) -> tuple:
@@ -943,6 +983,7 @@ def _get_or_create_locality(
     locality_cache: dict[tuple[int, int], int],  # (discipline_id, place_id) → locality pk
     stats: DatasetLoadStats,
     biogeo_region: str | None = None,
+    geography_maps_cache: dict[str, Any] | None = None,
 ) -> Any:
     """Return an existing or newly created Specify ``Locality`` for this Oracle PLACE_ID.
 
@@ -990,25 +1031,32 @@ def _get_or_create_locality(
     agg, loc_text = _fetch_place_text(oracle_cursor, owner, place_id)
     coord = _fetch_coordinate_bundle(oracle_cursor, owner, place_id)
 
-    # Rebuild geo rank map (lightweight — only the set already in memory).
     owner_lower = owner.lower()
     geo_guid_prefix = f"urn:oracle:{owner_lower}:hpo:"
-    geo_rankid_by_pk: dict[int, int] = dict(
-        Geography.objects.filter(
+    maps_key = f"{geography_treedef_id}:{owner_lower}"
+    if geography_maps_cache is not None and maps_key in geography_maps_cache:
+        geo_rankid_by_pk = geography_maps_cache[maps_key]["geo_rankid_by_pk"]
+        oracle_hid_to_geo = geography_maps_cache[maps_key]["oracle_hid_to_geo"]
+    else:
+        geo_rankid_by_pk = dict(
+            Geography.objects.filter(
+                definition_id=geography_treedef_id,
+                guid__startswith=geo_guid_prefix,
+            ).values_list("id", "rankid")
+        )
+        oracle_hid_to_geo: dict[int, int] = {}
+        for g in Geography.objects.filter(
             definition_id=geography_treedef_id,
             guid__startswith=geo_guid_prefix,
-        ).values_list("id", "rankid")
-    )
-    # Build hid→geo_id for this place's hierarchical nodes.
-    oracle_hid_to_geo: dict[int, int] = {}
-    for g in Geography.objects.filter(
-        definition_id=geography_treedef_id,
-        guid__startswith=geo_guid_prefix,
-    ).values("id", "guid"):
-        tail = g["guid"][len(geo_guid_prefix):]
-        if tail.isdigit():
-            oracle_hid_to_geo[int(tail)] = int(g["id"])
-
+        ).values("id", "guid"):
+            tail = g["guid"][len(geo_guid_prefix):]
+            if tail.isdigit():
+                oracle_hid_to_geo[int(tail)] = int(g["id"])
+        if geography_maps_cache is not None:
+            geography_maps_cache[maps_key] = {
+                "geo_rankid_by_pk": geo_rankid_by_pk,
+                "oracle_hid_to_geo": oracle_hid_to_geo,
+            }
     geo_id = _deepest_geography_for_place(
         oracle_cursor, owner, place_id, oracle_hid_to_geo, geo_rankid_by_pk
     )
@@ -1758,16 +1806,19 @@ def _attach_collectors_to_collecting_event(
     oracle_cursor: Any,
     object_id: int,
     stats: DatasetLoadStats,
+    agent_cache: dict[int, int] | None = None,
+    actor_ids: list[int] | None = None,
 ) -> int:
     """Create ``Collector`` rows for all resolved agents on a collecting event."""
     from specifyweb.specify.models import Collector
 
-    actor_ids = _fetch_collector_actor_ids_for_event(
-        oracle_cursor, owner, collecting_event_id
-    )
+    if actor_ids is None:
+        actor_ids = _fetch_collector_actor_ids_for_event(
+            oracle_cursor, owner, collecting_event_id
+        )
     created = 0
     for idx, actor_id in enumerate(actor_ids):
-        agent = _resolve_agent(owner, actor_id)
+        agent = _resolve_agent(owner, actor_id, agent_cache=agent_cache)
         if agent is None:
             stats.agent_unresolved += 1
             continue
@@ -1809,6 +1860,8 @@ def _write_one_object(
     locality_cache: dict[tuple[int, int], int],
     stats: DatasetLoadStats,
     avbilder_by_object: dict[int, list[int]] | None = None,
+    agent_cache: dict[int, int] | None = None,
+    geography_maps_cache: dict[str, Any] | None = None,
 ) -> None:
     """Write one CollectionObject + CollectingEvent + Determination(s) for ``object_id``.
 
@@ -1827,6 +1880,7 @@ def _write_one_object(
     owner = config.oracle_schema
     collecting_event_id = collecting_row.get("event_id") if collecting_row else None
     primary_collector_actor_id: int | None = None
+    collector_actor_ids: list[int] = []
     if collecting_event_id is not None:
         collector_actor_ids = _fetch_collector_actor_ids_for_event(
             oracle_cursor, owner, int(collecting_event_id)
@@ -1974,6 +2028,7 @@ def _write_one_object(
                 locality_cache=locality_cache,
                 stats=stats,
                 biogeo_region=biogeo_region,
+                geography_maps_cache=geography_maps_cache,
             )
 
         # 2. CollectingEvent
@@ -2060,6 +2115,8 @@ def _write_one_object(
                 oracle_cursor=oracle_cursor,
                 object_id=object_id,
                 stats=stats,
+                agent_cache=agent_cache,
+                actor_ids=collector_actor_ids,
             )
         if collectors_created == 0 and collector_str:
             fallback_remarks = ce_kwargs.get("remarks") or ""
@@ -2286,7 +2343,11 @@ def _write_one_object(
                 det_actor = _first_non_null_classification_determiner_actor_id(
                     det_rows_all, det_key
                 )
-                determiner = _resolve_agent(owner, det_actor) if det_actor else None
+                determiner = (
+                    _resolve_agent(owner, det_actor, agent_cache=agent_cache)
+                    if det_actor
+                    else None
+                )
                 det_date = _coerce_date(dr.get("class_from_date")) or _coerce_date(
                     dr.get("class_to_date")
                 )
@@ -2454,7 +2515,7 @@ def load_musit_dataset(
     """
     from flows.lib.migration_oracle_objectmap import (
         ensure_objectmap_table,
-        is_object_already_migrated,
+        filter_already_migrated_object_ids,
     )
     from flows.lib.migration_oracle_placemap import ensure_placemap_table
 
@@ -2471,6 +2532,19 @@ def load_musit_dataset(
     ensure_objectmap_table(dry_run=dry_run)
     ensure_placemap_table(dry_run=dry_run)
 
+    agent_cache: dict[int, int] = {}
+    if not dry_run:
+        _log("info", "load_musit_dataset | loading Agent cache for schema=%s …",
+             config.oracle_schema.upper())
+        t_agents = time.monotonic()
+        agent_cache = _load_musit_agent_cache(config.oracle_schema)
+        _log(
+            "info",
+            "load_musit_dataset | Agent cache ready: %s actors in %.1fs",
+            len(agent_cache),
+            time.monotonic() - t_agents,
+        )
+
     total_oracle = _count_total_objects(oracle_cursor, config)
     _log("info", "load_musit_dataset | total Oracle objects for filter: %s", total_oracle)
 
@@ -2486,8 +2560,10 @@ def load_musit_dataset(
 
     # In-memory locality cache: (discipline_id, place_id) → specify locality pk
     locality_cache: dict[tuple[int, int], int] = {}
+    geography_maps_cache: dict[str, Any] = {}
     total_seen = 0          # Oracle objects visited (including skipped)
     total_processed = 0     # New objects written this run
+    last_progress_at = 0
 
     after_id = 0
     while True:
@@ -2501,23 +2577,19 @@ def load_musit_dataset(
         if not page_ids:
             break
         after_id = page_ids[-1]
+        total_seen += len(page_ids)
 
-        # Per-object idempotency check before fetching heavy Oracle joins.
-        ids_to_process: list[int] = []
-        for oid in page_ids:
-            total_seen += 1
-            if (
-                not dry_run
-                and is_object_already_migrated(
-                    source_owner=config.oracle_schema.upper(),
-                    object_id=oid,
-                    specify_collection_id=int(collection.id),
-                    run_ts=run_ts,
-                )
-            ):
-                stats.co_skipped += 1
-                continue
-            ids_to_process.append(oid)
+        # Batch idempotency check before fetching heavy Oracle joins.
+        already_on_page: set[int] = set()
+        if not dry_run:
+            already_on_page = filter_already_migrated_object_ids(
+                source_owner=config.oracle_schema.upper(),
+                object_ids=page_ids,
+                specify_collection_id=int(collection.id),
+                run_ts=run_ts,
+            )
+        stats.co_skipped += len(already_on_page)
+        ids_to_process = [oid for oid in page_ids if oid not in already_on_page]
 
         # Fetch full specimen rows for pending objects only (one round-trip per page).
         if ids_to_process:
@@ -2551,17 +2623,27 @@ def load_musit_dataset(
                 locality_cache=locality_cache,
                 stats=stats,
                 avbilder_by_object=avbilder_by_object,
+                agent_cache=agent_cache,
+                geography_maps_cache=geography_maps_cache,
             )
 
             total_processed += 1
 
-            if total_seen % _PROGRESS_EVERY == 0 or total_seen == 1:
+            should_log = (
+                total_processed == 1
+                or total_processed % _PROGRESS_EVERY == 0
+                or (total_seen - last_progress_at) >= _PROGRESS_EVERY
+            )
+            if should_log:
+                last_progress_at = total_seen
                 elapsed = time.monotonic() - t0
                 pct = 100.0 * total_seen / total_oracle if total_oracle else 0.0
+                rate = total_processed / elapsed if elapsed > 0 else 0.0
                 _log(
                     "info",
                     "load_musit_dataset | %s/%s (%.1f%%) co=%s skipped=%s ce=%s loc_new=%s det=%s"
-                    " taxon_ok=%s taxon_fallback=%s taxon_unresolved=%s agent_ok=%s err=%s elapsed=%s",
+                    " taxon_ok=%s taxon_fallback=%s taxon_unresolved=%s agent_ok=%s err=%s"
+                    " rate=%.2f/s elapsed=%s",
                     total_seen,
                     total_oracle,
                     pct,
@@ -2575,6 +2657,7 @@ def load_musit_dataset(
                     stats.taxon_unresolved,
                     stats.agent_matched,
                     len(stats.errors),
+                    rate,
                     _format_duration(elapsed),
                 )
 
