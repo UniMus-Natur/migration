@@ -257,6 +257,83 @@ def ensure_settlement_rank(treedef_id: int, *, dry_run: bool) -> dict[str, Any]:
     return out
 
 
+def ensure_deeper_geography_rank(
+    treedef_id: int,
+    *,
+    min_parent_rankid: int,
+    dry_run: bool = False,
+    new_name: str = "Place",
+) -> dict[str, Any]:
+    """Ensure a treedef item with ``rankid > min_parent_rankid`` exists (create if needed).
+
+    Untyped Oracle hierarchy chains (e.g. kommune repeated under itself, then a farm/parish
+    leaf) can exhaust Continent→Settlement. Specimens then need one more leaf rank.
+    """
+    from specifyweb.specify.models import Geographytreedefitem
+
+    out: dict[str, Any] = {
+        "added": False,
+        "treedef_id": treedef_id,
+        "dry_run": dry_run,
+        "min_parent_rankid": int(min_parent_rankid),
+    }
+    deeper = (
+        Geographytreedefitem.objects.filter(treedef_id=treedef_id, rankid__gt=int(min_parent_rankid))
+        .order_by("rankid")
+        .first()
+    )
+    if deeper is not None:
+        out["rankid"] = int(deeper.rankid)
+        out["name"] = deeper.name
+        return out
+
+    parent_item = (
+        Geographytreedefitem.objects.filter(treedef_id=treedef_id, rankid__lte=int(min_parent_rankid))
+        .order_by("-rankid", "-id")
+        .first()
+    )
+    if parent_item is None:
+        out["error"] = "no geography treedef items at or below parent rank"
+        return out
+    occupied = set(
+        int(x) for x in Geographytreedefitem.objects.filter(treedef_id=treedef_id).values_list("rankid", flat=True)
+    )
+    new_rank = int(parent_item.rankid) + 100
+    while new_rank in occupied:
+        new_rank += 10
+    # Avoid name collisions (Settlement already used, etc.)
+    base_name = new_name
+    name = base_name
+    n = 2
+    while Geographytreedefitem.objects.filter(treedef_id=treedef_id, name__iexact=name).exists():
+        name = f"{base_name}{n}"
+        n += 1
+    if dry_run:
+        out["would_add"] = name
+        out["would_rankid"] = new_rank
+        return out
+    Geographytreedefitem.objects.create(
+        treedef_id=treedef_id,
+        name=name,
+        title=name,
+        rankid=new_rank,
+        isenforced=True,
+        isinfullname=True,
+        parent=parent_item,
+    )
+    out["added"] = True
+    out["rankid"] = new_rank
+    out["name"] = name
+    logger.info(
+        "Created geography rank %s (rankid=%s) under parent=%s for GeographyTreeDefID=%s",
+        name,
+        new_rank,
+        getattr(parent_item, "name", None),
+        treedef_id,
+    )
+    return out
+
+
 def _rank_items_by_name_lower(treedef_id: int) -> dict[str, Any]:
     from specifyweb.specify.models import Geographytreedefitem
 
@@ -480,7 +557,32 @@ def load_hierarchical_geography(
             pid = oracle_to_geo[r.place_id_partof]
             parent_geo = _geo_model(pid) or earth
         parent_geo = _effective_parent_geography_for_untyped(parent_geo, r, earth)
+
+        # Untyped Oracle rows that repeat the parent placename burn ranks for no gain —
+        # alias the hid onto the parent (e.g. Holmestrand×3 under kommune).
+        child_name = (r.placename or "").strip()
+        parent_name = (getattr(parent_geo, "name", None) or "").strip()
+        if (
+            not _norm_type(r.type_name)
+            and child_name
+            and parent_name
+            and child_name.casefold() == parent_name.casefold()
+            and int(getattr(parent_geo, "id", 0)) != int(getattr(earth, "id", -1))
+        ):
+            oracle_to_geo[r.hierarch_place_id] = int(parent_geo.id)
+            geo_by_pk[int(parent_geo.id)] = parent_geo
+            stats.geographies_skipped_existing += 1
+            continue
+
         di = rank_for_row(r, parent_geo)
+        if di is None and not dry_run:
+            pr = getattr(parent_geo, "rankid", None)
+            parent_rid = int(pr) if pr is not None else -1
+            ensure_deeper_geography_rank(treedef_id, min_parent_rankid=parent_rid, dry_run=False)
+            rank_items = _rank_items_by_name_lower(treedef_id)
+            ordered_def_items = _treedef_items_ordered_by_rank(treedef_id)
+            _rk = sorted(rank_items.keys())
+            di = rank_for_row(r, parent_geo)
         if di is None:
             nm = oracle_type_name_to_rank_item_name(r.type_name)
             pr = getattr(parent_geo, "rankid", None)

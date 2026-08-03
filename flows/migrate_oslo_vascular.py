@@ -114,13 +114,14 @@ def migrate_oslo_vascular_task(
     dry_run: bool,
     limit: int | None,
     run_ts: str,
+    skip_media: bool = False,
 ) -> DatasetLoadStats:
     """Extract Oracle MUSIT objects and load into Specify (single combined task)."""
     setup_django()
     logger = get_run_logger()
     logger.info(
-        "migrate_oslo_vascular_task | oracle_env=%s dry_run=%s limit=%s",
-        oracle_env, dry_run, limit,
+        "migrate_oslo_vascular_task | oracle_env=%s dry_run=%s limit=%s skip_media=%s",
+        oracle_env, dry_run, limit, skip_media,
     )
 
     config_obj = get_oracle_config_from_env(oracle_env)
@@ -133,6 +134,7 @@ def migrate_oslo_vascular_task(
                 dry_run=dry_run,
                 limit=limit,
                 run_ts=run_ts,
+                skip_media=skip_media,
             )
     finally:
         connection.close()
@@ -170,6 +172,7 @@ def migrate_oslo_vascular_flow(
     dry_run: bool = True,
     purge_before_run: bool = False,
     limit: int | None = None,
+    skip_media: bool = False,
 ) -> dict[str, Any]:
     """Migrate Oslo vascular plants to Specify 7.
 
@@ -178,11 +181,14 @@ def migrate_oslo_vascular_flow(
         dry_run:    When True, logs actions but writes nothing.
         limit:      Stop after N objects; None = full migration.
                     Use limit=100 for a fast test run with time estimate.
+        skip_media: When True, skip Unimus TIFF download / asset-server upload.
+                    Use for a fast CO/CE/Det pass; backfill media later.
     """
     logger = get_run_logger()
     logger.info(
-        "migrate_oslo_vascular_flow | oracle_env=%s dry_run=%s purge_before_run=%s limit=%s",
-        oracle_env, dry_run, purge_before_run, limit,
+        "migrate_oslo_vascular_flow | oracle_env=%s dry_run=%s purge_before_run=%s "
+        "limit=%s skip_media=%s",
+        oracle_env, dry_run, purge_before_run, limit, skip_media,
     )
 
     setup_django()
@@ -204,7 +210,7 @@ def migrate_oslo_vascular_flow(
         )
         logger.info("purge_before_run result: %s", purge_result)
 
-    stats = migrate_oslo_vascular_task(oracle_env, dry_run, limit, ts)
+    stats = migrate_oslo_vascular_task(oracle_env, dry_run, limit, ts, skip_media)
 
     report = _build_report(
         ts=ts,

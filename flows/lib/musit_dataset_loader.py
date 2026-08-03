@@ -55,8 +55,10 @@ from flows.lib.musit_taxon_match import (
 
 logger = logging.getLogger(__name__)
 
-# How often to emit a progress line (number of objects processed).
-_PROGRESS_EVERY = 100
+# How often to emit a progress line (number of new objects written).
+_PROGRESS_EVERY = 10
+# Always log the first N newly written objects so media-heavy stretches are visible.
+_PROGRESS_ALWAYS_FIRST_N = 25
 
 # Cap error strings saved in stats to avoid huge memory / report blobs.
 _MAX_ERRORS = 200
@@ -834,6 +836,8 @@ def _ensure_geography_for_place(
         _rank_items_by_name_lower,
         _resolve_rank_item,
         _treedef_items_ordered_by_rank,
+        ensure_deeper_geography_rank,
+        ensure_settlement_rank,
         oracle_type_name_to_rank_item_name,
     )
 
@@ -842,6 +846,10 @@ def _ensure_geography_for_place(
         return None
     _erk = getattr(earth, "rankid", None)
     geo_rankid_by_pk[int(earth.id)] = int(_erk) if _erk is not None else 0
+
+    # Ensure leaf ranks exist for deep Norwegian place chains (kommune → farm/parish).
+    if not dry_run:
+        ensure_settlement_rank(geography_treedef_id, dry_run=False)
 
     rank_items = _rank_items_by_name_lower(geography_treedef_id)
     ordered_items = _treedef_items_ordered_by_rank(geography_treedef_id)
@@ -922,6 +930,24 @@ def _ensure_geography_for_place(
         hier = HierRow(hid, r["name"], r["partof"], r.get("type_name"))
         parent_geo = _effective_parent_geography_for_untyped(parent_geo, hier, earth)
 
+        # Untyped Oracle rows that repeat the parent placename (e.g. Holmestrand×3) burn
+        # ranks for no geographic gain — alias the hid onto the parent instead.
+        child_name = (r.get("name") or "").strip()
+        parent_name = (getattr(parent_geo, "name", None) or "").strip()
+        if (
+            not r.get("type_name")
+            and child_name
+            and parent_name
+            and child_name.casefold() == parent_name.casefold()
+            and int(getattr(parent_geo, "id", 0)) != int(getattr(earth, "id", -1))
+        ):
+            if not dry_run:
+                oracle_hid_to_geo[hid] = int(parent_geo.id)
+                geo_cache[int(parent_geo.id)] = parent_geo
+                _pr0 = getattr(parent_geo, "rankid", None)
+                geo_rankid_by_pk[int(parent_geo.id)] = int(_pr0) if _pr0 is not None else 0
+            continue
+
         # Earth has rankid=0 — never use ``(rankid or -1)`` here: 0 is falsy and would become -1,
         # then ``next(rankid > -1)`` picks the *Earth* treedef item again → duplicate rank 0 under
         # Earth → Specify Tree validation fails (and their error payload crashes on parent.parent).
@@ -930,6 +956,16 @@ def _ensure_geography_for_place(
         logical = oracle_type_name_to_rank_item_name(r["type_name"])
         di = _resolve_rank_item(rank_items, logical) if logical else None
         if di is None or int(di.rankid) <= parent_rankid:
+            di = next((it for it in ordered_items if int(it.rankid) > parent_rankid), None)
+        if di is None and not dry_run:
+            # Deep untyped leaf (e.g. Botne under Settlement Holmestrand) — add Place rank.
+            ensure_deeper_geography_rank(
+                geography_treedef_id,
+                min_parent_rankid=parent_rankid,
+                dry_run=False,
+            )
+            rank_items = _rank_items_by_name_lower(geography_treedef_id)
+            ordered_items = _treedef_items_ordered_by_rank(geography_treedef_id)
             di = next((it for it in ordered_items if int(it.rankid) > parent_rankid), None)
         if di is None:
             raise RuntimeError(
@@ -1862,6 +1898,7 @@ def _write_one_object(
     avbilder_by_object: dict[int, list[int]] | None = None,
     agent_cache: dict[int, int] | None = None,
     geography_maps_cache: dict[str, Any] | None = None,
+    skip_media: bool = False,
 ) -> None:
     """Write one CollectionObject + CollectingEvent + Determination(s) for ``object_id``.
 
@@ -2098,7 +2135,8 @@ def _write_one_object(
                 primary_group_id=obj_row.get("mediagruppe_enhets_id"),
                 avbilder_by_object=avbilder_by_object or {},
             )
-            stats.attachments_created += len(media_group_ids)
+            if not skip_media:
+                stats.attachments_created += len(media_group_ids)
             return
 
         ce = Collectingevent(**ce_kwargs)
@@ -2206,34 +2244,6 @@ def _write_one_object(
 
         co.save()
         stats.co_created += 1
-
-        # 4b. Image attachments: all Avbilder media groups → asset server (one per group).
-        media_group_ids = _media_group_ids_for_object(
-            object_id=object_id,
-            primary_group_id=obj_row.get("mediagruppe_enhets_id"),
-            avbilder_by_object=avbilder_by_object or {},
-        )
-        for ordinal, mgid in enumerate(media_group_ids, start=1):
-            try:
-                _attach_media_to_collection_object(
-                    oracle_cursor=oracle_cursor,
-                    co=co,
-                    media_group_id=int(mgid),
-                    collection_name=str(collection.collectionname),
-                    object_withheld=obj_row.get("object_withheld"),
-                    ordinal=ordinal,
-                    dry_run=False,
-                    stats=stats,
-                )
-            except Exception as exc:  # noqa: BLE001
-                stats.attachments_failed += 1
-                _log(
-                    "warning",
-                    "object_id=%s mediagruppe_enhets_id=%s: media attachment migration failed: %s",
-                    object_id,
-                    mgid,
-                    exc,
-                )
 
         # 5. Determination(s) — deduplicate by best available source keys/text.
         seen_det_keys: set[tuple] = set()
@@ -2402,6 +2412,60 @@ def _write_one_object(
             dry_run=False,
         )
 
+    # 7. Media outside the atomic block so a long TIFF download/upload does not hold
+    # MariaDB locks, and so CO progress is visible before attachments finish.
+    if skip_media or dry_run:
+        return
+    media_group_ids = _media_group_ids_for_object(
+        object_id=object_id,
+        primary_group_id=obj_row.get("mediagruppe_enhets_id"),
+        avbilder_by_object=avbilder_by_object or {},
+    )
+    if not media_group_ids:
+        return
+    _log(
+        "info",
+        "object_id=%s catalog=%s: attaching %s media group(s)",
+        object_id,
+        obj_row.get("identifier_string"),
+        len(media_group_ids),
+    )
+    for ordinal, mgid in enumerate(media_group_ids, start=1):
+        t_media = time.monotonic()
+        try:
+            _attach_media_to_collection_object(
+                oracle_cursor=oracle_cursor,
+                co=co,
+                media_group_id=int(mgid),
+                collection_name=str(collection.collectionname),
+                object_withheld=obj_row.get("object_withheld"),
+                ordinal=ordinal,
+                dry_run=False,
+                stats=stats,
+            )
+            _log(
+                "info",
+                "object_id=%s media %s/%s group=%s ok in %.1fs (att_ok=%s att_fail=%s)",
+                object_id,
+                ordinal,
+                len(media_group_ids),
+                mgid,
+                time.monotonic() - t_media,
+                stats.attachments_created,
+                stats.attachments_failed,
+            )
+        except Exception as exc:  # noqa: BLE001
+            stats.attachments_failed += 1
+            _log(
+                "warning",
+                "object_id=%s mediagruppe_enhets_id=%s: media attachment migration failed "
+                "after %.1fs: %s",
+                object_id,
+                mgid,
+                time.monotonic() - t_media,
+                exc,
+            )
+
 
 # ---------------------------------------------------------------------------
 # Oracle fetch helpers
@@ -2499,6 +2563,7 @@ def load_musit_dataset(
     limit: int | None = None,
     page_size: int = 1000,
     run_ts: str,
+    skip_media: bool = False,
 ) -> DatasetLoadStats:
     """Stream Oracle MUSIT objects into Specify for the given dataset config.
 
@@ -2509,6 +2574,7 @@ def load_musit_dataset(
         limit:        Stop after this many objects (for test runs with time estimates).
         page_size:    Number of OBJECT_IDs per Oracle page.
         run_ts:       ISO timestamp string stamped on all bridge table rows.
+        skip_media:   When True, skip Unimus download / asset-server upload (CO/CE/Det only).
 
     Returns:
         ``DatasetLoadStats`` with counters and (when ``limit`` is set) a time estimate.
@@ -2526,8 +2592,8 @@ def load_musit_dataset(
     collection = ctx.collection
     discipline = ctx.discipline
 
-    _log("info", "load_musit_dataset | collection=%s discipline=%s dry_run=%s limit=%s",
-         config.specify_collection_code, config.specify_discipline_name, dry_run, limit)
+    _log("info", "load_musit_dataset | collection=%s discipline=%s dry_run=%s limit=%s skip_media=%s",
+         config.specify_collection_code, config.specify_discipline_name, dry_run, limit, skip_media)
 
     ensure_objectmap_table(dry_run=dry_run)
     ensure_placemap_table(dry_run=dry_run)
@@ -2625,12 +2691,13 @@ def load_musit_dataset(
                 avbilder_by_object=avbilder_by_object,
                 agent_cache=agent_cache,
                 geography_maps_cache=geography_maps_cache,
+                skip_media=skip_media,
             )
 
             total_processed += 1
 
             should_log = (
-                total_processed == 1
+                total_processed <= _PROGRESS_ALWAYS_FIRST_N
                 or total_processed % _PROGRESS_EVERY == 0
                 or (total_seen - last_progress_at) >= _PROGRESS_EVERY
             )
@@ -2642,8 +2709,8 @@ def load_musit_dataset(
                 _log(
                     "info",
                     "load_musit_dataset | %s/%s (%.1f%%) co=%s skipped=%s ce=%s loc_new=%s det=%s"
-                    " taxon_ok=%s taxon_fallback=%s taxon_unresolved=%s agent_ok=%s err=%s"
-                    " rate=%.2f/s elapsed=%s",
+                    " taxon_ok=%s taxon_fallback=%s taxon_unresolved=%s agent_ok=%s"
+                    " att_ok=%s att_fail=%s err=%s rate=%.2f/s elapsed=%s",
                     total_seen,
                     total_oracle,
                     pct,
@@ -2656,6 +2723,8 @@ def load_musit_dataset(
                     stats.taxon_fallback_matched,
                     stats.taxon_unresolved,
                     stats.agent_matched,
+                    stats.attachments_created,
+                    stats.attachments_failed,
                     len(stats.errors),
                     rate,
                     _format_duration(elapsed),
