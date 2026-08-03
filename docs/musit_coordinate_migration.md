@@ -64,7 +64,7 @@ For Oslo vascular plants (`institutioncode=O`, `collectioncode=V`), PROD analysi
 | `latLongAccuracy` | MUSIT `PRECISION` (metres) |
 | `text1` | Place-name aggregate (`PLACE.PLACE_NAME_AGG`) — not coordinates |
 | `text2` | Norwegian biogeographic zone (picklist) — not coordinates |
-| `text3` | **MGRS / grid verbatim** (e.g. `CS 163,372`) |
+| `text3` | **Grid ref. (MGRS)** — Norwegian MGRS verbatim (e.g. `CS 163,372`) |
 | `text4` | Full migration **audit JSON** (provenance; hidden in UI) |
 | `text5` | **UTM as GeoJSON** `Feature` (clean contract for future Specify UTM UI) |
 | `yesNo1` | Ca coordinate (`CA_UTM`) |
@@ -80,7 +80,7 @@ Elevation (`minElevation` / `maxElevation` / `verbatimElevation` / …) is mappe
 2. Else use **`KOORDINATE_PLACE`** `LATITUDE_L` / `LONGITUDE_L`.
 3. If both KP and derived disagree by more than **0.01°**, keep derived as primary and record the conflict in `remarks` and `text4`.
 
-### `text3` — MGRS
+### `text3` — Grid ref. (MGRS)
 
 Filled from, in order:
 
@@ -137,12 +137,14 @@ Machine-readable dump of MUSIT ids, verbatim strings, KP vs derived stored decim
 
 | Form | Shows |
 |------|--------|
-| **Locality** | LatLonUI, MGRS (`text3`), UTM GeoJSON (`text5`), flags, biogeographic zone |
-| **LocalitySubForm** | LatLonUI, MGRS, UTM GeoJSON, flags |
-| **CollectingEventSub** (on Collection Object) | `latitude1` / `longitude1`, MGRS, UTM GeoJSON, flags |
+| **Locality** | Where → Coordinates (LatLonUI, Geo Ref / Google Earth, datum/precision, Grid ref) → Elevation → collapsed GeoCoordDetails → Advanced (lat/long text, UTM GeoJSON, remarks) → Attachments |
+| **LocalitySubForm** | Compact where + coordinates (no elevation / UTM / remarks) |
+| **CollectingEventSub** (on Collection Object) | `latitude1` / `longitude1`, Grid ref. (MGRS), UTM GeoJSON, flags |
 | **CollectingEvent** | Same coordinate fields as the subform |
 
-Schema labels live in `specify7-forms/schema/botany/schema.en.json` (`Locality.text3` = MGRS, `text5` = UTM (GeoJSON)).
+Schema labels live in `specify7-forms/schema/botany/schema.en.json` (`Locality.text3` = Grid ref. (MGRS), `text5` = UTM (GeoJSON)). Regex validation uses UIFormatter `GridRefMGRS` (`specli formatter`).
+
+**Note:** Specify 7 only collapses relationship subviews (`initialize="collapse=true"`), not same-table field groups. Advanced fields are therefore demoted to a trailing section; GeoCoordDetails is collapsed by default.
 
 ## Related docs
 
