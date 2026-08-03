@@ -137,7 +137,7 @@ Machine-readable dump of MUSIT ids, verbatim strings, KP vs derived stored decim
 
 | Form | Shows |
 |------|--------|
-| **Locality** | Where → Coordinates (LatLonUI, Geo Ref / Google Earth, datum/precision, Grid ref) → Elevation → collapsed GeoCoordDetails → Advanced (lat/long text, UTM GeoJSON, remarks) → Attachments |
+| **Locality** | Where → Coordinates (LatLonUI, Geo Ref / Google Earth, datum/precision, Grid ref) → Elevation → collapsed GeoCoordDetails → Advanced (UTM GeoJSON, remarks) → Attachments |
 | **LocalitySubForm** | Compact where + coordinates (no elevation / UTM / remarks) |
 | **CollectingEventSub** (on Collection Object) | `latitude1` / `longitude1`, Grid ref. (MGRS), UTM GeoJSON, flags |
 | **CollectingEvent** | Same coordinate fields as the subform |
