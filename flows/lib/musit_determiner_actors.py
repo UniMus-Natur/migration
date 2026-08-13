@@ -1,0 +1,105 @@
+"""Resolve MUSIT classification-event roles into ordered determiner actor IDs."""
+
+from __future__ import annotations
+
+from typing import Any
+
+
+def _trunc(s: Any, max_len: int) -> str | None:
+    if s is None:
+        return None
+    t = str(s).strip()
+    return (t[:max_len] if len(t) > max_len else t) or None
+
+
+def determination_dedupe_key(r: dict[str, Any]) -> tuple:
+    return (
+        r.get("adb_taxon_id"),
+        r.get("adb_latin_name_id"),
+        r.get("latin_name_id"),
+        _trunc(r.get("valid_classterm"), 255),
+        _trunc(r.get("classterm"), 255),
+    )
+
+
+def classification_event_ids_for_det_key(
+    det_rows: list[dict[str, Any]], det_key: tuple
+) -> list[int]:
+    """Return classification ``event_id`` values for rows sharing a determination key."""
+    event_ids: list[int] = []
+    seen: set[int] = set()
+    for r in det_rows:
+        if determination_dedupe_key(r) != det_key:
+            continue
+        eid = r.get("class_event_id")
+        if eid is None:
+            continue
+        eid_int = int(eid)
+        if eid_int not in seen:
+            seen.add(eid_int)
+            event_ids.append(eid_int)
+    return event_ids
+
+
+def fetch_event_role_actor_ids(
+    oracle_cursor: Any,
+    schema: str,
+    event_id: int,
+) -> list[int]:
+    """Return ordered unique ``actor_id`` values from person-name and actor event roles."""
+    sch = str(schema).strip().upper()
+    ordered: list[int] = []
+    seen: set[int] = set()
+
+    oracle_cursor.execute(
+        f"""
+        SELECT pn.actor_id
+          FROM {sch}.event_role_person_name erpn
+          JOIN {sch}.person_name pn
+            ON pn.person_name_id = erpn.person_name_id
+         WHERE erpn.event_id = :eid
+           AND pn.actor_id IS NOT NULL
+         ORDER BY erpn.sorting_sequence NULLS LAST, erpn.event_person_name_role_id
+        """,
+        {"eid": int(event_id)},
+    )
+    for (actor_id,) in oracle_cursor.fetchall():
+        aid = int(actor_id)
+        if aid not in seen:
+            seen.add(aid)
+            ordered.append(aid)
+
+    oracle_cursor.execute(
+        f"""
+        SELECT era.actor_id
+          FROM {sch}.event_role_actor era
+         WHERE era.event_id = :eid
+           AND era.actor_id IS NOT NULL
+         ORDER BY era.event_actor_role_id
+        """,
+        {"eid": int(event_id)},
+    )
+    for (actor_id,) in oracle_cursor.fetchall():
+        aid = int(actor_id)
+        if aid not in seen:
+            seen.add(aid)
+            ordered.append(aid)
+
+    return ordered
+
+
+def classification_determiner_actor_ids_for_det_key(
+    det_rows: list[dict[str, Any]],
+    det_key: tuple,
+    oracle_cursor: Any,
+    schema: str,
+) -> list[int]:
+    """Return ordered unique determiner ``actor_id`` values for one determination envelope."""
+    ordered: list[int] = []
+    seen: set[int] = set()
+    for event_id in classification_event_ids_for_det_key(det_rows, det_key):
+        for actor_id in fetch_event_role_actor_ids(oracle_cursor, schema, event_id):
+            if actor_id not in seen:
+                seen.add(actor_id)
+                ordered.append(actor_id)
+    return ordered

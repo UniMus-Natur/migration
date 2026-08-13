@@ -44,6 +44,11 @@ from flows.lib.musit_field_number_map import (
     resolve_field_number_from_legnr_rows,
 )
 from flows.lib.musit_determination_remarks import determination_remarks as _determination_remarks
+from flows.lib.musit_determiner_actors import (
+    classification_determiner_actor_ids_for_det_key as _classification_determiner_actor_ids_for_det_key,
+    determination_dedupe_key as _determination_dedupe_key,
+    fetch_event_role_actor_ids as _fetch_event_role_actor_ids,
+)
 from flows.lib.musit_sensu_addendum import (
     classification_sensu_outliers,
     resolve_sensu_addendum,
@@ -214,16 +219,6 @@ _SPECIMEN_SQL = """
       ln.is_valid          AS taxon_is_valid,
       erp.actor_id,
       erp.role_id,
-      (SELECT MIN(era.actor_id)
-         FROM {schema}.event_role_actor era
-        WHERE era.event_id = cte.event_id
-      ) AS classification_actor_id,
-      (SELECT MIN(pn.actor_id)
-         FROM {schema}.event_role_person_name erpn
-         JOIN {schema}.person_name pn
-           ON pn.person_name_id = erpn.person_name_id
-        WHERE erpn.event_id = cte.event_id
-      ) AS classification_person_name_actor_id,
       cte.detname_orig,
       cte.agg_personnames  AS det_agg_personnames
     FROM {schema}.v_object_attributes voa
@@ -704,39 +699,6 @@ def _load_musit_agent_cache(schema: str) -> dict[int, int]:
             continue
         cache[int(m.group("actor_id"))] = int(agent_pk)
     return cache
-
-
-def _determination_dedupe_key(r: dict[str, Any]) -> tuple:
-    return (
-        r.get("adb_taxon_id"),
-        r.get("adb_latin_name_id"),
-        r.get("latin_name_id"),
-        _trunc(r.get("valid_classterm"), 255),
-        _trunc(r.get("classterm"), 255),
-    )
-
-
-def _first_non_null_classification_determiner_actor_id(
-    det_rows: list[dict[str, Any]], det_key: tuple
-) -> Any:
-    """Within rows sharing a determination dedupe key, pick a classification-event actor.
-
-    Oracle join order can leave ``classification_*_actor_id`` null on the first row even when
-    another row for the same determination envelope has a value.
-    """
-    for r in det_rows:
-        if _determination_dedupe_key(r) != det_key:
-            continue
-        aid = r.get("classification_actor_id")
-        if aid is not None:
-            return aid
-    for r in det_rows:
-        if _determination_dedupe_key(r) != det_key:
-            continue
-        aid = r.get("classification_person_name_actor_id")
-        if aid is not None:
-            return aid
-    return None
 
 
 def _oracle_row_is_nominal_world_shell(r: dict[str, Any]) -> bool:
@@ -1793,45 +1755,7 @@ def _fetch_collector_actor_ids_for_event(
     event_id: int,
 ) -> list[int]:
     """Return ordered unique collector ``actor_id`` values for one collecting event."""
-    sch = str(schema).strip().upper()
-    ordered: list[int] = []
-    seen: set[int] = set()
-
-    oracle_cursor.execute(
-        f"""
-        SELECT pn.actor_id
-          FROM {sch}.event_role_person_name erpn
-          JOIN {sch}.person_name pn
-            ON pn.person_name_id = erpn.person_name_id
-         WHERE erpn.event_id = :eid
-           AND pn.actor_id IS NOT NULL
-         ORDER BY erpn.sorting_sequence NULLS LAST, erpn.event_person_name_role_id
-        """,
-        {"eid": int(event_id)},
-    )
-    for (actor_id,) in oracle_cursor.fetchall():
-        aid = int(actor_id)
-        if aid not in seen:
-            seen.add(aid)
-            ordered.append(aid)
-
-    oracle_cursor.execute(
-        f"""
-        SELECT era.actor_id
-          FROM {sch}.event_role_actor era
-         WHERE era.event_id = :eid
-           AND era.actor_id IS NOT NULL
-         ORDER BY era.event_actor_role_id
-        """,
-        {"eid": int(event_id)},
-    )
-    for (actor_id,) in oracle_cursor.fetchall():
-        aid = int(actor_id)
-        if aid not in seen:
-            seen.add(aid)
-            ordered.append(aid)
-
-    return ordered
+    return _fetch_event_role_actor_ids(oracle_cursor, schema, event_id)
 
 
 def _attach_collectors_to_collecting_event(
@@ -1871,6 +1795,46 @@ def _attach_collectors_to_collecting_event(
             _log(
                 "warning",
                 "object_id=%s: collector link failed actor_id=%s: %s",
+                object_id,
+                actor_id,
+                exc,
+            )
+    return created
+
+
+def _attach_determiners_to_determination(
+    *,
+    owner: str,
+    determination: Any,
+    object_id: int,
+    stats: DatasetLoadStats,
+    agent_cache: dict[int, int] | None = None,
+    actor_ids: list[int] | None = None,
+) -> int:
+    """Create ``Determiner`` rows for all resolved agents on a determination."""
+    from specifyweb.specify.models import Determiner
+
+    if not actor_ids:
+        return 0
+    created = 0
+    for idx, actor_id in enumerate(actor_ids):
+        agent = _resolve_agent(owner, actor_id, agent_cache=agent_cache)
+        if agent is None:
+            stats.agent_unresolved += 1
+            continue
+        stats.agent_matched += 1
+        try:
+            Determiner.objects.create(
+                agent=agent,
+                determination=determination,
+                isprimary=(idx == 0),
+                ordernumber=idx + 1,
+            )
+            created += 1
+        except Exception as exc:  # noqa: BLE001
+            _log(
+                "warning",
+                "object_id=%s: determiner link failed actor_id=%s: %s",
                 object_id,
                 actor_id,
                 exc,
@@ -2349,14 +2313,9 @@ def _write_one_object(
                             f"adb_latin_name_id={adb_id!r}, nhm_taxon_id={dr.get('nhm_taxon_id')!r})"
                         )
 
-                # Determiner: MUSIT roles on the classification (determination) event — not the collecting event.
-                det_actor = _first_non_null_classification_determiner_actor_id(
-                    det_rows_all, det_key
-                )
-                determiner = (
-                    _resolve_agent(owner, det_actor, agent_cache=agent_cache)
-                    if det_actor
-                    else None
+                # Determiners: MUSIT roles on classification (determination) event(s).
+                det_actor_ids = _classification_determiner_actor_ids_for_det_key(
+                    det_rows_all, det_key, oracle_cursor, owner
                 )
                 det_date = _coerce_date(dr.get("class_from_date")) or _coerce_date(
                     dr.get("class_to_date")
@@ -2379,7 +2338,6 @@ def _write_one_object(
                 # MUSIT object-level type status applies to the current determination only.
                 type_status = _trunc(obj_row.get("type_status"), 50) if is_current else None
 
-                det_remarks = _determination_remarks(dr, determiner=determiner)
                 sensu_addendum, _sensu_archived, _sensu_outlier = resolve_sensu_addendum(
                     dr.get("sensu_term")
                 )
@@ -2392,12 +2350,24 @@ def _write_one_object(
                     text2=_trunc(dr.get("valid_classterm"), 255),
                     text3=infraspes_text,
                     addendum=_trunc(sensu_addendum, 16),
-                    determiner=determiner,
                     determineddate=det_datetime,
                     determineddateprecision=(1 if det_datetime is not None else None),
-                    remarks=det_remarks,
                 )
                 det.save()
+                determiners_created = _attach_determiners_to_determination(
+                    owner=owner,
+                    determination=det,
+                    object_id=object_id,
+                    stats=stats,
+                    agent_cache=agent_cache,
+                    actor_ids=det_actor_ids,
+                )
+                det_remarks = _determination_remarks(
+                    dr, has_resolved_determiner=determiners_created > 0
+                )
+                if det_remarks:
+                    det.remarks = det_remarks
+                    det.save(update_fields=["remarks"])
                 if det.iscurrent:
                     has_current = True
                 stats.determination_created += 1
