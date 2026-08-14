@@ -54,6 +54,7 @@ from flows.lib.musit_sensu_addendum import (
     classification_sensu_outliers,
     resolve_sensu_addendum,
 )
+from flows.lib.musit_type_status import resolve_type_status_name
 from flows.lib.musit_taxon_match import (
     binomial_prefix_from_valid_classterm as _binomial_prefix_from_valid_classterm,
     taxon_matches_valid_classterm as _taxon_matches_valid_classterm,
@@ -170,12 +171,16 @@ _SPECIMEN_SQL = """
       oa.artsobs_nr,
       mon.object_notes,
       en.event_notes,
-      (SELECT MIN(tye.type_status)
+      (SELECT t.typeterm
          FROM {schema}.event_museum_object emo2
          JOIN {schema}.typification_event tye
            ON tye.event_id = emo2.event_id
+         JOIN {schema}.types t
+           ON t.type_id = tye.typification_type_id
         WHERE emo2.object_id = voa.object_id
-          AND tye.type_status IS NOT NULL
+          AND tye.typification_type_id IS NOT NULL
+        ORDER BY emo2.sequence_number DESC NULLS LAST, emo2.event_id DESC
+        FETCH FIRST 1 ROW ONLY
       ) AS type_status,
       emo.sequence_number,
       emo.prev_event_for_objekt,
@@ -2335,7 +2340,12 @@ def _write_one_object(
                     128,
                 )
                 # MUSIT object-level type status applies to the current determination only.
-                type_status = _trunc(obj_row.get("type_status"), 50) if is_current else None
+                # UI field is TYPIFICATION_TYPE_ID → TYPES.TYPETERM (TYPE_STATUS varchar is often null).
+                type_status = (
+                    resolve_type_status_name(obj_row.get("type_status"))
+                    if is_current
+                    else None
+                )
 
                 sensu_addendum, _sensu_archived, _sensu_outlier = resolve_sensu_addendum(
                     dr.get("sensu_term")
