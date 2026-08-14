@@ -43,6 +43,7 @@ from flows.lib.musit_field_number_map import (
     coerce_musit_identifier_num,
     resolve_field_number_from_legnr_rows,
 )
+from flows.lib.musit_catalog_lookup import resolve_musit_object_ids
 from flows.lib.musit_determination_remarks import determination_remarks as _determination_remarks
 from flows.lib.musit_determiner_actors import (
     classification_determiner_actor_ids_for_det_key as _classification_determiner_actor_ids_for_det_key,
@@ -2531,6 +2532,8 @@ def load_musit_dataset(
     oracle_cursor: Any,
     dry_run: bool,
     limit: int | None = None,
+    only_catalog: str | None = None,
+    only_object_id: int | None = None,
     page_size: int = 1000,
     run_ts: str,
     skip_media: bool = False,
@@ -2542,6 +2545,8 @@ def load_musit_dataset(
         oracle_cursor: Open Oracle cursor (caller manages connection lifecycle).
         dry_run:      When True, resolve and count but do not write to Specify or bridge tables.
         limit:        Stop after this many objects (for test runs with time estimates).
+        only_catalog: Migrate a single specimen by MUSIT catalog number (e.g. ``O-V-398038``).
+        only_object_id: Migrate a single specimen by Oracle ``OBJECT_ID``.
         page_size:    Number of OBJECT_IDs per Oracle page.
         run_ts:       ISO timestamp string stamped on all bridge table rows.
         skip_media:   When True, skip Unimus download / asset-server upload (CO/CE/Det only).
@@ -2555,6 +2560,9 @@ def load_musit_dataset(
     )
     from flows.lib.migration_oracle_placemap import ensure_placemap_table
 
+    if only_catalog and only_object_id is not None:
+        raise ValueError("Specify only one of only_catalog or only_object_id")
+
     stats = DatasetLoadStats()
     t0 = time.monotonic()
 
@@ -2562,8 +2570,36 @@ def load_musit_dataset(
     collection = ctx.collection
     discipline = ctx.discipline
 
-    _log("info", "load_musit_dataset | collection=%s discipline=%s dry_run=%s limit=%s skip_media=%s",
-         config.specify_collection_code, config.specify_discipline_name, dry_run, limit, skip_media)
+    single_shot = only_catalog is not None or only_object_id is not None
+    pinned_object_ids: list[int] = []
+    if single_shot:
+        pinned_object_ids = resolve_musit_object_ids(
+            oracle_cursor,
+            oracle_schema=config.oracle_schema,
+            institutioncode=config.institutioncode,
+            collectioncode=config.collectioncode,
+            catalog_number=only_catalog,
+            object_id=only_object_id,
+        )
+
+    _log(
+        "info",
+        "load_musit_dataset | collection=%s discipline=%s dry_run=%s limit=%s"
+        " only_catalog=%s only_object_id=%s skip_media=%s",
+        config.specify_collection_code,
+        config.specify_discipline_name,
+        dry_run,
+        limit,
+        only_catalog,
+        only_object_id,
+        skip_media,
+    )
+    if single_shot:
+        _log(
+            "info",
+            "load_musit_dataset | single-record mode: object_ids=%s",
+            pinned_object_ids,
+        )
 
     ensure_objectmap_table(dry_run=dry_run)
     ensure_placemap_table(dry_run=dry_run)
@@ -2581,7 +2617,7 @@ def load_musit_dataset(
             time.monotonic() - t_agents,
         )
 
-    total_oracle = _count_total_objects(oracle_cursor, config)
+    total_oracle = len(pinned_object_ids) if single_shot else _count_total_objects(oracle_cursor, config)
     _log("info", "load_musit_dataset | total Oracle objects for filter: %s", total_oracle)
 
     museum_object_tabell_id = _resolve_museum_object_tabell_id(
@@ -2607,12 +2643,15 @@ def load_musit_dataset(
         if total_seen > 0 and total_seen % 5000 == 0:
             close_old_connections()
 
-        page_ids = _fetch_page_object_ids(
-            oracle_cursor, config, after_id=after_id, batch=page_size,
-        )
-        if not page_ids:
-            break
-        after_id = page_ids[-1]
+        if single_shot:
+            page_ids = pinned_object_ids
+        else:
+            page_ids = _fetch_page_object_ids(
+                oracle_cursor, config, after_id=after_id, batch=page_size,
+            )
+            if not page_ids:
+                break
+            after_id = page_ids[-1]
         total_seen += len(page_ids)
 
         # Batch idempotency check before fetching heavy Oracle joins.
@@ -2717,6 +2756,8 @@ def load_musit_dataset(
                 stats.elapsed_s = elapsed
                 return stats
 
+        if single_shot:
+            break
         if len(page_ids) < page_size:
             break  # last page
 

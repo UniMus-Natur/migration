@@ -24,6 +24,9 @@ Test run
     Set ``limit=100`` to migrate only 100 records.  The flow logs an estimated time
     for the full migration based on observed throughput.
 
+    Set ``only_catalog="O-V-398038"`` to migrate a single specimen by catalog number
+    (useful for validating field mapping on the all-fields test record).
+
 Parameters
 ----------
     oracle_env: str
@@ -32,6 +35,10 @@ Parameters
         When True, log actions without writing anything to Specify.
     limit: int | None
         Maximum number of objects to process.  ``None`` processes all.
+    only_catalog: str | None
+        Migrate one specimen by MUSIT catalog number (e.g. ``O-V-398038``).
+    only_object_id: int | None
+        Migrate one specimen by Oracle ``OBJECT_ID``.
 """
 
 from __future__ import annotations
@@ -66,7 +73,9 @@ def _build_report(
     oracle_env: str,
     dry_run: bool,
     purge_before_run: bool,
-    limit: int | None,
+    limit: int | None
+    only_catalog: str | None,
+    only_object_id: int | None,
     stats: DatasetLoadStats,
 ) -> dict[str, Any]:
     return {
@@ -78,6 +87,8 @@ def _build_report(
         "dry_run": dry_run,
         "purge_before_run": purge_before_run,
         "limit": limit,
+        "only_catalog": only_catalog,
+        "only_object_id": only_object_id,
         "dataset": {
             "oracle_schema": OSLO_VASCULAR_CONFIG.oracle_schema,
             "institutioncode": OSLO_VASCULAR_CONFIG.institutioncode,
@@ -115,13 +126,16 @@ def migrate_oslo_vascular_task(
     limit: int | None,
     run_ts: str,
     skip_media: bool = False,
+    only_catalog: str | None = None,
+    only_object_id: int | None = None,
 ) -> DatasetLoadStats:
     """Extract Oracle MUSIT objects and load into Specify (single combined task)."""
     setup_django()
     logger = get_run_logger()
     logger.info(
-        "migrate_oslo_vascular_task | oracle_env=%s dry_run=%s limit=%s skip_media=%s",
-        oracle_env, dry_run, limit, skip_media,
+        "migrate_oslo_vascular_task | oracle_env=%s dry_run=%s limit=%s skip_media=%s"
+        " only_catalog=%s only_object_id=%s",
+        oracle_env, dry_run, limit, skip_media, only_catalog, only_object_id,
     )
 
     config_obj = get_oracle_config_from_env(oracle_env)
@@ -133,6 +147,8 @@ def migrate_oslo_vascular_task(
                 oracle_cursor=cursor,
                 dry_run=dry_run,
                 limit=limit,
+                only_catalog=only_catalog,
+                only_object_id=only_object_id,
                 run_ts=run_ts,
                 skip_media=skip_media,
             )
@@ -164,7 +180,8 @@ def migrate_oslo_vascular_task(
     description=(
         "Phase 2: Migrate Oslo vascular herbarium (institutioncode=O, collectioncode=V) "
         "from MUSIT_BOTANIKK_FELLES into Specify 7 collection O-V. "
-        "Set limit=100 for a timed test run with throughput estimate."
+        "Set limit=100 for a timed test run with throughput estimate, or "
+        "only_catalog='O-V-398038' for a single-specimen test."
     ),
 )
 def migrate_oslo_vascular_flow(
@@ -173,6 +190,8 @@ def migrate_oslo_vascular_flow(
     purge_before_run: bool = False,
     limit: int | None = None,
     skip_media: bool = False,
+    only_catalog: str | None = None,
+    only_object_id: int | None = None,
 ) -> dict[str, Any]:
     """Migrate Oslo vascular plants to Specify 7.
 
@@ -183,12 +202,15 @@ def migrate_oslo_vascular_flow(
                     Use limit=100 for a fast test run with time estimate.
         skip_media: When True, skip Unimus TIFF download / asset-server upload.
                     Use for a fast CO/CE/Det pass; backfill media later.
+        only_catalog: Migrate one specimen by catalog number (e.g. ``O-V-398038``).
+        only_object_id: Migrate one specimen by Oracle ``OBJECT_ID``.
     """
     logger = get_run_logger()
     logger.info(
         "migrate_oslo_vascular_flow | oracle_env=%s dry_run=%s purge_before_run=%s "
-        "limit=%s skip_media=%s",
+        "limit=%s skip_media=%s only_catalog=%s only_object_id=%s",
         oracle_env, dry_run, purge_before_run, limit, skip_media,
+        only_catalog, only_object_id,
     )
 
     setup_django()
@@ -210,7 +232,15 @@ def migrate_oslo_vascular_flow(
         )
         logger.info("purge_before_run result: %s", purge_result)
 
-    stats = migrate_oslo_vascular_task(oracle_env, dry_run, limit, ts, skip_media)
+    stats = migrate_oslo_vascular_task(
+        oracle_env,
+        dry_run,
+        limit,
+        ts,
+        skip_media,
+        only_catalog=only_catalog,
+        only_object_id=only_object_id,
+    )
 
     report = _build_report(
         ts=ts,
@@ -218,6 +248,8 @@ def migrate_oslo_vascular_flow(
         dry_run=dry_run,
         purge_before_run=purge_before_run,
         limit=limit,
+        only_catalog=only_catalog,
+        only_object_id=only_object_id,
         stats=stats,
     )
     if purge_result is not None:
