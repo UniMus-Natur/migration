@@ -2376,9 +2376,11 @@ def _write_one_object(
                     dr, has_resolved_determiner=determiners_created > 0
                 )
                 if det_remarks:
+                    # Bypass ORM pre_save: only_one_determination_iscurrent bulk-updates
+                    # iscurrent=False on *all* CO determinations when iscurrent=True.
+                    Determination.objects.filter(pk=det.pk).update(remarks=det_remarks)
                     det.remarks = det_remarks
-                    det.save(update_fields=["remarks"])
-                if det.iscurrent:
+                if is_current:
                     has_current = True
                 stats.determination_created += 1
 
