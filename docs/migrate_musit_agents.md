@@ -93,6 +93,7 @@ The payload mirrors the user-migration style: shared metadata (`report_version`,
 
 ## What this flow does **not** do yet
 
+- **Alternate `PERSON_NAME` rows** — loaded separately by [**MUSIT agent name variants**](migrate_musit_agent_variants.md) (`migrate_musit_agent_variants_flow`) into Specify **`AgentVariant`**.
 - **USD `PERSONER` / `LEGSAMLER` / `DETBESTEMMER` / `AUTORPERSON`** — still per the strategy doc; separate extract/merge logic is planned for later.
 - **`AUTHORSTRINGS`** / taxonomic author abbreviation — not joined in this version.
 - **Cross-schema deduplication** — the same human could exist in botany and entomology `ACTOR` with different IDs; both rows become two Specify agents unless you merge manually or extend the flow.

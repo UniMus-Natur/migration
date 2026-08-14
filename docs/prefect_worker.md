@@ -94,6 +94,14 @@ prefect deployment run "Migrate MUSIT Actors/migrate-musit-agents-dev"
 
 See [MUSIT collection agents migration](migrate_musit_agents.md) for parameters and scope.
 
+Optional: fill **`AgentVariant`** from alternate MUSIT **`PERSON_NAME`** rows (Phase 1.1b; requires agents already migrated; default is dry run):
+
+```bash
+prefect deployment run "Migrate MUSIT Agent Variants/migrate-musit-agent-variants-dev"
+```
+
+See [MUSIT agent name variants](migrate_musit_agent_variants.md).
+
 Optional: migrate application users from Oracle `USD_METADATA` into Specify **`SpecifyUser`** + **`Agent`** (Phase 1.4; default is dry run):
 
 ```bash
