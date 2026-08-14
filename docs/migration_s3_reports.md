@@ -36,6 +36,7 @@ migration-reports/{category-folder}/{YYYYMMDDTHHMMSSZ}/report.json
 | [Migrate Users](user_migration_report.md) | `REPORT_CATEGORY_APP_USERS_BRUKARAR` | `application-users-usd-metadata-brukarar` | 1.4 |
 | [MUSIT collection agents](migrate_musit_agents.md) | `REPORT_CATEGORY_MUSIT_COLLECTION_AGENTS` | `collection-agents-musit-actor-person-name` | 1.1 |
 | [MUSIT agent name variants](migrate_musit_agent_variants.md) | `REPORT_CATEGORY_MUSIT_AGENT_VARIANTS` | `collection-agents-musit-person-name-variants` | 1.1b |
+| [MUSIT agent details fill-in](migrate_musit_agent_details.md) | `REPORT_CATEGORY_MUSIT_AGENT_DETAILS` | `collection-agents-musit-actor-details` | 1.1c |
 | [Specify structure sync](sync_specify_structure.md) | `REPORT_CATEGORY_SPECIFY_STRUCTURE_SYNC` | `specify-structure-sync` | post-bootstrap |
 | [NorTaxa discipline taxon trees](nortaxa_taxon_trees.md) | `REPORT_CATEGORY_NORTAXA_DISCIPLINE_TREES` | `nortaxa-discipline-trees` | 1.3 |
 

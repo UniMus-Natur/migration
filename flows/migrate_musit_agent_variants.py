@@ -29,7 +29,7 @@ from flows.lib.musit_agent_variants import (
 )
 from flows.lib.musit_agents_common import (
     ALLOWED_MUSIT_AGENT_SCHEMAS,
-    parse_actor_id_from_agent_remarks,
+    load_actor_id_to_agent_id,
 )
 from flows.lib.oracle_connectivity import (
     create_oracle_connection,
@@ -58,20 +58,6 @@ class MusitAgentVariantRunOutcome:
     oracle_person_names_extracted: int
     oracle_rows_per_schema: dict[str, int]
     agents_mapped_per_schema: dict[str, int]
-
-
-def _load_actor_to_agent_id(schema: str) -> dict[int, int]:
-    """Map MUSIT ``ACTOR_ID`` → Specify ``Agent.id`` via remarks markers."""
-    from specifyweb.specify.models import Agent
-
-    prefix = f"MUSIT-migration: ACTOR; schema={schema};"
-    out: dict[int, int] = {}
-    qs = Agent.objects.filter(remarks__startswith=prefix).only("id", "remarks")
-    for agent in qs.iterator(chunk_size=5000):
-        actor_id = parse_actor_id_from_agent_remarks(agent.remarks, schema)
-        if actor_id is not None:
-            out[actor_id] = int(agent.id)
-    return out
 
 
 def _existing_variant_names(agent_id: int) -> set[str]:
@@ -105,7 +91,7 @@ def extract_and_load_musit_agent_variants_task(
     connection = create_oracle_connection(config)
     try:
         for schema in schemas:
-            actor_to_agent = _load_actor_to_agent_id(schema)
+            actor_to_agent = load_actor_id_to_agent_id(schema)
             agents_mapped_per_schema[schema] = len(actor_to_agent)
             logger.info(
                 f"{schema}: {len(actor_to_agent)} Specify agents with MUSIT ACTOR markers"

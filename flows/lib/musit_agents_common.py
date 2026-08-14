@@ -31,3 +31,20 @@ def parse_actor_id_from_agent_remarks(remarks: str | None, schema: str) -> int |
     if m.group("schema").strip().upper() != schema.strip().upper():
         return None
     return int(m.group("actor_id"))
+
+
+def load_actor_id_to_agent_id(schema: str) -> dict[int, int]:
+    """Map MUSIT ``ACTOR_ID`` → Specify ``Agent.id`` via remarks markers.
+
+    Requires Django to be set up (``Agent`` model import).
+    """
+    from specifyweb.specify.models import Agent
+
+    prefix = f"MUSIT-migration: ACTOR; schema={schema};"
+    out: dict[int, int] = {}
+    qs = Agent.objects.filter(remarks__startswith=prefix).only("id", "remarks")
+    for agent in qs.iterator(chunk_size=5000):
+        actor_id = parse_actor_id_from_agent_remarks(agent.remarks, schema)
+        if actor_id is not None:
+            out[actor_id] = int(agent.id)
+    return out

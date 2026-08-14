@@ -84,7 +84,7 @@ Each step is both a migration and a **validation checkpoint** — see "Validatio
 **Also:** `USD_BOTANIKK_*.PERSONER`, `USD_BOTANIKK_*.AUTORPERSON`, `USD_NAT_TAXAREG.AUTORPERSON`  
 **Target:** Specify `Agent` table
 
-An implemented subset — MUSIT **`ACTOR`** + **`PERSON_NAME`** for **`MUSIT_BOTANIKK_FELLES`** and **`MUSIT_ZOOLOGI_ENTOMOLOGI`** — is loaded by the Prefect flow **`migrate_musit_agents_flow`** (`flows/migrate_musit_agents.py`). Scope, idempotency, and gaps (USD persons, authors, deduplication) are documented in [**MUSIT collection agents migration**](migrate_musit_agents.md). Alternate (non-preferred) **`PERSON_NAME`** rows are filled in afterwards as Specify **`AgentVariant`** by **`migrate_musit_agent_variants_flow`** — see [**MUSIT agent name variants**](migrate_musit_agent_variants.md).
+An implemented subset — MUSIT **`ACTOR`** + **`PERSON_NAME`** for **`MUSIT_BOTANIKK_FELLES`** and **`MUSIT_ZOOLOGI_ENTOMOLOGI`** — is loaded by the Prefect flow **`migrate_musit_agents_flow`** (`flows/migrate_musit_agents.py`). Scope, idempotency, and gaps (USD persons, authors, deduplication) are documented in [**MUSIT collection agents migration**](migrate_musit_agents.md). Alternate (non-preferred) **`PERSON_NAME`** rows are filled in afterwards as Specify **`AgentVariant`** by **`migrate_musit_agent_variants_flow`** — see [**MUSIT agent name variants**](migrate_musit_agent_variants.md). Remaining person-module **`ACTOR`** fields (URL note / identifiers, address, dates in `NOTE`, …) are filled by **`migrate_musit_agent_details_flow`** — see [**MUSIT agent details fill-in**](migrate_musit_agent_details.md).
 
 **Merge strategy:**
 1. Start with MUSIT `ACTOR` as canonical — it has the most structured data (birth/death, ORCID, institution).
