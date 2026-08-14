@@ -19,6 +19,9 @@ Design constraints
 * All Specify writes use the **Django ORM** (``specifyweb.specify.models``).
 * Bridge-table rows (objectmap, placemap) use raw SQL on ``django.db.connection``.
 * Never creates or modifies ``Agent`` or ``Taxon``.
+* ``ReferenceWork`` rows are created for MUSIT type-info publications (GUID =
+  ``urn:oracle:musit:document:{id}``); specimen/taxon literature is archived on
+  ``CollectionObject.text3``.
 * Each specimen is wrapped in ``transaction.atomic`` so partial failures roll back
   cleanly without leaving orphan records.
 * Idempotent / resumable: before each object is migrated, the loader checks
@@ -53,6 +56,11 @@ from flows.lib.musit_determiner_actors import (
 from flows.lib.musit_sensu_addendum import (
     classification_sensu_outliers,
     resolve_sensu_addendum,
+)
+from flows.lib.musit_literature import (
+    attach_type_publications_to_determination as _attach_type_publications,
+    fetch_literature_for_objects as _fetch_literature_for_objects,
+    literature_archive_payload as _literature_archive_payload,
 )
 from flows.lib.musit_type_status import resolve_type_status_name
 from flows.lib.musit_taxon_match import (
@@ -115,6 +123,9 @@ class DatasetLoadStats:
     agent_unresolved: int = 0
     attachments_created: int = 0
     attachments_failed: int = 0
+    referencework_created: int = 0
+    determination_citation_created: int = 0
+    literature_archived: int = 0
     errors: list[str] = field(default_factory=list)
     elapsed_s: float = 0.0
     estimate_total_s: float | None = None
@@ -1870,6 +1881,7 @@ def _write_one_object(
     agent_cache: dict[int, int] | None = None,
     geography_maps_cache: dict[str, Any] | None = None,
     skip_media: bool = False,
+    literature_by_object: dict[int, dict[str, list[dict[str, Any]]]] | None = None,
 ) -> None:
     """Write one CollectionObject + CollectingEvent + Determination(s) for ``object_id``.
 
@@ -1902,6 +1914,13 @@ def _write_one_object(
         primary_actor_id=primary_collector_actor_id,
     )
     musit_object_number = coerce_musit_identifier_num(obj_row.get("identifier_num"))
+
+    literature_bundle = (literature_by_object or {}).get(object_id) or {
+        "specimen": [],
+        "taxon": [],
+        "type_info": [],
+    }
+    literature_archive = _literature_archive_payload(literature_bundle)
 
     # ---- Unmapped payload for JSON archival ----
     unmapped: dict[str, Any] = {}
@@ -1979,34 +1998,33 @@ def _write_one_object(
             }
         )
 
-    json_payload = json.dumps(
-        {
-            "source": {
-                "owner": owner,
-                "object_id": object_id,
-                "dataset": config.dataset_label,
-            },
-            "unmapped": unmapped,
-            "classification_sensu_outliers": classification_sensu_outliers(rows),
-            "field_number": {
-                "musit_identifier_num": musit_object_number,
-                "specify_integer1": musit_object_number,
-                "specify_fieldnumber": field_number,
-                "legnr_rows": legnr_rows,
-                "legnr_resolution": legnr_resolution,
-                "primary_collector_actor_id": primary_collector_actor_id,
-            },
-            "collecting_event_candidates": _collecting_event_candidates(rows),
-            "locality_candidates": locality_candidates,
-            "selected_locality_source": selected_source,
-            "migration_meta": {
-                "exported_at_utc": run_ts,
-                "mapping_version": config.dataset_label,
-            },
+    json_body: dict[str, Any] = {
+        "source": {
+            "owner": owner,
+            "object_id": object_id,
+            "dataset": config.dataset_label,
         },
-        ensure_ascii=False,
-        default=str,
-    )
+        "unmapped": unmapped,
+        "classification_sensu_outliers": classification_sensu_outliers(rows),
+        "field_number": {
+            "musit_identifier_num": musit_object_number,
+            "specify_integer1": musit_object_number,
+            "specify_fieldnumber": field_number,
+            "legnr_rows": legnr_rows,
+            "legnr_resolution": legnr_resolution,
+            "primary_collector_actor_id": primary_collector_actor_id,
+        },
+        "collecting_event_candidates": _collecting_event_candidates(rows),
+        "locality_candidates": locality_candidates,
+        "selected_locality_source": selected_source,
+        "migration_meta": {
+            "exported_at_utc": run_ts,
+            "mapping_version": config.dataset_label,
+        },
+    }
+    if literature_archive:
+        json_body["literature"] = literature_archive
+    json_payload = json.dumps(json_body, ensure_ascii=False, default=str)
 
     with transaction.atomic():
         # 1. Locality (resolve or create on-the-fly) — failures abort the whole object write.
@@ -2221,6 +2239,10 @@ def _write_one_object(
         taxontreedef_id = int(discipline.taxontreedef_id)
         latin_name_lineage_cache: dict[int, dict[str, Any]] = {}
         rank_item_cache: dict[int, dict[str, Any]] = {}
+        institution = discipline.division.institution
+        current_determination = None
+        if literature_archive:
+            stats.literature_archived += 1
 
         # Sort rows so that the "most current" determination (lowest class_event_id = oldest,
         # highest = most recent — we treat highest event_id as current).
@@ -2239,10 +2261,11 @@ def _write_one_object(
         ]
         if not det_rows_all:
             # No determination data; create a blank determination so the CO is valid.
-            Determination.objects.create(
+            det = Determination.objects.create(
                 collectionobject=co,
                 iscurrent=True,
             )
+            current_determination = det
             stats.determination_created += 1
         else:
             # Sort by class_event_id descending so the first we process is the most recent.
@@ -2382,7 +2405,21 @@ def _write_one_object(
                     det.remarks = det_remarks
                 if is_current:
                     has_current = True
+                    current_determination = det
                 stats.determination_created += 1
+
+            if current_determination is None and det_rows_sorted:
+                # Fallback if iscurrent was cleared by business rules.
+                current_determination = det
+
+        if current_determination is not None:
+            _attach_type_publications(
+                determination=current_determination,
+                type_info=literature_bundle.get("type_info") or [],
+                institution=institution,
+                collection_id=int(collection.id),
+                stats=stats,
+            )
 
         # 6. Upsert objectmap row
         upsert_objectmap_row(
@@ -2686,9 +2723,16 @@ def load_musit_dataset(
                 museum_object_tabell_id=museum_object_tabell_id,
                 object_ids=ids_to_process,
             )
+            literature_by_object = _fetch_literature_for_objects(
+                oracle_cursor,
+                config.oracle_schema,
+                ids_to_process,
+                batch_size=_SPECIMEN_BATCH,
+            )
         else:
             grouped = {}
             avbilder_by_object = {}
+            literature_by_object = {}
 
         for oid in ids_to_process:
             rows = grouped.get(oid)
@@ -2712,6 +2756,7 @@ def load_musit_dataset(
                 agent_cache=agent_cache,
                 geography_maps_cache=geography_maps_cache,
                 skip_media=skip_media,
+                literature_by_object=literature_by_object,
             )
 
             total_processed += 1
