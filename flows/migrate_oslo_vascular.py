@@ -73,7 +73,7 @@ def _build_report(
     oracle_env: str,
     dry_run: bool,
     purge_before_run: bool,
-    limit: int | None
+    limit: int | None,
     only_catalog: str | None,
     only_object_id: int | None,
     stats: DatasetLoadStats,
