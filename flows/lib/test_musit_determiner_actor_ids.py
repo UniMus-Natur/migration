@@ -14,6 +14,21 @@ from flows.lib.musit_determiner_actors import (
 
 
 class MusitDeterminerActorIdsTests(unittest.TestCase):
+    def test_dedupe_key_is_per_classification_event(self) -> None:
+        same_taxon = {
+            "adb_taxon_id": 1,
+            "adb_latin_name_id": None,
+            "latin_name_id": 10,
+            "valid_classterm": "Carex digitata L.",
+            "classterm": "Carex digitata L.",
+        }
+        e2015 = {**same_taxon, "class_event_id": 100, "class_from_date": "2015-03-13"}
+        e2019 = {**same_taxon, "class_event_id": 200, "class_from_date": "2019-03-14"}
+        self.assertNotEqual(determination_dedupe_key(e2015), determination_dedupe_key(e2019))
+        # Join fan-out on one event still shares one key.
+        e2019_dup = {**e2019, "latin_name_id": 99}
+        self.assertEqual(determination_dedupe_key(e2019), determination_dedupe_key(e2019_dup))
+
     def test_classification_event_ids_for_det_key(self) -> None:
         rows = [
             {
@@ -40,17 +55,13 @@ class MusitDeterminerActorIdsTests(unittest.TestCase):
                 "valid_classterm": None,
                 "classterm": None,
             },
-            {
-                "class_event_id": 300,
-                "adb_taxon_id": 2,
-                "adb_latin_name_id": None,
-                "latin_name_id": None,
-                "valid_classterm": None,
-                "classterm": None,
-            },
         ]
         det_key = determination_dedupe_key(rows[0])
-        self.assertEqual(classification_event_ids_for_det_key(rows, det_key), [100, 200])
+        self.assertEqual(classification_event_ids_for_det_key(rows, det_key), [100])
+        self.assertEqual(
+            classification_event_ids_for_det_key(rows, determination_dedupe_key(rows[2])),
+            [200],
+        )
 
     def test_fetch_event_role_actor_ids_dedupes_across_sources(self) -> None:
         cursor = MagicMock()
@@ -61,7 +72,7 @@ class MusitDeterminerActorIdsTests(unittest.TestCase):
         )
         self.assertEqual(cursor.execute.call_count, 2)
 
-    def test_classification_determiner_actor_ids_merges_events(self) -> None:
+    def test_classification_determiner_actor_ids_stay_on_one_event(self) -> None:
         rows = [
             {
                 "class_event_id": 100,
@@ -84,15 +95,13 @@ class MusitDeterminerActorIdsTests(unittest.TestCase):
         cursor.fetchall.side_effect = [
             ((10,),),
             (),
-            ((20,), (21,)),
-            (),
         ]
         det_key = determination_dedupe_key(rows[0])
         self.assertEqual(
             classification_determiner_actor_ids_for_det_key(
                 rows, det_key, cursor, "MUSIT_BOTANIKK_FELLES"
             ),
-            [10, 20, 21],
+            [10],
         )
 
 

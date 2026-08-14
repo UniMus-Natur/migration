@@ -2234,7 +2234,9 @@ def _write_one_object(
         co.save()
         stats.co_created += 1
 
-        # 5. Determination(s) — deduplicate by best available source keys/text.
+        # 5. Determination(s) — one per MUSIT classification event (do not collapse
+        # same-taxon events across different dates). Join fan-out within an event
+        # is still deduped via determination_dedupe_key.
         seen_det_keys: set[tuple] = set()
         taxontreedef_id = int(discipline.taxontreedef_id)
         latin_name_lineage_cache: dict[int, dict[str, Any]] = {}
@@ -2244,8 +2246,7 @@ def _write_one_object(
         if literature_archive:
             stats.literature_archived += 1
 
-        # Sort rows so that the "most current" determination (lowest class_event_id = oldest,
-        # highest = most recent — we treat highest event_id as current).
+        # Sort so the first processed event is the most recent (highest event_id).
         det_rows_all = [
             r
             for r in rows

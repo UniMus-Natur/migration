@@ -13,12 +13,31 @@ def _trunc(s: Any, max_len: int) -> str | None:
 
 
 def determination_dedupe_key(r: dict[str, Any]) -> tuple:
+    """Identity for one Specify ``Determination``.
+
+    Prefer MUSIT ``classification_event.event_id`` so each classification event
+    (including same taxon on different dates) becomes its own determination.
+    Join fan-out on a single event still collapses to one row.
+
+    Fallback (no ``class_event_id``) keeps taxon text fields plus determination
+    date so same-taxon / different-date rows are not merged.
+    """
+    eid = r.get("class_event_id")
+    if eid is not None:
+        try:
+            return ("event", int(eid))
+        except (TypeError, ValueError):
+            pass
     return (
+        "taxon",
         r.get("adb_taxon_id"),
         r.get("adb_latin_name_id"),
         r.get("latin_name_id"),
         _trunc(r.get("valid_classterm"), 255),
         _trunc(r.get("classterm"), 255),
+        str(r["class_from_date"]) if r.get("class_from_date") is not None else None,
+        str(r["class_to_date"]) if r.get("class_to_date") is not None else None,
+        _trunc(r.get("class_time_as_text"), 64),
     )
 
 
