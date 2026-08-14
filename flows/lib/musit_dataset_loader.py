@@ -207,6 +207,7 @@ _SPECIMEN_SQL = """
       ct.infraspes_name,
       ct.sensu_term,
       tcat.tax_cath_name   AS infraspes_rank_name,
+      tcat.tax_cath_abbrev AS infraspes_rank_abbrev,
       ln.latin_name_id,
       ln.latin_name,
       ln.full_name,
@@ -2326,16 +2327,13 @@ def _write_one_object(
                 )
 
                 is_current = not has_current
-                # Infraspecific rank + name (MUSIT CLASSIFICATION_TERM) → text3.
-                infraspes_parts = [
-                    p
-                    for p in (
-                        _trunc(dr.get("infraspes_rank_name"), 64),
-                        _trunc(dr.get("infraspes_name"), 128),
-                    )
-                    if p
-                ]
-                infraspes_text = " ".join(infraspes_parts) if infraspes_parts else None
+                # MUSIT CLASSIFICATION_TERM.INFRASPES_NAME → text3;
+                # TAXON_CATHEGORY.TAX_CATH_ABBREV (ssp./var./form./cv.) → text4.
+                infraspes_name = _trunc(dr.get("infraspes_name"), 128)
+                infraspes_rank = _trunc(
+                    dr.get("infraspes_rank_abbrev") or dr.get("infraspes_rank_name"),
+                    128,
+                )
                 # MUSIT object-level type status applies to the current determination only.
                 type_status = _trunc(obj_row.get("type_status"), 50) if is_current else None
 
@@ -2349,7 +2347,8 @@ def _write_one_object(
                     typestatusname=type_status,
                     text1=_trunc(dr.get("classterm"), 255),
                     text2=_trunc(dr.get("valid_classterm"), 255),
-                    text3=infraspes_text,
+                    text3=infraspes_name,
+                    text4=infraspes_rank,
                     addendum=_trunc(sensu_addendum, 16),
                     determineddate=det_datetime,
                     determineddateprecision=(1 if det_datetime is not None else None),
