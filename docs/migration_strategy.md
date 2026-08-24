@@ -152,15 +152,27 @@ MUSIT already solved this — `ADMINISTRATIVE_PLACE` was built to hold historica
 
 **Hierarchy depth in Specify:**
 
-Specify's default Geography ranks: `Planet → Continent → Country → State/Province → County → Municipality`. Norwegian data maps as:
+Specify's default US geography ranks (`Country → State → County → Municipality`) are renamed in-place to a Norwegian ladder that matches MUSIT `TYPES`. Nodes may skip ranks (Specify only requires child `rankid` > parent `rankid`). Optional marine and region ranks sit in gaps:
 
-| Specify rank | Norwegian equivalent | ADMPLACE_TYPE value (to confirm) |
-|---|---|---|
-| Continent | Kontinent | type 1 |
-| Country | Land | type 2 |
-| State/Province | Fylke (county) | type 3 |
-| County | Kommuneregion | type 4 (if used) |
-| Municipality | Kommune | type 5 |
+| rankid | Specify rank | MUSIT `TYPES` | In full name |
+|---|---|---|---|
+| 0 | Earth | Planet (WORLD is aliased to Earth, not inserted) | no |
+| 100 | Continent | Continent | no |
+| 150 | Ocean | Ocean | no |
+| 180 | Sea | Sea | no |
+| 200 | Land | Land | no |
+| 300 | Fylke | Fylke | yes |
+| 320 | Gammelt fylke | Gammelt fylke | yes |
+| 350 | Region | Region | yes |
+| 370 | Sub region | Sub region | yes |
+| 400 | Kommune | Kommune | yes |
+| 500 | Gammel kommune | Gammel kommune | yes |
+| 600 | Sted | overflow (nested historical / untyped) | yes |
+| 700 | Place | deeper overflow | yes |
+
+Ranks in the full name use separator `", "` (avoids concatenations like `TønsbergSem`). A child that repeats its parent's name (untyped kommune repeats, or `Gammel kommune Tønsberg` under `Kommune Tønsberg`) is aliased onto the parent so a nested historical unit such as Sem can occupy the Gammel kommune rank.
+
+Existing geography nodes keep their current `rankid` until a **geography purge + reload**; renaming ranks only changes labels. Implementation: `ensure_norwegian_geography_ranks` in [`oracle_geography_load.py`](../flows/lib/oracle_geography_load.py), type map in [`oracle_geography_admin.py`](../flows/lib/oracle_geography_admin.py).
 
 > ⚠️ Confirm which admin model is populated: `SELECT COUNT(*) FROM MUSIT_BOTANIKK_FELLES.ADMINISTRATIVE_PLACE` vs counts on **`HIERARCHICAL_PLACE_OLD`** / **`PLACE_HIERACHICAL_PLACE`**. If `ADMINISTRATIVE_PLACE` is empty, map **`HIERACHICAL_TYPE`** (with `TYPES`) instead of `ADMPLACE_TYPE` for hierarchy levels.
 

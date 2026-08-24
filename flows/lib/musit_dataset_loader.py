@@ -725,9 +725,9 @@ def _oracle_row_is_nominal_world_shell(r: dict[str, Any]) -> bool:
     Those nodes must not become a separate ``Geography`` under Earth (they would pick the
     Continent rank when ``TYPES`` is NULL).  Alias the Oracle HIERARCH_PLACE_ID to Earth instead.
     """
-    from flows.lib.oracle_geography_load import _NULL_ORACLE_TYPE_REDUNDANT_PARENT_NAMES, _norm_type
+    from flows.lib.oracle_geography_admin import oracle_row_is_world_or_planet_shell
 
-    return _norm_type(r.get("name")) in _NULL_ORACLE_TYPE_REDUNDANT_PARENT_NAMES
+    return oracle_row_is_world_or_planet_shell(r.get("name"), r.get("type_name"))
 
 
 def _fetch_hierarchical_chain_rows_for_place(
@@ -817,9 +817,10 @@ def _ensure_geography_for_place(
         _resolve_rank_item,
         _treedef_items_ordered_by_rank,
         ensure_deeper_geography_rank,
-        ensure_settlement_rank,
+        ensure_norwegian_geography_ranks,
         oracle_type_name_to_rank_item_name,
     )
+    from flows.lib.oracle_geography_admin import should_alias_geography_to_parent
 
     earth = _ensure_earth_root_for_treedef(treedef_id=geography_treedef_id, dry_run=dry_run)
     if earth is None:
@@ -827,9 +828,9 @@ def _ensure_geography_for_place(
     _erk = getattr(earth, "rankid", None)
     geo_rankid_by_pk[int(earth.id)] = int(_erk) if _erk is not None else 0
 
-    # Ensure leaf ranks exist for deep Norwegian place chains (kommune → farm/parish).
-    if not dry_run:
-        ensure_settlement_rank(geography_treedef_id, dry_run=False)
+    nr = ensure_norwegian_geography_ranks(geography_treedef_id, dry_run=dry_run)
+    if nr.get("error") and not dry_run:
+        raise RuntimeError(f"GeographyTreeDef {geography_treedef_id}: {nr['error']}")
 
     rank_items = _rank_items_by_name_lower(geography_treedef_id)
     ordered_items = _treedef_items_ordered_by_rank(geography_treedef_id)
@@ -910,16 +911,12 @@ def _ensure_geography_for_place(
         hier = HierRow(hid, r["name"], r["partof"], r.get("type_name"))
         parent_geo = _effective_parent_geography_for_untyped(parent_geo, hier, earth)
 
-        # Untyped Oracle rows that repeat the parent placename (e.g. Holmestrand×3) burn
-        # ranks for no geographic gain — alias the hid onto the parent instead.
-        child_name = (r.get("name") or "").strip()
-        parent_name = (getattr(parent_geo, "name", None) or "").strip()
-        if (
-            not r.get("type_name")
-            and child_name
-            and parent_name
-            and child_name.casefold() == parent_name.casefold()
-            and int(getattr(parent_geo, "id", 0)) != int(getattr(earth, "id", -1))
+        # Same-name parent (untyped repeats, or Gammel kommune Tønsberg under Kommune Tønsberg)
+        # would burn a rank; alias the hid onto the parent so nested historical units fit.
+        if should_alias_geography_to_parent(
+            child_name=r.get("name"),
+            parent_name=getattr(parent_geo, "name", None),
+            parent_is_earth=int(getattr(parent_geo, "id", 0)) == int(getattr(earth, "id", -1)),
         ):
             if not dry_run:
                 oracle_hid_to_geo[hid] = int(parent_geo.id)
@@ -938,7 +935,7 @@ def _ensure_geography_for_place(
         if di is None or int(di.rankid) <= parent_rankid:
             di = next((it for it in ordered_items if int(it.rankid) > parent_rankid), None)
         if di is None and not dry_run:
-            # Deep untyped leaf (e.g. Botne under Settlement Holmestrand) — add Place rank.
+            # Deep untyped leaf (e.g. Botne under Sted Holmestrand) — add Place rank.
             ensure_deeper_geography_rank(
                 geography_treedef_id,
                 min_parent_rankid=parent_rankid,

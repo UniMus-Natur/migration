@@ -12,9 +12,14 @@ from typing import Any
 from django.db import close_old_connections, transaction
 
 from flows.lib.oracle_geography_admin import (
+    GEOGRAPHY_FULLNAME_SEPARATOR,
+    NORWEGIAN_GEOGRAPHY_RANKS,
+    WORLD_SHELL_NAMES,
     fetch_hierarchical_chain_rows_for_place,
     hierarchical_admin_relation,
+    oracle_row_is_world_or_planet_shell,
     oracle_type_name_to_rank_item_name,
+    should_alias_geography_to_parent,
     types_label_column_name as _types_label_column_name,
 )
 from flows.lib.oracle_geography_admin import _norm_type
@@ -88,19 +93,27 @@ def _eta_remaining(elapsed_s: float, done: int, total: int) -> str:
     return _format_duration(rate * (total - done))
 
 
-# English logical names from ``oracle_type_name_to_rank_item_name`` → try these keys on
-# ``GeographyTreeDefItem.Name`` (lowercased). Norwegian / mixed Specify trees use local names.
+# Logical names from ``oracle_type_name_to_rank_item_name`` → ``GeographyTreeDefItem.Name``.
+# Includes English aliases so a tree that has not been renamed yet still resolves.
 _RANK_SYNONYMS: dict[str, tuple[str, ...]] = {
+    "earth": ("earth", "planet", "world"),
     "continent": ("continent", "kontinent", "verdensdel"),
-    "country": ("country", "land", "nation"),
-    "state": ("state", "province", "region", "del"),
-    "county": ("county", "fylke", "kommuneregion", "region"),
-    "municipality": ("municipality", "kommune", "kommun", "kommune/region"),
+    "ocean": ("ocean", "hav"),
+    "sea": ("sea", "sjø", "sjo"),
+    "land": ("land", "country", "nation"),
+    "fylke": ("fylke", "state", "province"),
+    "gammelt fylke": ("gammelt fylke",),
+    "region": ("region",),
+    "sub region": ("sub region", "sub-region", "subregion"),
+    "kommune": ("kommune", "county"),
+    "gammel kommune": ("gammel kommune", "municipality"),
+    "sted": ("sted", "settlement"),
+    "place": ("place",),
 }
 
 
 def _resolve_rank_item(rank_items: dict[str, Any], logical_name: str) -> Any:
-    """Map logical rank (English) to a ``GeographyTreeDefItem`` instance for this treedef."""
+    """Map logical rank name to a ``GeographyTreeDefItem`` instance for this treedef."""
     key = (logical_name or "").strip().lower()
     if not key:
         return None
@@ -108,10 +121,6 @@ def _resolve_rank_item(rank_items: dict[str, Any], logical_name: str) -> Any:
     if key in _RANK_SYNONYMS:
         candidates = candidates + _RANK_SYNONYMS[key]
     for cand in candidates:
-        it = rank_items.get(cand)
-        if it is not None:
-            return it
-    for cand in _RANK_SYNONYMS.get("county", ()):
         it = rank_items.get(cand)
         if it is not None:
             return it
@@ -130,15 +139,7 @@ def _treedef_items_ordered_by_rank(treedef_id: int) -> list[Any]:
 # Oracle often has a synthetic ``WORLD`` (or similar) under Earth; with NULL ``TYPES`` every
 # child used to pick the first rank deeper than Earth → Continent for WORLD, then Country for
 # the next row. Climbing past these for **untyped** rows keeps continent-level buckets correct.
-_NULL_ORACLE_TYPE_REDUNDANT_PARENT_NAMES: frozenset[str] = frozenset(
-    {
-        "world",
-        "the world",
-        "verden",
-        "whole world",
-        "global",
-    }
-)
+_NULL_ORACLE_TYPE_REDUNDANT_PARENT_NAMES: frozenset[str] = WORLD_SHELL_NAMES
 
 
 def _effective_parent_geography_for_untyped(parent_geo: Any, r: HierRow, earth: Any) -> Any:
@@ -164,97 +165,157 @@ def _effective_parent_geography_for_untyped(parent_geo: Any, r: HierRow, earth: 
     return parent_geo
 
 
-def ensure_municipality_rank(treedef_id: int, *, dry_run: bool) -> dict[str, Any]:
-    """Add a ``Municipality`` rank under ``County`` when missing (Norwegian kommune level)."""
+def _geography_rank_items(treedef_id: int) -> list[Any]:
     from specifyweb.specify.models import Geographytreedefitem
 
-    out: dict[str, Any] = {"added": False, "treedef_id": treedef_id, "dry_run": dry_run}
-    county = (
-        Geographytreedefitem.objects.filter(treedef_id=treedef_id)
-        .filter(name__iexact="County")
-        .order_by("rankid")
-        .first()
+    return list(Geographytreedefitem.objects.filter(treedef_id=treedef_id).order_by("rankid", "id"))
+
+
+def _find_rank_spec_item(items: list[Any], spec: Any) -> Any | None:
+    by_name: dict[str, Any] = {}
+    for it in items:
+        key = (it.name or "").strip().lower()
+        if key and key not in by_name:
+            by_name[key] = it
+    found = by_name.get(spec.name.strip().lower())
+    if found is not None:
+        return found
+    for alias in spec.aliases:
+        found = by_name.get(alias.strip().lower())
+        if found is not None:
+            return found
+    return None
+
+
+def _allocate_geography_rankid(desired: int, occupied: set[int], *, ceiling: int | None) -> int:
+    if desired not in occupied:
+        return desired
+    end = ceiling if ceiling is not None else desired + 10_000
+    for cand in range(desired + 1, end):
+        if cand not in occupied:
+            return cand
+    raise RuntimeError(
+        f"No free GeographyTreeDefItem rankid between {desired} and {end} (occupied={sorted(occupied)[:20]})"
     )
-    if county is None:
-        county = (
-            Geographytreedefitem.objects.filter(treedef_id=treedef_id)
-            .filter(name__iexact="Fylke")
-            .order_by("rankid")
-            .first()
-        )
-    if county is None:
-        out["error"] = "no County/Fylke rank on geography treedef"
-        return out
-    exists = Geographytreedefitem.objects.filter(treedef_id=treedef_id, name__iexact="Municipality").exists()
-    if exists:
-        return out
-    if dry_run:
-        out["would_add"] = "Municipality"
-        return out
-    Geographytreedefitem.objects.create(
-        treedef_id=treedef_id,
-        name="Municipality",
-        title="Municipality",
-        rankid=500,
-        isenforced=True,
-        isinfullname=True,
-        parent=county,
-    )
-    out["added"] = True
-    logger.info("Created Municipality rank under GeographyTreeDefID=%s", treedef_id)
-    return out
 
 
-def ensure_settlement_rank(treedef_id: int, *, dry_run: bool) -> dict[str, Any]:
-    """Add ``Settlement`` below the deepest rank (usually Municipality) for sub-kommune Oracle nodes.
+def _rechain_geography_tree_rank_parents(treedef_id: int) -> None:
+    from specifyweb.specify.models import Geographytreedefitem
 
-    Specify requires each child geography to have a strictly greater ``rankid`` than its parent.
-    When the parent is already at Municipality (500), there must be a deeper treedef item.
+    items = list(Geographytreedefitem.objects.filter(treedef_id=treedef_id).order_by("rankid", "id"))
+    parent = None
+    changed: list[Any] = []
+    for item in items:
+        desired_parent_id = parent.id if parent is not None else None
+        if item.parent_id != desired_parent_id:
+            item.parent_id = desired_parent_id
+            changed.append(item)
+        parent = item
+    if changed:
+        Geographytreedefitem.objects.bulk_update(changed, ["parent_id"])
+
+
+def ensure_norwegian_geography_ranks(treedef_id: int, *, dry_run: bool) -> dict[str, Any]:
+    """Rename Specify default ranks to the Norwegian MUSIT ladder and add missing ranks.
+
+    Does **not** change ``rankid`` on existing items (geography nodes keep their current
+    ranks until a purge + reload). Sets ``fullnameseparator`` to ``", "`` so fullnames
+    do not concatenate as ``TønsbergSem``.
     """
     from specifyweb.specify.models import Geographytreedefitem
 
-    out: dict[str, Any] = {"added": False, "treedef_id": treedef_id, "dry_run": dry_run}
-    if Geographytreedefitem.objects.filter(treedef_id=treedef_id, name__iexact="Settlement").exists():
-        return out
-    muni = (
-        Geographytreedefitem.objects.filter(treedef_id=treedef_id)
-        .filter(name__iexact="Municipality")
-        .order_by("-rankid")
-        .first()
-    )
-    parent_item = muni
-    if parent_item is None:
-        parent_item = Geographytreedefitem.objects.filter(treedef_id=treedef_id).order_by("-rankid", "-id").first()
-    if parent_item is None:
+    out: dict[str, Any] = {
+        "treedef_id": treedef_id,
+        "dry_run": dry_run,
+        "renamed": [],
+        "created": [],
+        "updated": [],
+        "would_rename": [],
+        "would_create": [],
+        "would_update": [],
+    }
+    items = _geography_rank_items(treedef_id)
+    if not items:
         out["error"] = "no geography treedef items"
         return out
-    occupied = set(
-        int(x) for x in Geographytreedefitem.objects.filter(treedef_id=treedef_id).values_list("rankid", flat=True)
-    )
-    new_rank = int(parent_item.rankid) + 100
-    while new_rank in occupied:
-        new_rank += 10
-    if dry_run:
-        out["would_add"] = "Settlement"
-        out["would_rankid"] = new_rank
-        return out
-    Geographytreedefitem.objects.create(
-        treedef_id=treedef_id,
-        name="Settlement",
-        title="Settlement",
-        rankid=new_rank,
-        isenforced=True,
-        isinfullname=True,
-        parent=parent_item,
-    )
-    out["added"] = True
-    logger.info(
-        "Created Settlement rank (rankid=%s) under parent=%s for GeographyTreeDefID=%s",
-        new_rank,
-        getattr(parent_item, "name", None),
-        treedef_id,
-    )
+
+    occupied = {int(it.rankid) for it in items}
+    specs = list(NORWEGIAN_GEOGRAPHY_RANKS)
+    parent_item = None
+
+    for i, spec in enumerate(specs):
+        item = _find_rank_spec_item(items, spec)
+        next_desired = specs[i + 1].rankid if i + 1 < len(specs) else None
+        if item is None:
+            if spec.name == "Earth":
+                out["error"] = "no Earth geography rank on treedef"
+                return out
+            if dry_run:
+                out["would_create"].append(spec.name)
+                parent_item = item
+                continue
+            rankid = _allocate_geography_rankid(spec.rankid, occupied, ceiling=next_desired)
+            item = Geographytreedefitem.objects.create(
+                treedef_id=treedef_id,
+                name=spec.name,
+                title=spec.name,
+                rankid=rankid,
+                isenforced=spec.isenforced,
+                isinfullname=spec.isinfullname,
+                fullnameseparator=GEOGRAPHY_FULLNAME_SEPARATOR,
+                parent=parent_item,
+            )
+            occupied.add(rankid)
+            items.append(item)
+            out["created"].append(spec.name)
+            logger.info(
+                "Created geography rank %s (rankid=%s) for GeographyTreeDefID=%s",
+                spec.name,
+                rankid,
+                treedef_id,
+            )
+        else:
+            new_name = spec.name
+            sep = GEOGRAPHY_FULLNAME_SEPARATOR
+            needs_rename = (item.name or "") != new_name or (item.title or "") != new_name
+            needs_flags = (
+                bool(item.isinfullname) != spec.isinfullname
+                or bool(item.isenforced) != spec.isenforced
+                or (item.fullnameseparator or "") != sep
+            )
+            if needs_rename or needs_flags:
+                label = f"{item.name}→{new_name}" if needs_rename else spec.name
+                if dry_run:
+                    if needs_rename:
+                        out["would_rename"].append(label)
+                    if needs_flags:
+                        out["would_update"].append(spec.name)
+                else:
+                    item.name = new_name
+                    item.title = new_name
+                    item.isinfullname = spec.isinfullname
+                    item.isenforced = spec.isenforced
+                    item.fullnameseparator = sep
+                    item.save()
+                    if needs_rename:
+                        out["renamed"].append(label)
+                    if needs_flags:
+                        out["updated"].append(spec.name)
+        parent_item = item
+
+    if not dry_run:
+        _rechain_geography_tree_rank_parents(treedef_id)
     return out
+
+
+def ensure_municipality_rank(treedef_id: int, *, dry_run: bool) -> dict[str, Any]:
+    """Deprecated alias: Norwegian ranks include Kommune / Gammel kommune."""
+    return ensure_norwegian_geography_ranks(treedef_id, dry_run=dry_run)
+
+
+def ensure_settlement_rank(treedef_id: int, *, dry_run: bool) -> dict[str, Any]:
+    """Deprecated alias: Norwegian ranks include Sted (overflow below Gammel kommune)."""
+    return ensure_norwegian_geography_ranks(treedef_id, dry_run=dry_run)
 
 
 def ensure_deeper_geography_rank(
@@ -267,7 +328,7 @@ def ensure_deeper_geography_rank(
     """Ensure a treedef item with ``rankid > min_parent_rankid`` exists (create if needed).
 
     Untyped Oracle hierarchy chains (e.g. kommune repeated under itself, then a farm/parish
-    leaf) can exhaust Continent→Settlement. Specimens then need one more leaf rank.
+    leaf) can exhaust Continent→Sted. Specimens then need one more leaf rank.
     """
     from specifyweb.specify.models import Geographytreedefitem
 
@@ -301,7 +362,7 @@ def ensure_deeper_geography_rank(
     new_rank = int(parent_item.rankid) + 100
     while new_rank in occupied:
         new_rank += 10
-    # Avoid name collisions (Settlement already used, etc.)
+    # Avoid name collisions (Sted / Place already used, etc.)
     base_name = new_name
     name = base_name
     n = 2
@@ -317,8 +378,9 @@ def ensure_deeper_geography_rank(
         name=name,
         title=name,
         rankid=new_rank,
-        isenforced=True,
+        isenforced=False,
         isinfullname=True,
+        fullnameseparator=GEOGRAPHY_FULLNAME_SEPARATOR,
         parent=parent_item,
     )
     out["added"] = True
@@ -462,31 +524,17 @@ def load_hierarchical_geography(
     )
     geo_by_pk: dict[int, Any] = {}
     rank_items = _rank_items_by_name_lower(treedef_id)
-    if "municipality" not in rank_items and "kommune" not in rank_items:
-        mr = ensure_municipality_rank(treedef_id, dry_run=dry_run)
-        if mr.get("error"):
-            _fail_fast(
-                "geography.ensure_municipality_rank",
-                str(mr["error"]),
-                owner=owner,
-                treedef_id=treedef_id,
-                dry_run=dry_run,
-                ensure_municipality_rank=mr,
-            )
-        rank_items = _rank_items_by_name_lower(treedef_id)
-
-    sr = ensure_settlement_rank(treedef_id, dry_run=dry_run)
-    if sr.get("error"):
+    nr = ensure_norwegian_geography_ranks(treedef_id, dry_run=dry_run)
+    if nr.get("error"):
         _fail_fast(
-            "geography.ensure_settlement_rank",
-            str(sr["error"]),
+            "geography.ensure_norwegian_geography_ranks",
+            str(nr["error"]),
             owner=owner,
             treedef_id=treedef_id,
             dry_run=dry_run,
-            ensure_settlement_rank=sr,
+            ensure_norwegian_geography_ranks=nr,
         )
-    if sr.get("added"):
-        rank_items = _rank_items_by_name_lower(treedef_id)
+    rank_items = _rank_items_by_name_lower(treedef_id)
 
     ordered_def_items = _treedef_items_ordered_by_rank(treedef_id)
     _rk = sorted(rank_items.keys())
@@ -543,6 +591,11 @@ def load_hierarchical_geography(
         guid = f"urn:oracle:{owner.lower()}:hpo:{r.hierarch_place_id}"
         if len(guid) > 128:
             guid = guid[:128]
+        if oracle_row_is_world_or_planet_shell(r.placename, r.type_name):
+            oracle_to_geo[r.hierarch_place_id] = int(earth.id)
+            geo_by_pk[int(earth.id)] = earth
+            stats.geographies_skipped_existing += 1
+            continue
         ex_id = existing_guid_to_id.get(guid)
         if ex_id is not None:
             oracle_to_geo[r.hierarch_place_id] = ex_id
@@ -558,16 +611,12 @@ def load_hierarchical_geography(
             parent_geo = _geo_model(pid) or earth
         parent_geo = _effective_parent_geography_for_untyped(parent_geo, r, earth)
 
-        # Untyped Oracle rows that repeat the parent placename burn ranks for no gain —
-        # alias the hid onto the parent (e.g. Holmestrand×3 under kommune).
-        child_name = (r.placename or "").strip()
-        parent_name = (getattr(parent_geo, "name", None) or "").strip()
-        if (
-            not _norm_type(r.type_name)
-            and child_name
-            and parent_name
-            and child_name.casefold() == parent_name.casefold()
-            and int(getattr(parent_geo, "id", 0)) != int(getattr(earth, "id", -1))
+        # Same-name parent (untyped repeats, or Gammel kommune Tønsberg under Kommune Tønsberg)
+        # would burn a rank; alias the hid onto the parent so nested historical units fit.
+        if should_alias_geography_to_parent(
+            child_name=r.placename,
+            parent_name=getattr(parent_geo, "name", None),
+            parent_is_earth=int(getattr(parent_geo, "id", 0)) == int(getattr(earth, "id", -1)),
         ):
             oracle_to_geo[r.hierarch_place_id] = int(parent_geo.id)
             geo_by_pk[int(parent_geo.id)] = parent_geo
