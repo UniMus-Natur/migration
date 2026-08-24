@@ -2379,8 +2379,10 @@ def _write_one_object(
                     taxon=taxon,
                     iscurrent=is_current,
                     typestatusname=type_status,
-                    text1=_trunc(dr.get("classterm"), 255),
-                    text2=_trunc(dr.get("valid_classterm"), 255),
+                    # MUSIT UI: Entered=ENTERED_CLASSTERM, Valid=CLASSTERM,
+                    # Accepted=VALID_CLASSTERM (tree preferredTaxon in Specify).
+                    text1=_trunc(dr.get("entered_classterm"), 255),
+                    text2=_trunc(dr.get("classterm"), 255),
                     text3=infraspes_name,
                     text4=infraspes_rank,
                     addendum=_trunc(sensu_addendum, 16),
