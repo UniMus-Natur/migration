@@ -81,7 +81,7 @@ spec:
               {{- end }}
             - name: MASTER_NAME
               {{- if .Values.mariadb.enabled }}
-              value: "{{ .Values.mariadb.auth.username }}"
+              value: "root"
               {{- else }}
               value: "$(DB_USER)"
               {{- end }}
@@ -90,7 +90,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.mariadb.auth.existingSecret }}
-                  key: mariadb-password
+                  key: mariadb-root-password
               {{- else }}
               value: "$(DB_PASSWORD)"
               {{- end }}

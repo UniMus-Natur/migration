@@ -125,7 +125,8 @@ spec:
               {{- end }}
             - name: MASTER_NAME
               {{- if .Values.mariadb.enabled }}
-              value: "{{ .Values.mariadb.auth.username }}"
+              # sp7_db_setup_check (v7.12.0.7+) needs a privileged user for mysql.user checks
+              value: "root"
               {{- else }}
               value: "$(DB_USER)"
               {{- end }}
@@ -134,7 +135,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.mariadb.auth.existingSecret }}
-                  key: mariadb-password
+                  key: mariadb-root-password
               {{- else }}
               value: "$(DB_PASSWORD)"
               {{- end }}
