@@ -770,6 +770,10 @@ def _ensure_earth_root_for_treedef(*, treedef_id: int, dry_run: bool) -> Any:
     if earth is not None:
         if not dry_run:
             _fix_geography_root_nodenumber_if_needed(earth)
+            stale_root = (getattr(earth, "fullname", None) or "").strip()
+            if stale_root in {"Planet", "World"}:
+                Geography.objects.filter(pk=earth.id).update(fullname=None)
+                earth.refresh_from_db()
         return earth
     if dry_run:
         return None
@@ -781,7 +785,7 @@ def _ensure_earth_root_for_treedef(*, treedef_id: int, dry_run: bool) -> Any:
     with transaction.atomic():
         g = Geography.objects.create(
             name="Earth",
-            fullname="Earth",
+            fullname=None,
             definition_id=treedef_id,
             definitionitem=root_item,
             parent=None,
@@ -853,12 +857,11 @@ def _ensure_geography_for_place(
         if existing is not None:
             return int(existing.id)
         leaf_di = ordered_items[1]
-        fullname = f"Earth, {name}"[:500]
         with transaction.atomic():
             earth.refresh_from_db()
             g = earth.children.create(
                 name=name,
-                fullname=fullname,
+                fullname=None,
                 definition_id=geography_treedef_id,
                 definitionitem=leaf_di,
                 rankid=leaf_di.rankid,
@@ -954,13 +957,11 @@ def _ensure_geography_for_place(
             continue
 
         name = r["name"]
-        parent_full = (getattr(parent_geo, "fullname", None) or getattr(parent_geo, "name", "Earth"))
-        fullname = f"{parent_full}, {name}"[:500]
         with transaction.atomic():
             parent_geo.refresh_from_db()
             g = parent_geo.children.create(
                 name=name,
-                fullname=fullname,
+                fullname=None,
                 definition_id=geography_treedef_id,
                 definitionitem=di,
                 rankid=di.rankid,

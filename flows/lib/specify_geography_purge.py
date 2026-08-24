@@ -11,7 +11,7 @@ Two entry points:
 
 Specify blocks deleting ``Geography`` while ``Locality`` or ``Agentgeography`` still reference it.
 We clear those references, then delete leaves-up until the tree is empty, then recreate Earth
-roots (name ``Earth``, fullname ``Planet``) so ``load_hierarchical_geography`` can attach again.
+roots (name ``Earth``; ``fullname`` left for Specify to derive) so ``load_hierarchical_geography`` can attach again.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ def _ensure_geography_earth_root(treedef_id: int, *, dry_run: bool) -> dict[str,
 
     g = Geography(
         name="Earth",
-        fullname="Planet",
+        fullname=None,
         definition_id=treedef_id,
         definitionitem=rank_top,
         parent=None,

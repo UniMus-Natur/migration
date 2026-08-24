@@ -688,14 +688,13 @@ def load_hierarchical_geography(
                 guid=guid,
             )
         name = r.placename[:128] if len(r.placename) > 128 else r.placename
-        fullname = f"{parent_geo.fullname or parent_geo.name}, {name}"[:500]
         if dry_run:
             stats.geographies_created += 1
             continue
         try:
             g = Geography(
                 name=name,
-                fullname=fullname,
+                fullname=None,
                 definition_id=treedef_id,
                 definitionitem=di,
                 parent=parent_geo,
@@ -734,7 +733,6 @@ def load_hierarchical_geography(
                 if parent_geo is not None
                 else None,
                 rankid=getattr(di, "rankid", None),
-                fullname=fullname,
                 guid=guid,
                 loop_index=i,
                 total_geography=total_g,
