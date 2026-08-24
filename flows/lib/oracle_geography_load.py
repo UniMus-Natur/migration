@@ -13,6 +13,9 @@ from django.db import close_old_connections, transaction
 
 from flows.lib.oracle_geography_admin import (
     GEOGRAPHY_FULLNAME_SEPARATOR,
+    LAND_ADMIN_FALLBACK_RANKIDS,
+    NORWEGIAN_GEOGRAPHY_CORE_RANKS,
+    NORWEGIAN_GEOGRAPHY_OPTIONAL_RANKS,
     NORWEGIAN_GEOGRAPHY_RANKS,
     WORLD_SHELL_NAMES,
     fetch_hierarchical_chain_rows_for_place,
@@ -125,6 +128,51 @@ def _resolve_rank_item(rank_items: dict[str, Any], logical_name: str) -> Any:
         if it is not None:
             return it
     return None
+
+
+def rank_item_for_geography_row(
+    *,
+    type_name: str | None,
+    parent_rankid: int,
+    rank_items: dict[str, Any],
+    ordered_items: list[Any],
+    treedef_id: int | None = None,
+    dry_run: bool = False,
+) -> tuple[Any | None, dict[str, Any] | None]:
+    """Pick ``GeographyTreeDefItem`` for one Oracle hierarchy row.
+
+    Typed rows use MUSIT ``TYPES`` mapping. Untyped rows follow the land-admin fallback
+    ladder (Continent→Land→Fylke→…) and **never** fall through Ocean/Sea gap ranks.
+    Returns ``(item, ensure_optional_meta)``; reload ``rank_items`` when meta is set.
+    """
+    logical = oracle_type_name_to_rank_item_name(type_name)
+    optional_meta: dict[str, Any] | None = None
+    if logical:
+        is_optional = any(spec.name == logical for spec in NORWEGIAN_GEOGRAPHY_OPTIONAL_RANKS)
+        if is_optional and treedef_id is not None and _resolve_rank_item(rank_items, logical) is None:
+            if not dry_run:
+                optional_meta = ensure_optional_norwegian_geography_rank(treedef_id, logical, dry_run=False)
+            elif dry_run:
+                optional_meta = {"would_create": logical}
+        di = _resolve_rank_item(rank_items, logical)
+        if di is not None and int(di.rankid) > parent_rankid:
+            return di, optional_meta
+        if di is not None:
+            logger.warning(
+                "oracle_geography: mapped rank %s (rankid=%s) not below parent rankid=%s type=%r",
+                logical,
+                di.rankid,
+                parent_rankid,
+                type_name,
+            )
+    for rid in LAND_ADMIN_FALLBACK_RANKIDS:
+        if rid > parent_rankid:
+            for it in ordered_items:
+                if int(it.rankid) == rid:
+                    return it, optional_meta
+            return None, optional_meta
+    deeper = next((it for it in ordered_items if int(it.rankid) > parent_rankid), None)
+    return deeper, optional_meta
 
 
 def _treedef_items_ordered_by_rank(treedef_id: int) -> list[Any]:
@@ -261,7 +309,7 @@ def ensure_norwegian_geography_ranks(treedef_id: int, *, dry_run: bool) -> dict[
         return out
 
     occupied = {int(it.rankid) for it in items}
-    specs = list(NORWEGIAN_GEOGRAPHY_RANKS)
+    specs = list(NORWEGIAN_GEOGRAPHY_CORE_RANKS)
     to_update: list[Any] = []
 
     for spec in specs:
@@ -338,6 +386,50 @@ def ensure_norwegian_geography_ranks(treedef_id: int, *, dry_run: bool) -> dict[
 
     if not dry_run:
         _rechain_geography_tree_rank_parents(treedef_id)
+    return out
+
+
+def ensure_optional_norwegian_geography_rank(
+    treedef_id: int,
+    logical_name: str,
+    *,
+    dry_run: bool,
+) -> dict[str, Any]:
+    """Create one optional rank (Ocean, Sea, Region, …) when MUSIT ``TYPES`` needs it."""
+    from specifyweb.specify.models import Geographytreedefitem
+
+    out: dict[str, Any] = {"treedef_id": treedef_id, "dry_run": dry_run, "logical": logical_name}
+    spec = next((s for s in NORWEGIAN_GEOGRAPHY_OPTIONAL_RANKS if s.name == logical_name), None)
+    if spec is None:
+        out["error"] = f"not an optional Norwegian geography rank: {logical_name!r}"
+        return out
+    items = _geography_rank_items(treedef_id)
+    if _find_rank_spec_item(items, spec) is not None:
+        return out
+    if dry_run:
+        out["would_create"] = spec.name
+        return out
+    occupied = {int(it.rankid) for it in items}
+    rankid = _allocate_geography_rankid(spec.rankid, occupied, ceiling=None)
+    Geographytreedefitem.objects.create(
+        treedef_id=treedef_id,
+        name=spec.name,
+        title=spec.name,
+        rankid=rankid,
+        isenforced=spec.isenforced,
+        isinfullname=spec.isinfullname,
+        fullnameseparator=GEOGRAPHY_FULLNAME_SEPARATOR,
+        parent=None,
+    )
+    _rechain_geography_tree_rank_parents(treedef_id)
+    out["created"] = spec.name
+    out["rankid"] = rankid
+    logger.info(
+        "Created optional geography rank %s (rankid=%s) for GeographyTreeDefID=%s",
+        spec.name,
+        rankid,
+        treedef_id,
+    )
     return out
 
 
@@ -600,14 +692,15 @@ def load_hierarchical_geography(
         """Specify requires child ``rankid`` > parent ``rankid`` on Geography trees."""
         pr = getattr(parent_geo, "rankid", None)
         parent_rid = int(pr) if pr is not None else -1
-        nm = oracle_type_name_to_rank_item_name(r.type_name)
-        di = _resolve_rank_item(rank_items, nm) if nm else None
-        if di is not None and int(di.rankid) > parent_rid:
-            return di
-        for it in ordered_def_items:
-            if int(it.rankid) > parent_rid:
-                return it
-        return None
+        di, _opt = rank_item_for_geography_row(
+            type_name=r.type_name,
+            parent_rankid=parent_rid,
+            rank_items=rank_items,
+            ordered_items=ordered_def_items,
+            treedef_id=treedef_id,
+            dry_run=dry_run,
+        )
+        return di
 
     ordered_rows = _toposort_hierarchical(rows)
     total_g = len(ordered_rows)

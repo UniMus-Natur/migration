@@ -823,6 +823,7 @@ def _ensure_geography_for_place(
         ensure_deeper_geography_rank,
         ensure_norwegian_geography_ranks,
         oracle_type_name_to_rank_item_name,
+        rank_item_for_geography_row,
     )
     from flows.lib.oracle_geography_admin import should_alias_geography_to_parent
 
@@ -933,10 +934,25 @@ def _ensure_geography_for_place(
         # Earth → Specify Tree validation fails (and their error payload crashes on parent.parent).
         _pr = getattr(parent_geo, "rankid", None)
         parent_rankid = int(_pr) if _pr is not None else -1
-        logical = oracle_type_name_to_rank_item_name(r["type_name"])
-        di = _resolve_rank_item(rank_items, logical) if logical else None
-        if di is None or int(di.rankid) <= parent_rankid:
-            di = next((it for it in ordered_items if int(it.rankid) > parent_rankid), None)
+        di, _opt = rank_item_for_geography_row(
+            type_name=r.get("type_name"),
+            parent_rankid=parent_rankid,
+            rank_items=rank_items,
+            ordered_items=ordered_items,
+            treedef_id=geography_treedef_id,
+            dry_run=dry_run,
+        )
+        if _opt and _opt.get("created") and not dry_run:
+            rank_items = _rank_items_by_name_lower(geography_treedef_id)
+            ordered_items = _treedef_items_ordered_by_rank(geography_treedef_id)
+            di, _ = rank_item_for_geography_row(
+                type_name=r.get("type_name"),
+                parent_rankid=parent_rankid,
+                rank_items=rank_items,
+                ordered_items=ordered_items,
+                treedef_id=geography_treedef_id,
+                dry_run=dry_run,
+            )
         if di is None and not dry_run:
             # Deep untyped leaf (e.g. Botne under Sted Holmestrand) — add Place rank.
             ensure_deeper_geography_rank(

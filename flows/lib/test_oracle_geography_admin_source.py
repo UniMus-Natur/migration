@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 
 from flows.lib.oracle_geography_admin import (
+    LAND_ADMIN_FALLBACK_RANKIDS,
     NORWEGIAN_GEOGRAPHY_RANKS,
     fetch_hierarchical_chain_rows_for_place,
     hierarchical_admin_relation,
@@ -33,11 +34,10 @@ def _assign_norwegian_ranks(chain: list[tuple[str, str]]) -> list[str | None]:
             assigned.append(None)
             continue
         logical = oracle_type_name_to_rank_item_name(type_name)
-        rankid = rankid_by_name.get(logical)
+        rankid = rankid_by_name.get(logical) if logical else None
         if rankid is None or rankid <= parent_rankid:
-            spec = next(s for s in NORWEGIAN_GEOGRAPHY_RANKS if s.rankid > parent_rankid)
-            logical = spec.name
-            rankid = spec.rankid
+            rankid = next(rid for rid in LAND_ADMIN_FALLBACK_RANKIDS if rid > parent_rankid)
+            logical = next(spec.name for spec in NORWEGIAN_GEOGRAPHY_RANKS if spec.rankid == rankid)
         assigned.append(logical)
         parent_name = name
         parent_rankid = rankid

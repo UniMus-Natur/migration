@@ -152,23 +152,20 @@ MUSIT already solved this — `ADMINISTRATIVE_PLACE` was built to hold historica
 
 **Hierarchy depth in Specify:**
 
-Specify's default US geography ranks (`Country → State → County → Municipality`) are renamed in-place to a Norwegian ladder that matches MUSIT `TYPES`. Nodes may skip ranks (Specify only requires child `rankid` > parent `rankid`). Optional marine and region ranks sit in gaps:
+Specify's default US geography ranks are renamed to a **land-admin core ladder** matching MUSIT ``TYPES``. Optional marine/region ranks (Ocean, Sea, Gammelt fylke, Region, Sub region) are added **on demand** only — if they sit in the default treedef, untyped Oracle rows fall through into the wrong UI columns (Norway under Ocean, etc.).
 
 | rankid | Specify rank | MUSIT `TYPES` | In full name |
 |---|---|---|---|
-| 0 | Earth | Planet (WORLD is aliased to Earth, not inserted) | no |
+| 0 | Earth | Planet (WORLD aliased to Earth) | no |
 | 100 | Continent | Continent | no |
-| 150 | Ocean | Ocean | no |
-| 180 | Sea | Sea | no |
 | 200 | Land | Land | no |
 | 300 | Fylke | Fylke | yes |
-| 320 | Gammelt fylke | Gammelt fylke | yes |
-| 350 | Region | Region | yes |
-| 370 | Sub region | Sub region | yes |
 | 400 | Kommune | Kommune | yes |
 | 500 | Gammel kommune | Gammel kommune | yes |
-| 600 | Sted | overflow (nested historical / untyped) | yes |
+| 600 | Sted | overflow | yes |
 | 700 | Place | deeper overflow | yes |
+
+Optional (on demand): Ocean (150), Sea (180), Gammelt fylke (320), Region (350), Sub region (370).
 
 Ranks in the full name use separator `", "` (avoids concatenations like `TønsbergSem`). A child that repeats its parent's name (untyped kommune repeats, or `Gammel kommune Tønsberg` under `Kommune Tønsberg`) is aliased onto the parent so a nested historical unit such as Sem can occupy the Gammel kommune rank.
 

@@ -69,25 +69,35 @@ class NorwegianGeographyRankSpec:
 
 
 # Rankids are strictly increasing so any MUSIT parent→child edge is legal in Specify.
-# Optional branches (Ocean/Sea, Gammelt fylke, Region/Sub region) sit in gaps; geography
-# nodes skip unused ranks. Rename aliases are Specify's default English rank names.
-NORWEGIAN_GEOGRAPHY_RANKS: tuple[NorwegianGeographyRankSpec, ...] = (
+# Core ranks are land-admin columns with no gaps. Optional marine/region ranks are added on
+# demand only — otherwise untyped rows fall through into Ocean/Sea columns in Specify UI.
+NORWEGIAN_GEOGRAPHY_CORE_RANKS: tuple[NorwegianGeographyRankSpec, ...] = (
     NorwegianGeographyRankSpec(0, "Earth", False, True, ("Planet", "World")),
     NorwegianGeographyRankSpec(100, "Continent", False, False),
-    NorwegianGeographyRankSpec(150, "Ocean", False, False),
-    NorwegianGeographyRankSpec(180, "Sea", False, False),
     NorwegianGeographyRankSpec(200, "Land", False, False, ("Country",)),
     NorwegianGeographyRankSpec(300, "Fylke", True, False, ("State",)),
-    NorwegianGeographyRankSpec(320, "Gammelt fylke", True, False),
-    NorwegianGeographyRankSpec(350, "Region", True, False),
-    NorwegianGeographyRankSpec(370, "Sub region", True, False),
     NorwegianGeographyRankSpec(400, "Kommune", True, False, ("County",)),
     NorwegianGeographyRankSpec(500, "Gammel kommune", True, False, ("Municipality",)),
     NorwegianGeographyRankSpec(600, "Sted", True, False, ("Settlement",)),
     NorwegianGeographyRankSpec(700, "Place", True, False),
 )
 
+NORWEGIAN_GEOGRAPHY_OPTIONAL_RANKS: tuple[NorwegianGeographyRankSpec, ...] = (
+    NorwegianGeographyRankSpec(150, "Ocean", False, False),
+    NorwegianGeographyRankSpec(180, "Sea", False, False),
+    NorwegianGeographyRankSpec(320, "Gammelt fylke", True, False),
+    NorwegianGeographyRankSpec(350, "Region", True, False),
+    NorwegianGeographyRankSpec(370, "Sub region", True, False),
+)
+
+NORWEGIAN_GEOGRAPHY_RANKS: tuple[NorwegianGeographyRankSpec, ...] = (
+    NORWEGIAN_GEOGRAPHY_CORE_RANKS + NORWEGIAN_GEOGRAPHY_OPTIONAL_RANKS
+)
+
 GEOGRAPHY_FULLNAME_SEPARATOR = ", "
+
+# Untyped Oracle rows use this land-admin sequence (never Ocean/Sea gap rankids).
+LAND_ADMIN_FALLBACK_RANKIDS: tuple[int, ...] = tuple(spec.rankid for spec in NORWEGIAN_GEOGRAPHY_CORE_RANKS)
 
 
 def oracle_row_is_world_or_planet_shell(name: str | None, type_name: str | None = None) -> bool:
