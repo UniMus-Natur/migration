@@ -215,12 +215,28 @@ def _rechain_geography_tree_rank_parents(treedef_id: int) -> None:
         Geographytreedefitem.objects.bulk_update(changed, ["parent_id"])
 
 
+def _map_norwegian_rank_specs_to_items(items: list[Any]) -> dict[str, Any | None]:
+    """Map each Norwegian rank spec to an existing treedef item (each item used at most once)."""
+    remaining = list(items)
+    mapping: dict[str, Any | None] = {}
+    for spec in NORWEGIAN_GEOGRAPHY_RANKS:
+        item = _find_rank_spec_item(remaining, spec)
+        if item is not None:
+            remaining = [it for it in remaining if int(it.id) != int(item.id)]
+        mapping[spec.name] = item
+    return mapping
+
+
 def ensure_norwegian_geography_ranks(treedef_id: int, *, dry_run: bool) -> dict[str, Any]:
     """Rename Specify default ranks to the Norwegian MUSIT ladder and add missing ranks.
 
     Does **not** change ``rankid`` on existing items (geography nodes keep their current
     ranks until a purge + reload). Sets ``fullnameseparator`` to ``", "`` so fullnames
     do not concatenate as ``TønsbergSem``.
+
+    Uses ``bulk_update`` / ``bulk_create`` plus a final parent rechain because Specify
+    validates that each rank parent has **at most one** child; inserting Ocean while
+    Country still hangs off Continent would fail ``item.save()``.
     """
     from specifyweb.specify.models import Geographytreedefitem
 
@@ -239,23 +255,66 @@ def ensure_norwegian_geography_ranks(treedef_id: int, *, dry_run: bool) -> dict[
         out["error"] = "no geography treedef items"
         return out
 
+    spec_to_item = _map_norwegian_rank_specs_to_items(items)
+    if spec_to_item.get("Earth") is None:
+        out["error"] = "no Earth geography rank on treedef"
+        return out
+
     occupied = {int(it.rankid) for it in items}
     specs = list(NORWEGIAN_GEOGRAPHY_RANKS)
-    parent_item = None
+    to_update: list[Any] = []
 
-    for i, spec in enumerate(specs):
-        item = _find_rank_spec_item(items, spec)
-        next_desired = specs[i + 1].rankid if i + 1 < len(specs) else None
+    for spec in specs:
+        item = spec_to_item.get(spec.name)
         if item is None:
-            if spec.name == "Earth":
-                out["error"] = "no Earth geography rank on treedef"
-                return out
             if dry_run:
                 out["would_create"].append(spec.name)
-                parent_item = item
-                continue
-            rankid = _allocate_geography_rankid(spec.rankid, occupied, ceiling=next_desired)
-            item = Geographytreedefitem.objects.create(
+            continue
+        new_name = spec.name
+        sep = GEOGRAPHY_FULLNAME_SEPARATOR
+        needs_rename = (item.name or "") != new_name or (item.title or "") != new_name
+        needs_flags = (
+            bool(item.isinfullname) != spec.isinfullname
+            or bool(item.isenforced) != spec.isenforced
+            or (item.fullnameseparator or "") != sep
+        )
+        if not needs_rename and not needs_flags:
+            continue
+        label = f"{item.name}→{new_name}" if needs_rename else spec.name
+        if dry_run:
+            if needs_rename:
+                out["would_rename"].append(label)
+            if needs_flags:
+                out["would_update"].append(spec.name)
+            continue
+        item.name = new_name
+        item.title = new_name
+        item.isinfullname = spec.isinfullname
+        item.isenforced = spec.isenforced
+        item.fullnameseparator = sep
+        to_update.append(item)
+        if needs_rename:
+            out["renamed"].append(label)
+        if needs_flags:
+            out["updated"].append(spec.name)
+
+    if to_update:
+        Geographytreedefitem.objects.bulk_update(
+            to_update,
+            ["name", "title", "isinfullname", "isenforced", "fullnameseparator"],
+        )
+
+    to_create_objs: list[Any] = []
+    for i, spec in enumerate(specs):
+        if spec_to_item.get(spec.name) is not None or spec.name == "Earth":
+            continue
+        if dry_run:
+            continue
+        next_desired = specs[i + 1].rankid if i + 1 < len(specs) else None
+        rankid = _allocate_geography_rankid(spec.rankid, occupied, ceiling=next_desired)
+        occupied.add(rankid)
+        to_create_objs.append(
+            Geographytreedefitem(
                 treedef_id=treedef_id,
                 name=spec.name,
                 title=spec.name,
@@ -263,45 +322,19 @@ def ensure_norwegian_geography_ranks(treedef_id: int, *, dry_run: bool) -> dict[
                 isenforced=spec.isenforced,
                 isinfullname=spec.isinfullname,
                 fullnameseparator=GEOGRAPHY_FULLNAME_SEPARATOR,
-                parent=parent_item,
+                parent=None,
             )
-            occupied.add(rankid)
-            items.append(item)
-            out["created"].append(spec.name)
+        )
+        out["created"].append(spec.name)
+
+    if to_create_objs:
+        Geographytreedefitem.objects.bulk_create(to_create_objs)
+        for spec_name in out["created"]:
             logger.info(
-                "Created geography rank %s (rankid=%s) for GeographyTreeDefID=%s",
-                spec.name,
-                rankid,
+                "Created geography rank %s for GeographyTreeDefID=%s",
+                spec_name,
                 treedef_id,
             )
-        else:
-            new_name = spec.name
-            sep = GEOGRAPHY_FULLNAME_SEPARATOR
-            needs_rename = (item.name or "") != new_name or (item.title or "") != new_name
-            needs_flags = (
-                bool(item.isinfullname) != spec.isinfullname
-                or bool(item.isenforced) != spec.isenforced
-                or (item.fullnameseparator or "") != sep
-            )
-            if needs_rename or needs_flags:
-                label = f"{item.name}→{new_name}" if needs_rename else spec.name
-                if dry_run:
-                    if needs_rename:
-                        out["would_rename"].append(label)
-                    if needs_flags:
-                        out["would_update"].append(spec.name)
-                else:
-                    item.name = new_name
-                    item.title = new_name
-                    item.isinfullname = spec.isinfullname
-                    item.isenforced = spec.isenforced
-                    item.fullnameseparator = sep
-                    item.save()
-                    if needs_rename:
-                        out["renamed"].append(label)
-                    if needs_flags:
-                        out["updated"].append(spec.name)
-        parent_item = item
 
     if not dry_run:
         _rechain_geography_tree_rank_parents(treedef_id)
