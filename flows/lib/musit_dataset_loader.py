@@ -53,6 +53,12 @@ from flows.lib.musit_determiner_actors import (
     determination_dedupe_key as _determination_dedupe_key,
     fetch_event_role_actor_ids as _fetch_event_role_actor_ids,
 )
+from flows.lib.musit_hybrid import (
+    classification_hybrid_archives as _classification_hybrid_archives,
+    entered_taxon_name_for_determination as _entered_taxon_name_for_determination,
+    hybrid_archive_for_det_key as _hybrid_archive_for_det_key,
+    hybrid_parents_display as _hybrid_parents_display,
+)
 from flows.lib.musit_sensu_addendum import (
     classification_sensu_outliers,
     resolve_sensu_addendum,
@@ -116,6 +122,7 @@ class DatasetLoadStats:
     locality_reused: int = 0    # found in placemap
     geography_created: int = 0
     determination_created: int = 0
+    hybrid_determination: int = 0  # hybrid formula → taxon left unset
     taxon_matched: int = 0
     taxon_fallback_matched: int = 0
     taxon_unresolved: int = 0
@@ -217,6 +224,7 @@ _SPECIMEN_SQL = """
       cts.to_date          AS class_to_date,
       cts.time_as_text     AS class_time_as_text,
       cts.uncertain        AS class_date_uncertain,
+      ct.class_term_id,
       ct.classterm,
       ct.entered_classterm,
       ct.valid_classterm,
@@ -224,6 +232,8 @@ _SPECIMEN_SQL = """
       ct.sensu_term,
       tcat.tax_cath_name   AS infraspes_rank_name,
       tcat.tax_cath_abbrev AS infraspes_rank_abbrev,
+      ctl.precision_code,
+      ctl.relation_type,
       ln.latin_name_id,
       ln.latin_name,
       ln.full_name,
@@ -2012,6 +2022,7 @@ def _write_one_object(
             }
         )
 
+    hybrid_archives = _classification_hybrid_archives(rows)
     json_body: dict[str, Any] = {
         "source": {
             "owner": owner,
@@ -2038,6 +2049,9 @@ def _write_one_object(
     }
     if literature_archive:
         json_body["literature"] = literature_archive
+    if hybrid_archives:
+        # Hybrid parent species (N-way) — Specify Taxon only supports 2 parents.
+        json_body["hybrid_determinations"] = hybrid_archives
     json_payload = json.dumps(json_body, ensure_ascii=False, default=str)
 
     with transaction.atomic():
@@ -2303,60 +2317,85 @@ def _write_one_object(
                     continue
                 seen_det_keys.add(det_key)
 
-                taxon, created_nodes = _resolve_or_create_taxon(
-                    oracle_cursor=oracle_cursor,
-                    owner=owner,
-                    latin_name_id=ln_id,
-                    adb_taxon_id=adb_taxon_id,
-                    adb_latin_name_id=adb_id,
-                    nhm_taxon_id=dr.get("nhm_taxon_id"),
-                    latin_name=dr.get("latin_name") or dr.get("valid_classterm") or dr.get("classterm"),
-                    valid_classterm=dr.get("valid_classterm"),
-                    full_name=dr.get("full_name"),
-                    full_name_author=dr.get("full_name_author"),
-                    taxontreedef_id=taxontreedef_id,
-                    lineage_cache=latin_name_lineage_cache,
-                    rank_item_cache=rank_item_cache,
-                    object_id=object_id,
-                    catalog_number=_trunc(obj_row.get("identifier_string"), 32),
-                )
-                if created_nodes:
-                    _log("debug", "object_id=%s catalog=%s fallback_debug=%s", object_id, obj_row.get("identifier_string"), created_nodes[0])
-                if taxon is not None:
-                    stats.taxon_matched += 1
-                    if adb_taxon_id is None:
-                        stats.taxon_fallback_matched += 1
-                else:
-                    stats.taxon_unresolved += 1
-                    fallback_debug = created_nodes[0] if created_nodes else {}
-                    candidate_scores = fallback_debug.get("fallback_candidates", [])
+                # Hybrids: keep formula + parent archive; do not link a parent species.
+                hybrid_archive = _hybrid_archive_for_det_key(det_rows_all, det_key)
+                is_hybrid = hybrid_archive is not None
+                taxon = None
+                created_nodes: list[dict[str, Any]] = []
+                if is_hybrid:
+                    stats.hybrid_determination += 1
                     _log(
                         "debug",
-                        "object_id=%s catalog=%s unresolved taxon det_class_term_id=%r det_latin_name_id=%r det_latin_name=%r probe=%r top_candidates=%s adb_taxon_id=%r adb_latin_name_id=%r nhm_taxon_id=%r",
+                        "object_id=%s catalog=%s hybrid determination class_event_id=%r "
+                        "parents=%s — leaving taxon unset",
                         object_id,
                         obj_row.get("identifier_string"),
-                        dr.get("class_term_id"),
-                        dr.get("latin_name_id"),
-                        dr.get("latin_name") or dr.get("valid_classterm") or dr.get("classterm"),
-                        fallback_debug.get("fallback_probe"),
-                        candidate_scores[:5],
-                        adb_taxon_id,
-                        adb_id,
-                        dr.get("nhm_taxon_id"),
+                        dr.get("class_event_id"),
+                        len((hybrid_archive or {}).get("parents") or []),
                     )
-                    if len(stats.errors) < _MAX_ERRORS:
-                        stats.errors.append(
-                            f"object_id={object_id}: unresolved taxon "
-                            f"(class_term_id={dr.get('class_term_id')!r}, "
-                            f"latin_name_id={dr.get('latin_name_id')!r}, "
-                            f"latin_name={dr.get('latin_name')!r}, "
-                            f"valid_classterm={dr.get('valid_classterm')!r}, "
-                            f"classterm={dr.get('classterm')!r}, "
-                            f"probe={fallback_debug.get('fallback_probe')!r}, "
-                            f"top_candidates={candidate_scores[:5]!r}, "
-                            f"adb_taxon_id={adb_taxon_id!r}, "
-                            f"adb_latin_name_id={adb_id!r}, nhm_taxon_id={dr.get('nhm_taxon_id')!r})"
+                else:
+                    taxon, created_nodes = _resolve_or_create_taxon(
+                        oracle_cursor=oracle_cursor,
+                        owner=owner,
+                        latin_name_id=ln_id,
+                        adb_taxon_id=adb_taxon_id,
+                        adb_latin_name_id=adb_id,
+                        nhm_taxon_id=dr.get("nhm_taxon_id"),
+                        latin_name=dr.get("latin_name") or dr.get("valid_classterm") or dr.get("classterm"),
+                        valid_classterm=dr.get("valid_classterm"),
+                        full_name=dr.get("full_name"),
+                        full_name_author=dr.get("full_name_author"),
+                        taxontreedef_id=taxontreedef_id,
+                        lineage_cache=latin_name_lineage_cache,
+                        rank_item_cache=rank_item_cache,
+                        object_id=object_id,
+                        catalog_number=_trunc(obj_row.get("identifier_string"), 32),
+                    )
+                    if created_nodes:
+                        _log(
+                            "debug",
+                            "object_id=%s catalog=%s fallback_debug=%s",
+                            object_id,
+                            obj_row.get("identifier_string"),
+                            created_nodes[0],
                         )
+                    if taxon is not None:
+                        stats.taxon_matched += 1
+                        if adb_taxon_id is None:
+                            stats.taxon_fallback_matched += 1
+                    else:
+                        stats.taxon_unresolved += 1
+                        fallback_debug = created_nodes[0] if created_nodes else {}
+                        candidate_scores = fallback_debug.get("fallback_candidates", [])
+                        _log(
+                            "debug",
+                            "object_id=%s catalog=%s unresolved taxon det_class_term_id=%r "
+                            "det_latin_name_id=%r det_latin_name=%r probe=%r top_candidates=%s "
+                            "adb_taxon_id=%r adb_latin_name_id=%r nhm_taxon_id=%r",
+                            object_id,
+                            obj_row.get("identifier_string"),
+                            dr.get("class_term_id"),
+                            dr.get("latin_name_id"),
+                            dr.get("latin_name") or dr.get("valid_classterm") or dr.get("classterm"),
+                            fallback_debug.get("fallback_probe"),
+                            candidate_scores[:5],
+                            adb_taxon_id,
+                            adb_id,
+                            dr.get("nhm_taxon_id"),
+                        )
+                        if len(stats.errors) < _MAX_ERRORS:
+                            stats.errors.append(
+                                f"object_id={object_id}: unresolved taxon "
+                                f"(class_term_id={dr.get('class_term_id')!r}, "
+                                f"latin_name_id={dr.get('latin_name_id')!r}, "
+                                f"latin_name={dr.get('latin_name')!r}, "
+                                f"valid_classterm={dr.get('valid_classterm')!r}, "
+                                f"classterm={dr.get('classterm')!r}, "
+                                f"probe={fallback_debug.get('fallback_probe')!r}, "
+                                f"top_candidates={candidate_scores[:5]!r}, "
+                                f"adb_taxon_id={adb_taxon_id!r}, "
+                                f"adb_latin_name_id={adb_id!r}, nhm_taxon_id={dr.get('nhm_taxon_id')!r})"
+                            )
 
                 # Determiners: MUSIT roles on classification (determination) event(s).
                 det_actor_ids = _classification_determiner_actor_ids_for_det_key(
@@ -2388,6 +2427,13 @@ def _write_one_object(
                 sensu_addendum, _sensu_archived, _sensu_outlier = resolve_sensu_addendum(
                     dr.get("sensu_term")
                 )
+                # Keep the full hybrid formula (DB column is TEXT; do not 255-truncate).
+                entered_name = _entered_taxon_name_for_determination(dr)
+                hybrid_parents_text = (
+                    _hybrid_parents_display(hybrid_archive.get("parents") or [])
+                    if is_hybrid and hybrid_archive
+                    else None
+                )
                 det = Determination(
                     collectionobject=co,
                     taxon=taxon,
@@ -2395,11 +2441,13 @@ def _write_one_object(
                     typestatusname=type_status,
                     # MUSIT UI: Entered=ENTERED_CLASSTERM, Valid=CLASSTERM,
                     # Accepted=VALID_CLASSTERM (tree preferredTaxon in Specify).
-                    text1=_trunc(dr.get("entered_classterm"), 255),
-                    text2=_trunc(dr.get("classterm"), 255),
+                    text1=entered_name,
+                    text2=_trunc(dr.get("classterm"), 65535),
                     text3=infraspes_name,
                     text4=infraspes_rank,
+                    text5=hybrid_parents_text,
                     addendum=_trunc(sensu_addendum, 16),
+                    yesno1=True if is_hybrid else None,
                     determineddate=det_datetime,
                     determineddateprecision=(1 if det_datetime is not None else None),
                 )
@@ -2791,7 +2839,7 @@ def load_musit_dataset(
                 _log(
                     "info",
                     "load_musit_dataset | %s/%s (%.1f%%) co=%s skipped=%s ce=%s loc_new=%s det=%s"
-                    " taxon_ok=%s taxon_fallback=%s taxon_unresolved=%s agent_ok=%s"
+                    " hybrid=%s taxon_ok=%s taxon_fallback=%s taxon_unresolved=%s agent_ok=%s"
                     " att_ok=%s att_fail=%s err=%s rate=%.2f/s elapsed=%s",
                     total_seen,
                     total_oracle,
@@ -2801,6 +2849,7 @@ def load_musit_dataset(
                     stats.ce_created,
                     stats.locality_created,
                     stats.determination_created,
+                    stats.hybrid_determination,
                     stats.taxon_matched,
                     stats.taxon_fallback_matched,
                     stats.taxon_unresolved,
@@ -2838,13 +2887,14 @@ def load_musit_dataset(
     _log(
         "info",
         "load_musit_dataset | done seen=%s migrated=%s co=%s ce=%s loc_new=%s det=%s"
-        " taxon_ok=%s agent_ok=%s skipped=%s err=%s elapsed=%s",
+        " hybrid=%s taxon_ok=%s agent_ok=%s skipped=%s err=%s elapsed=%s",
         total_seen,
         total_processed,
         stats.co_created,
         stats.ce_created,
         stats.locality_created,
         stats.determination_created,
+        stats.hybrid_determination,
         stats.taxon_matched,
         stats.agent_matched,
         stats.co_skipped,
