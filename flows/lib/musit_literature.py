@@ -1,10 +1,10 @@
 """MUSIT literature → Specify archive JSON and type-publication ReferenceWorks.
 
 Specimen literature (``DOCUMENT_OBJECT``) and taxon literature
-(``EVENT_DOCUMENT`` on classification events) are archived as JSON — not
-promoted to ``ReferenceWork`` yet. Type-info publication
-(``EVENT_DOCUMENT`` on typification events) becomes a ``ReferenceWork``
-linked via ``DeterminationCitation`` on the current determination.
+(``EVENT_DOCUMENT`` on classification events) are archived as JSON and
+promoted to CO text fields (``ocr`` / ``embargoreason``). Type-info
+publication (``EVENT_DOCUMENT`` on typification events) becomes a
+``ReferenceWork`` linked via ``CollectionObjectCitation`` on the specimen.
 """
 
 from __future__ import annotations
@@ -320,20 +320,20 @@ def reference_work_title(entry: dict[str, Any]) -> str | None:
     return _trunc(entry.get("reference") or entry.get("title"), 500)
 
 
-def attach_type_publications_to_determination(
+def attach_type_publications_to_collection_object(
     *,
-    determination: Any,
+    collection_object: Any,
     type_info: list[dict[str, Any]],
     institution: Any,
     collection_id: int,
     stats: Any,
 ) -> int:
-    """Create ``ReferenceWork`` + ``DeterminationCitation`` rows for type publications.
+    """Create ``ReferenceWork`` + ``CollectionObjectCitation`` rows for type publications.
 
     Does not deduplicate by title; reuses an existing row with the same MUSIT
     ``document_id`` GUID so remigration is idempotent.
     """
-    from specifyweb.specify.models import Determinationcitation, Referencework
+    from specifyweb.specify.models import Collectionobjectcitation, Referencework
 
     created = 0
     seen_docs: set[int] = set()
@@ -358,8 +358,8 @@ def attach_type_publications_to_determination(
             rw.save()
             if hasattr(stats, "referencework_created"):
                 stats.referencework_created += 1
-        citation, was_created = Determinationcitation.objects.get_or_create(
-            determination=determination,
+        citation, was_created = Collectionobjectcitation.objects.get_or_create(
+            collectionobject=collection_object,
             referencework=rw,
             defaults={
                 "collectionmemberid": int(collection_id),
@@ -368,10 +368,10 @@ def attach_type_publications_to_determination(
         )
         if was_created:
             created += 1
-            if hasattr(stats, "determination_citation_created"):
-                stats.determination_citation_created += 1
+            if hasattr(stats, "collectionobject_citation_created"):
+                stats.collectionobject_citation_created += 1
         elif entry.get("note") and not citation.remarks:
-            Determinationcitation.objects.filter(pk=citation.pk).update(
+            Collectionobjectcitation.objects.filter(pk=citation.pk).update(
                 remarks=_trunc(entry.get("note"), 4000)
             )
     return created

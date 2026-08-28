@@ -113,7 +113,7 @@ def _build_report(
             "attachments_created": stats.attachments_created,
             "attachments_failed": stats.attachments_failed,
             "referencework_created": stats.referencework_created,
-            "determination_citation_created": stats.determination_citation_created,
+            "collectionobject_citation_created": stats.collectionobject_citation_created,
             "literature_archived": stats.literature_archived,
             "errors": stats.errors,
             "elapsed_s": round(stats.elapsed_s, 2),

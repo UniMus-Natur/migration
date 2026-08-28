@@ -1,4 +1,4 @@
-"""Map MUSIT typification type vocabulary to Specify Determination.typeStatusName."""
+"""Map MUSIT typification type vocabulary to Specify TypeStatus picklist values."""
 
 from __future__ import annotations
 

@@ -21,7 +21,10 @@ Design constraints
 * Never creates or modifies ``Agent`` or ``Taxon``.
 * ``ReferenceWork`` rows are created for MUSIT type-info publications (GUID =
   ``urn:oracle:musit:document:{id}``); specimen/taxon literature is archived on
-  ``CollectionObject.text3``.
+  ``CollectionObject.text3`` and promoted to ``ocr`` / ``embargoreason``.
+* Typification metadata (type status, designators, year, note) is stored on
+  ``CollectionObject`` (``restrictions``, ``agent1``, ``cataloger``, ``integer2``,
+  ``reservedtext3``).
 * Each specimen is wrapped in ``transaction.atomic`` so partial failures roll back
   cleanly without leaving orphan records.
 * Idempotent / resumable: before each object is migrated, the loader checks
@@ -64,11 +67,15 @@ from flows.lib.musit_sensu_addendum import (
     resolve_sensu_addendum,
 )
 from flows.lib.musit_literature import (
-    attach_type_publications_to_determination as _attach_type_publications,
+    attach_type_publications_to_collection_object as _attach_type_publications,
     fetch_literature_for_objects as _fetch_literature_for_objects,
     literature_archive_payload as _literature_archive_payload,
 )
-from flows.lib.musit_type_status import resolve_type_status_name
+from flows.lib.musit_typification import (
+    apply_typification_co_field_updates as _apply_typification_co_field_updates,
+    build_typification_co_field_updates as _build_typification_co_field_updates,
+    fetch_typification_meta_for_objects as _fetch_typification_meta_for_objects,
+)
 from flows.lib.musit_taxon_match import (
     binomial_prefix_from_valid_classterm as _binomial_prefix_from_valid_classterm,
     taxon_matches_valid_classterm as _taxon_matches_valid_classterm,
@@ -131,7 +138,7 @@ class DatasetLoadStats:
     attachments_created: int = 0
     attachments_failed: int = 0
     referencework_created: int = 0
-    determination_citation_created: int = 0
+    collectionobject_citation_created: int = 0
     literature_archived: int = 0
     errors: list[str] = field(default_factory=list)
     elapsed_s: float = 0.0
@@ -1906,6 +1913,7 @@ def _write_one_object(
     geography_maps_cache: dict[str, Any] | None = None,
     skip_media: bool = False,
     literature_by_object: dict[int, dict[str, list[dict[str, Any]]]] | None = None,
+    typification_meta_by_object: dict[int, dict[str, Any]] | None = None,
 ) -> None:
     """Write one CollectionObject + CollectingEvent + Determination(s) for ``object_id``.
 
@@ -1944,7 +1952,17 @@ def _write_one_object(
         "taxon": [],
         "type_info": [],
     }
+    typification_meta = (typification_meta_by_object or {}).get(object_id)
     literature_archive = _literature_archive_payload(literature_bundle)
+    typification_co_updates = _build_typification_co_field_updates(
+        type_status_raw=obj_row.get("type_status"),
+        type_info=literature_bundle.get("type_info") or [],
+        typification_meta=typification_meta,
+        literature_bundle=literature_bundle,
+        schema=owner,
+        agent_cache=agent_cache,
+        resolve_agent=_resolve_agent,
+    )
 
     # ---- Unmapped payload for JSON archival ----
     unmapped: dict[str, Any] = {}
@@ -2259,6 +2277,8 @@ def _write_one_object(
             co.date1 = approved_date
             co.date1precision = 1
 
+        _apply_typification_co_field_updates(co, typification_co_updates)
+
         co.save()
         stats.co_created += 1
 
@@ -2270,7 +2290,6 @@ def _write_one_object(
         latin_name_lineage_cache: dict[int, dict[str, Any]] = {}
         rank_item_cache: dict[int, dict[str, Any]] = {}
         institution = discipline.division.institution
-        current_determination = None
         if literature_archive:
             stats.literature_archived += 1
 
@@ -2294,7 +2313,6 @@ def _write_one_object(
                 collectionobject=co,
                 iscurrent=True,
             )
-            current_determination = det
             stats.determination_created += 1
         else:
             # Sort by class_event_id descending so the first we process is the most recent.
@@ -2416,14 +2434,6 @@ def _write_one_object(
                     dr.get("infraspes_rank_abbrev") or dr.get("infraspes_rank_name"),
                     128,
                 )
-                # MUSIT object-level type status applies to the current determination only.
-                # UI field is TYPIFICATION_TYPE_ID → TYPES.TYPETERM (TYPE_STATUS varchar is often null).
-                type_status = (
-                    resolve_type_status_name(obj_row.get("type_status"))
-                    if is_current
-                    else None
-                )
-
                 sensu_addendum, _sensu_archived, _sensu_outlier = resolve_sensu_addendum(
                     dr.get("sensu_term")
                 )
@@ -2438,7 +2448,6 @@ def _write_one_object(
                     collectionobject=co,
                     taxon=taxon,
                     iscurrent=is_current,
-                    typestatusname=type_status,
                     # MUSIT UI: Entered=ENTERED_CLASSTERM, Valid=CLASSTERM,
                     # Accepted=VALID_CLASSTERM (tree preferredTaxon in Specify).
                     text1=entered_name,
@@ -2470,21 +2479,15 @@ def _write_one_object(
                     det.remarks = det_remarks
                 if is_current:
                     has_current = True
-                    current_determination = det
                 stats.determination_created += 1
 
-            if current_determination is None and det_rows_sorted:
-                # Fallback if iscurrent was cleared by business rules.
-                current_determination = det
-
-        if current_determination is not None:
-            _attach_type_publications(
-                determination=current_determination,
-                type_info=literature_bundle.get("type_info") or [],
-                institution=institution,
-                collection_id=int(collection.id),
-                stats=stats,
-            )
+        _attach_type_publications(
+            collection_object=co,
+            type_info=literature_bundle.get("type_info") or [],
+            institution=institution,
+            collection_id=int(collection.id),
+            stats=stats,
+        )
 
         # 6. Upsert objectmap row
         upsert_objectmap_row(
@@ -2794,10 +2797,17 @@ def load_musit_dataset(
                 ids_to_process,
                 batch_size=_SPECIMEN_BATCH,
             )
+            typification_meta_by_object = _fetch_typification_meta_for_objects(
+                oracle_cursor,
+                config.oracle_schema,
+                ids_to_process,
+                batch_size=_SPECIMEN_BATCH,
+            )
         else:
             grouped = {}
             avbilder_by_object = {}
             literature_by_object = {}
+            typification_meta_by_object = {}
 
         for oid in ids_to_process:
             rows = grouped.get(oid)
@@ -2822,6 +2832,7 @@ def load_musit_dataset(
                 geography_maps_cache=geography_maps_cache,
                 skip_media=skip_media,
                 literature_by_object=literature_by_object,
+                typification_meta_by_object=typification_meta_by_object,
             )
 
             total_processed += 1
