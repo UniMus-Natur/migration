@@ -54,6 +54,7 @@ from flows.lib.musit_determination_remarks import determination_remarks as _dete
 from flows.lib.musit_determiner_actors import (
     classification_determiner_actor_ids_for_det_key as _classification_determiner_actor_ids_for_det_key,
     determination_dedupe_key as _determination_dedupe_key,
+    fetch_actor_display_names as _fetch_actor_display_names,
     fetch_event_role_actor_ids as _fetch_event_role_actor_ids,
 )
 from flows.lib.musit_hybrid import (
@@ -1859,28 +1860,34 @@ def _attach_determiners_to_determination(
     stats: DatasetLoadStats,
     agent_cache: dict[int, int] | None = None,
     actor_ids: list[int] | None = None,
-) -> int:
-    """Create ``Determiner`` rows for all resolved agents on a determination."""
+) -> tuple[int, list[int]]:
+    """Create ``Determiner`` rows for all resolved agents on a determination.
+
+    Returns ``(created_count, unresolved_actor_ids)``.
+    """
     from specifyweb.specify.models import Determiner
 
     if not actor_ids:
-        return 0
+        return 0, []
     created = 0
+    unresolved: list[int] = []
     for idx, actor_id in enumerate(actor_ids):
         agent = _resolve_agent(owner, actor_id, agent_cache=agent_cache)
         if agent is None:
             stats.agent_unresolved += 1
+            unresolved.append(int(actor_id))
             continue
         stats.agent_matched += 1
         try:
             Determiner.objects.create(
                 agent=agent,
                 determination=determination,
-                isprimary=(idx == 0),
-                ordernumber=idx + 1,
+                isprimary=(created == 0),
+                ordernumber=created + 1,
             )
             created += 1
         except Exception as exc:  # noqa: BLE001
+            unresolved.append(int(actor_id))
             _log(
                 "warning",
                 "object_id=%s: determiner link failed actor_id=%s: %s",
@@ -1888,7 +1895,7 @@ def _attach_determiners_to_determination(
                 actor_id,
                 exc,
             )
-    return created
+    return created, unresolved
 
 
 # ---------------------------------------------------------------------------
@@ -2461,7 +2468,7 @@ def _write_one_object(
                     determineddateprecision=(1 if det_datetime is not None else None),
                 )
                 det.save()
-                determiners_created = _attach_determiners_to_determination(
+                determiners_created, unresolved_det_actor_ids = _attach_determiners_to_determination(
                     owner=owner,
                     determination=det,
                     object_id=object_id,
@@ -2469,8 +2476,19 @@ def _write_one_object(
                     agent_cache=agent_cache,
                     actor_ids=det_actor_ids,
                 )
+                unresolved_det_names: list[str] = []
+                if unresolved_det_actor_ids:
+                    name_by_actor = _fetch_actor_display_names(
+                        oracle_cursor, owner, unresolved_det_actor_ids
+                    )
+                    unresolved_det_names = [
+                        name_by_actor.get(int(aid), f"ACTOR_ID={aid}")
+                        for aid in unresolved_det_actor_ids
+                    ]
                 det_remarks = _determination_remarks(
-                    dr, has_resolved_determiner=determiners_created > 0
+                    dr,
+                    has_resolved_determiner=determiners_created > 0,
+                    unresolved_determiner_names=unresolved_det_names,
                 )
                 if det_remarks:
                     # Bypass ORM pre_save: only_one_determination_iscurrent bulk-updates

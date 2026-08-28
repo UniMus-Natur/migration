@@ -107,6 +107,47 @@ def fetch_event_role_actor_ids(
     return ordered
 
 
+def fetch_actor_display_names(
+    oracle_cursor: Any,
+    schema: str,
+    actor_ids: list[int],
+) -> dict[int, str]:
+    """Return ``{actor_id: display name}`` using MUSIT ``ACTOR.ACTORNAME`` fallback."""
+    if not actor_ids:
+        return {}
+    sch = str(schema).strip().upper()
+    placeholders = ", ".join(f":a{i}" for i in range(len(actor_ids)))
+    binds = {f"a{i}": int(aid) for i, aid in enumerate(actor_ids)}
+    oracle_cursor.execute(
+        f"""
+        SELECT a.actor_id,
+               COALESCE(
+                 NULLIF(TRIM(a.actorname), ''),
+                 NULLIF(TRIM(pn.person_surname || ', ' || pn.person_given_name), ','),
+                 NULLIF(TRIM(pn.person_given_name || ' ' || pn.person_surname), '')
+               ) AS display_name
+          FROM {sch}.actor a
+          LEFT JOIN {sch}.person_name pn
+            ON pn.person_name_id = NVL(
+              a.valid_person_name_id,
+              (SELECT MIN(pn2.person_name_id)
+                 FROM {sch}.person_name pn2
+                WHERE pn2.actor_id = a.actor_id)
+            )
+         WHERE a.actor_id IN ({placeholders})
+        """,
+        binds,
+    )
+    out: dict[int, str] = {}
+    for actor_id, display_name in oracle_cursor.fetchall():
+        if actor_id is None:
+            continue
+        name = str(display_name).strip() if display_name is not None else ""
+        if name:
+            out[int(actor_id)] = name
+    return out
+
+
 def classification_determiner_actor_ids_for_det_key(
     det_rows: list[dict[str, Any]],
     det_key: tuple,

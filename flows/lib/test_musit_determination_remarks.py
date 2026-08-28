@@ -34,6 +34,17 @@ class MusitDeterminationRemarksTests(unittest.TestCase):
             determination_remarks(dr, has_resolved_determiner=True), "nom cons."
         )
 
+    def test_partial_unresolved_determiner_names(self) -> None:
+        dr = {"event_notes": "nom cons."}
+        self.assertEqual(
+            determination_remarks(
+                dr,
+                has_resolved_determiner=True,
+                unresolved_determiner_names=["Elven, Reidar"],
+            ),
+            "nom cons.; Determiner (unresolved): Elven, Reidar",
+        )
+
     def test_empty_when_no_notes_or_verbatim(self) -> None:
         self.assertIsNone(determination_remarks({}, has_resolved_determiner=True))
 
