@@ -25,21 +25,21 @@ from flows.lib.migration_report_s3 import (
     migration_report_s3_key,
 )
 from flows.lib.migration_report_upload import upload_migration_report_json_task
+from flows.lib.musit_agents_common import (
+    ALLOWED_MUSIT_AGENT_SCHEMAS,
+    musit_actor_remarks_marker,
+)
 from flows.lib.oracle_connectivity import (
     create_oracle_connection,
     get_oracle_config_from_env,
 )
 from flows.lib.specify_setup import setup_django
 
-# Only schemas present in our Oracle inventory and used for specimen events.
-_ALLOWED_SCHEMAS = frozenset({
-    "MUSIT_BOTANIKK_FELLES",
-    "MUSIT_ZOOLOGI_ENTOMOLOGI",
-})
+_ALLOWED_SCHEMAS = ALLOWED_MUSIT_AGENT_SCHEMAS
 
 
 def _remarks_marker(schema: str, actor_id: int) -> str:
-    return f"MUSIT-migration: ACTOR; schema={schema}; ACTOR_ID={actor_id}"
+    return musit_actor_remarks_marker(schema, actor_id)
 
 
 def _trunc(s: str | None, max_len: int) -> str | None:

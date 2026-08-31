@@ -1,6 +1,6 @@
 """Map MUSIT ``KOORDINATE_PLACE`` / ``DERIVED_COORDINATES`` rows to Specify locality fields.
 
-Layout (v7)
+Layout (v8)
 -----------
 - ``latitude1`` / ``longitude1`` — WGS decimal degrees only
 - ``lat1text`` / ``long1text`` — text mirror of those WGS values (LatLonUI)
@@ -8,7 +8,7 @@ Layout (v7)
 - ``text3`` — MGRS / grid verbatim string
 - ``text5`` — UTM as GeoJSON (clean contract for future Specify UTM support)
 - ``text4`` — full migration audit JSON
-- ``yesNo1`` / ``yesNo2`` — Ca coordinate / Coordinate added later
+- ``yesNo1`` / ``yesNo2`` / ``yesNo3`` — Ca coordinate / Coordinate added later / Ca altitude
 
 Copy-only: no grid conversion, DMS parsing, or reprojection during migration.
 """
@@ -22,7 +22,7 @@ from typing import Any
 COORD_CONFLICT_THRESHOLD_DEG = 0.01
 LAT1TEXT_MAX_LEN = 50
 REMARKS_JSON_MAX_LEN = 4000
-MAPPING_VERSION = "musit-coordinates-v7"
+MAPPING_VERSION = "musit-coordinates-v8"
 _KNOWN_GEODETIC_DATUMS = frozenset({"WGS84", "ED50", "ETRS89", "EUREF89", "OSGB36", "NAD83", "NAD27"})
 # Norwegian/MGRS-ish grids: "ML 796,697", "CS 163,372", "NM 71,56", "MK 793-797,676-680"
 _MGRS_LIKE = re.compile(
@@ -313,6 +313,7 @@ def build_coordinate_audit_json(
         "flags": {
             "ca_utm": musit_flag_to_bool(coord.get("ca_utm")),
             "utm_senere": musit_flag_to_bool(coord.get("utm_senere")),
+            "ca_altitude": musit_flag_to_bool(coord.get("ca_altitude")),
         },
         "migration_meta": {
             "mapping_version": MAPPING_VERSION,
@@ -348,10 +349,6 @@ def build_coordinate_remarks_payload(
     if verbatim_non_mgrs:
         notes["verbatim_coordinate"] = verbatim_non_mgrs[:200]
 
-    ca_alt = non_empty_text(coord.get("ca_altitude"))
-    if ca_alt:
-        notes["ca_altitude"] = ca_alt[:40]
-
     utm_zone = _utm_zone_from_coord(coord)
     if utm_zone:
         notes["utm_zone"] = utm_zone
@@ -380,7 +377,6 @@ def format_locality_remarks_json(payload: dict[str, Any]) -> str:
     drop_order = (
         "map_sheet",
         "utm_zone",
-        "ca_altitude",
         "kp_datum_unmapped",
         "verbatim_coordinate",
         "coord_conflict",
@@ -509,6 +505,9 @@ def locality_spatial_kwargs_from_musit_koordinate(
     coord_later = musit_flag_to_bool(coord.get("utm_senere"))
     if coord_later is not None:
         out["yesno2"] = coord_later
+    ca_alt = musit_flag_to_bool(coord.get("ca_altitude"))
+    if ca_alt is not None:
+        out["yesno3"] = ca_alt
 
     remarks_payload = build_coordinate_remarks_payload(
         coord,

@@ -84,7 +84,7 @@ Each step is both a migration and a **validation checkpoint** — see "Validatio
 **Also:** `USD_BOTANIKK_*.PERSONER`, `USD_BOTANIKK_*.AUTORPERSON`, `USD_NAT_TAXAREG.AUTORPERSON`  
 **Target:** Specify `Agent` table
 
-An implemented subset — MUSIT **`ACTOR`** + **`PERSON_NAME`** for **`MUSIT_BOTANIKK_FELLES`** and **`MUSIT_ZOOLOGI_ENTOMOLOGI`** — is loaded by the Prefect flow **`migrate_musit_agents_flow`** (`flows/migrate_musit_agents.py`). Scope, idempotency, and gaps (USD persons, authors, deduplication) are documented in [**MUSIT collection agents migration**](migrate_musit_agents.md).
+An implemented subset — MUSIT **`ACTOR`** + **`PERSON_NAME`** for **`MUSIT_BOTANIKK_FELLES`** and **`MUSIT_ZOOLOGI_ENTOMOLOGI`** — is loaded by the Prefect flow **`migrate_musit_agents_flow`** (`flows/migrate_musit_agents.py`). Scope, idempotency, and gaps (USD persons, authors, deduplication) are documented in [**MUSIT collection agents migration**](migrate_musit_agents.md). Alternate (non-preferred) **`PERSON_NAME`** rows are filled in afterwards as Specify **`AgentVariant`** by **`migrate_musit_agent_variants_flow`** — see [**MUSIT agent name variants**](migrate_musit_agent_variants.md). Remaining person-module **`ACTOR`** fields (URL note / identifiers, address, dates in `NOTE`, …) are filled by **`migrate_musit_agent_details_flow`** — see [**MUSIT agent details fill-in**](migrate_musit_agent_details.md).
 
 **Merge strategy:**
 1. Start with MUSIT `ACTOR` as canonical — it has the most structured data (birth/death, ORCID, institution).
@@ -152,15 +152,24 @@ MUSIT already solved this — `ADMINISTRATIVE_PLACE` was built to hold historica
 
 **Hierarchy depth in Specify:**
 
-Specify's default Geography ranks: `Planet → Continent → Country → State/Province → County → Municipality`. Norwegian data maps as:
+Specify's default US geography ranks are renamed to a **land-admin core ladder** matching MUSIT ``TYPES``. Optional marine/region ranks (Ocean, Sea, Gammelt fylke, Region, Sub region) are added **on demand** only — if they sit in the default treedef, untyped Oracle rows fall through into the wrong UI columns (Norway under Ocean, etc.).
 
-| Specify rank | Norwegian equivalent | ADMPLACE_TYPE value (to confirm) |
-|---|---|---|
-| Continent | Kontinent | type 1 |
-| Country | Land | type 2 |
-| State/Province | Fylke (county) | type 3 |
-| County | Kommuneregion | type 4 (if used) |
-| Municipality | Kommune | type 5 |
+| rankid | Specify rank | MUSIT `TYPES` | In full name |
+|---|---|---|---|
+| 0 | Earth | Planet (WORLD aliased to Earth) | no |
+| 100 | Continent | Continent | no |
+| 200 | Land | Land | no |
+| 300 | Fylke | Fylke | yes |
+| 400 | Kommune | Kommune | yes |
+| 500 | Gammel kommune | Gammel kommune | yes |
+| 600 | Sted | overflow | yes |
+| 700 | Place | deeper overflow | yes |
+
+Optional (on demand): Ocean (150), Sea (180), Gammelt fylke (320), Region (350), Sub region (370).
+
+Ranks in the full name use separator `", "` (avoids concatenations like `TønsbergSem`). A child that repeats its parent's name (untyped kommune repeats, or `Gammel kommune Tønsberg` under `Kommune Tønsberg`) is aliased onto the parent so a nested historical unit such as Sem can occupy the Gammel kommune rank.
+
+Existing geography nodes keep their current `rankid` until a **geography purge + reload**; renaming ranks only changes labels. Implementation: `ensure_norwegian_geography_ranks` in [`oracle_geography_load.py`](../flows/lib/oracle_geography_load.py), type map in [`oracle_geography_admin.py`](../flows/lib/oracle_geography_admin.py).
 
 > ⚠️ Confirm which admin model is populated: `SELECT COUNT(*) FROM MUSIT_BOTANIKK_FELLES.ADMINISTRATIVE_PLACE` vs counts on **`HIERARCHICAL_PLACE_OLD`** / **`PLACE_HIERACHICAL_PLACE`**. If `ADMINISTRATIVE_PLACE` is empty, map **`HIERACHICAL_TYPE`** (with `TYPES`) instead of `ADMPLACE_TYPE` for hierarchy levels.
 

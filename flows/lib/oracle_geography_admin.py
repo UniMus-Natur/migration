@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 _TYPES_LABEL_COLUMN_PRIORITY = (
@@ -44,22 +45,120 @@ def types_label_column_name(cur: Any, owner: str) -> str | None:
     return None
 
 
+# Synthetic Oracle planet/world rows must alias to Specify Earth, not become a Continent node.
+WORLD_SHELL_NAMES: frozenset[str] = frozenset(
+    {
+        "world",
+        "the world",
+        "verden",
+        "whole world",
+        "global",
+    }
+)
+
+
+@dataclass(frozen=True)
+class NorwegianGeographyRankSpec:
+    """Linear Specify geography ladder matching MUSIT ``TYPES`` (nodes may skip ranks)."""
+
+    rankid: int
+    name: str
+    isinfullname: bool
+    isenforced: bool
+    aliases: tuple[str, ...] = ()
+
+
+# Rankids are strictly increasing so any MUSIT parent→child edge is legal in Specify.
+# Core ranks are land-admin columns with no gaps. Optional marine/region ranks are added on
+# demand only — otherwise untyped rows fall through into Ocean/Sea columns in Specify UI.
+NORWEGIAN_GEOGRAPHY_CORE_RANKS: tuple[NorwegianGeographyRankSpec, ...] = (
+    NorwegianGeographyRankSpec(0, "Earth", False, True, ("Planet", "World")),
+    NorwegianGeographyRankSpec(100, "Continent", False, False),
+    NorwegianGeographyRankSpec(200, "Land", False, False, ("Country",)),
+    NorwegianGeographyRankSpec(300, "Fylke", True, False, ("State",)),
+    NorwegianGeographyRankSpec(400, "Kommune", True, False, ("County",)),
+    NorwegianGeographyRankSpec(500, "Gammel kommune", True, False, ("Municipality",)),
+    NorwegianGeographyRankSpec(600, "Sted", True, False, ("Settlement",)),
+    NorwegianGeographyRankSpec(700, "Place", True, False),
+)
+
+NORWEGIAN_GEOGRAPHY_OPTIONAL_RANKS: tuple[NorwegianGeographyRankSpec, ...] = (
+    NorwegianGeographyRankSpec(150, "Ocean", False, False),
+    NorwegianGeographyRankSpec(180, "Sea", False, False),
+    NorwegianGeographyRankSpec(320, "Gammelt fylke", True, False),
+    NorwegianGeographyRankSpec(350, "Region", True, False),
+    NorwegianGeographyRankSpec(370, "Sub region", True, False),
+)
+
+NORWEGIAN_GEOGRAPHY_RANKS: tuple[NorwegianGeographyRankSpec, ...] = (
+    NORWEGIAN_GEOGRAPHY_CORE_RANKS + NORWEGIAN_GEOGRAPHY_OPTIONAL_RANKS
+)
+
+GEOGRAPHY_FULLNAME_SEPARATOR = ", "
+
+# Untyped Oracle rows use this land-admin sequence (never Ocean/Sea gap rankids).
+LAND_ADMIN_FALLBACK_RANKIDS: tuple[int, ...] = tuple(spec.rankid for spec in NORWEGIAN_GEOGRAPHY_CORE_RANKS)
+
+
+def oracle_row_is_world_or_planet_shell(name: str | None, type_name: str | None = None) -> bool:
+    """True when this hierarchical row is MUSIT's synthetic global shell (WORLD / Planet / …)."""
+    if _norm_type(name) in WORLD_SHELL_NAMES:
+        return True
+    return oracle_type_name_to_rank_item_name(type_name) == "Earth"
+
+
+def should_alias_geography_to_parent(
+    *,
+    child_name: str | None,
+    parent_name: str | None,
+    parent_is_earth: bool,
+) -> bool:
+    """Skip inserting a geography node that only repeats its parent's name.
+
+    Untyped Oracle chains repeat kommune names (Holmestrand×3). Typed chains repeat
+    current kommune as ``Gammel kommune`` (Tønsberg under Tønsberg) so a nested
+    historical unit (Sem) can sit at the Gammel kommune rank instead of overflowing
+    to Sted. Never alias onto Earth.
+    """
+    if parent_is_earth:
+        return False
+    child = (child_name or "").strip()
+    parent = (parent_name or "").strip()
+    return bool(child and parent and child.casefold() == parent.casefold())
+
+
 def oracle_type_name_to_rank_item_name(type_name: str | None) -> str:
-    """Map MUSIT ``TYPES`` label to a logical Specify geography rank name (English)."""
+    """Map MUSIT ``TYPES`` label to a Specify ``GeographyTreeDefItem`` name.
+
+    Historical labels (``Gammel kommune``, ``Gammelt fylke``, ``Sub region``) must be
+    checked before the current-admin substring they contain.
+    """
     t = _norm_type(type_name)
     if not t:
         return ""
-    if "kommune" in t or "kommun" in t:
-        return "Municipality"
-    if "fylke" in t:
-        return "County"
-    if "land" in t and "fylke" not in t:
-        return "Country"
+    if t in {"planet", "earth", "world"}:
+        return "Earth"
     if "kontinent" in t or "continent" in t:
         return "Continent"
-    if "region" in t or "del" in t:
-        return "State"
-    return "County"
+    if t in {"ocean", "hav"}:
+        return "Ocean"
+    if t in {"sea", "sjø", "sjo"}:
+        return "Sea"
+    if "gammelt fylke" in t:
+        return "Gammelt fylke"
+    if "fylke" in t:
+        return "Fylke"
+    if "sub region" in t or "sub-region" in t or t in {"subregion", "delregion"}:
+        return "Sub region"
+    if "region" in t:
+        return "Region"
+    if "gammel kommune" in t:
+        return "Gammel kommune"
+    if "kommune" in t or t == "kommun":
+        return "Kommune"
+    if t == "land":
+        return "Land"
+    return ""
 
 
 def fetch_hierarchical_chain_rows_for_place(

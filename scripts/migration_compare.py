@@ -501,15 +501,8 @@ def run_checks(oracle: OracleAdapter, specify: SpecifyAdapter) -> list[CheckResu
     else:
         chk("identifier_num_match", "FAIL", ov=o_num, sv=s_num)
 
-    # 4b. legnr → fieldNumber
-    o_legnr = oracle.legnr
-    s_fn = specify.field_number
-    if not o_legnr:
-        chk("legnr_match", "SKIP", detail="Oracle LEGNR is null")
-    elif o_legnr == s_fn:
-        chk("legnr_match", "PASS", ov=o_legnr, sv=s_fn)
-    else:
-        chk("legnr_match", "FAIL", ov=o_legnr, sv=s_fn)
+    # 4b. legnr now lives on Collector.text1 (per actor), not CO.fieldNumber
+    chk("legnr_match", "SKIP", detail="Leg no migrated to Collector.text1 per actor")
 
     # 5. collecting_start_date
     o_date = oracle.collecting_start_date

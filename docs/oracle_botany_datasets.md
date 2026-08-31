@@ -625,7 +625,7 @@ Suggested archival key: `MUSIT_BOTANIKK_FELLES:OBJECT_ID:<id>`.
 | `DERIVED_COORDINATES.LATITUDE` / `LONGITUDE` (WGS) | `Locality.latitude1`, `longitude1` (preferred) | Keep | Primary decimal degrees. |
 | `KOORDINATE_PLACE.DATUM` | `Locality.datum` | Keep | Needed for interpretation/transforms. |
 | `KOORDINATE_PLACE` / derived UTM fields | `Locality.text5` (UTM GeoJSON) | Keep | Clean GeoJSON Feature; audit also in `text4`. |
-| `KOORDINATE_PLACE.CA_UTM`, `UTM_SENERE` | `Locality.yesNo1`, `yesNo2` | Keep | Ca coordinate / Coordinate added later. |
+| `KOORDINATE_PLACE.CA_UTM`, `UTM_SENERE`, `CA_ALTITUDE` | `Locality.yesNo1`, `yesNo2`, `yesNo3` | Keep | Ca coordinate / Coordinate added later / Ca altitude. |
 | `DERIVED_COORDINATES.*` (full row) | `Locality.text4` audit JSON | Keep | QA and back-calculation. |
 | `PLACE_BIO_GEOGRAFISK_REGION` + `MUSIT_NATHIST_FELLES.BIO_GEOGRAFISK_REGION` | `Locality.text2` | Keep | Norwegian biogeographic zone picklist. |
 
@@ -638,7 +638,9 @@ Suggested archival key: `MUSIT_BOTANIKK_FELLES:OBJECT_ID:<id>`.
 | `CLASSIFICATION_EVENT.EVENT_ID` | `Determination` source event key | Keep | Attach determinations to object via event chain. |
 | `CLASSIFICATION_EVENT.CLASSIFICATION_TYPE_ID` | `Determination` qualifier/provenance | Keep | E.g., original determination, redetermination, confirmation. |
 | `CLASSIFICATION_EVENT.CLASS_TERM_ID` | determination concept join | Keep | Bridge to term/name rows. |
-| `CLASSIFICATION_TERM.CLASSTERM`, `ENTERED_CLASSTERM`, `VALID_CLASSTERM` | `Determination.text1` / `text2` / remarks | Keep | Entered and valid name strings; remarks hold classification notes. |
+| `CLASSIFICATION_TERM.ENTERED_CLASSTERM` | `Determination.text1` | Keep | Verbatim entered name (no author). |
+| `CLASSIFICATION_TERM.CLASSTERM` | `Determination.text2` | Keep | Valid taxon name string (often with author). |
+| `CLASSIFICATION_TERM.VALID_CLASSTERM` | tree `preferredTaxon` / QA | Keep | Accepted name string; Specify accepted name comes from taxon tree. |
 | `CLASSIFICATION_TERM.SENSU_TERM` | `Determination.addendum` | Keep | Standard values `s.lat.`, `s.str.` only; outliers archived in `CollectionObject.text3` → `classification_sensu_outliers`. |
 | `CLASSTERM_LATIN_NAME.LATIN_NAME_ID` | taxon join key | Keep | Needed for stable taxon mapping. |
 | `LATIN_NAMES.LATIN_NAME` | `Taxon.name` / `Determination.text1` fallback | Keep | Core scientific name. |
@@ -784,7 +786,15 @@ https://www.unimus.no/felles/bilder/web_hent_bilde.php?id=<MEDIAGRUPPE_ENHETS_ID
 | Query part | Meaning |
 |------------|---------|
 | **`id`** | **`USD_FELLES.MEDIAGRUPPE_ENHET.MEDIAGRUPPE_ENHETS_ID`** and **`MUSIT_BOTANIKK_FELLES.MUSEUM_OBJECT.MEDIAGRUPPE_ENHETS_ID`** (one group → one “hero” image stream in the UI). |
-| **`type`** | Output format served to the browser (example: **`jpeg`** for a web-friendly derivative). Other values may exist (e.g. master **`tif`**); confirm per use case in the UI or by trial. |
+| **`type`** | Output format served to the browser (example: **`jpeg`** for a web-friendly derivative). Use **`orig`** for the master TIFF/JPEG original. |
+
+**Bulk migration:** the public host is scraping-blocked / rate-limited under load. Specimen migration downloads use a **private** Unimus image API base URL injected as the Kubernetes secret env var **`UNIMUS_IMAGE_API_BASE`** (shape `https://api.unimus.no/img-<token>` — token stays out of git). When set, originals are fetched as:
+
+```text
+{UNIMUS_IMAGE_API_BASE}/web_hent_bilde.php?id=<MEDIAGRUPPE_ENHETS_ID>&type=orig
+```
+
+The same private host also supports `filename=<OPPRINNELIG_FILNAVN>` for named derivatives.
 
 **Worked example (vascular herbarium sheet, TRH)**
 

@@ -19,9 +19,17 @@ Design constraints
 * All Specify writes use the **Django ORM** (``specifyweb.specify.models``).
 * Bridge-table rows (objectmap, placemap) use raw SQL on ``django.db.connection``.
 * Never creates or modifies ``Agent`` or ``Taxon``.
+* ``ReferenceWork`` rows are created for MUSIT type-info publications (GUID =
+  ``urn:oracle:musit:document:{id}``); specimen/taxon literature is archived on
+  ``CollectionObject.text3`` and promoted to ``ocr`` / ``embargoreason``.
+* Typification metadata (type status, designators, year, note) is stored on
+  ``CollectionObject`` (``restrictions``, ``agent1``, ``cataloger``, ``integer2``,
+  ``reservedtext3``).
 * Each specimen is wrapped in ``transaction.atomic`` so partial failures roll back
   cleanly without leaving orphan records.
-* Idempotent: objects already in ``migration_oracle_objectmap`` are skipped on re-run.
+* Idempotent / resumable: before each object is migrated, the loader checks
+  ``migration_oracle_objectmap`` (and the deterministic CollectionObject GUID) and
+  skips objects already present so OOM/cancel can resume without OFFSET tricks.
 """
 
 from __future__ import annotations
@@ -39,12 +47,37 @@ from django.db import close_old_connections, transaction
 
 from flows.lib.musit_field_number_map import (
     coerce_musit_identifier_num,
-    resolve_field_number_from_legnr_rows,
+    legnr_by_actor,
 )
+from flows.lib.musit_catalog_lookup import resolve_musit_object_ids
 from flows.lib.musit_determination_remarks import determination_remarks as _determination_remarks
+from flows.lib.musit_determiner_actors import (
+    EventPersonRole,
+    classification_determiner_roles_for_det_key as _classification_determiner_roles_for_det_key,
+    determination_dedupe_key as _determination_dedupe_key,
+    fetch_actor_display_names as _fetch_actor_display_names,
+    fetch_collector_roles as _fetch_collector_roles,
+    ordernumbers_for_roles as _ordernumbers_for_roles,
+)
+from flows.lib.musit_hybrid import (
+    classification_hybrid_archives as _classification_hybrid_archives,
+    entered_taxon_name_for_determination as _entered_taxon_name_for_determination,
+    hybrid_archive_for_det_key as _hybrid_archive_for_det_key,
+    hybrid_parents_display as _hybrid_parents_display,
+)
 from flows.lib.musit_sensu_addendum import (
     classification_sensu_outliers,
     resolve_sensu_addendum,
+)
+from flows.lib.musit_literature import (
+    attach_type_publications_to_collection_object as _attach_type_publications,
+    fetch_literature_for_objects as _fetch_literature_for_objects,
+    literature_archive_payload as _literature_archive_payload,
+)
+from flows.lib.musit_typification import (
+    apply_typification_co_field_updates as _apply_typification_co_field_updates,
+    build_typification_co_field_updates as _build_typification_co_field_updates,
+    fetch_typification_meta_for_objects as _fetch_typification_meta_for_objects,
 )
 from flows.lib.musit_taxon_match import (
     binomial_prefix_from_valid_classterm as _binomial_prefix_from_valid_classterm,
@@ -53,8 +86,10 @@ from flows.lib.musit_taxon_match import (
 
 logger = logging.getLogger(__name__)
 
-# How often to emit a progress line (number of objects processed).
-_PROGRESS_EVERY = 100
+# How often to emit a progress line (number of new objects written).
+_PROGRESS_EVERY = 10
+# Always log the first N newly written objects so media-heavy stretches are visible.
+_PROGRESS_ALWAYS_FIRST_N = 25
 
 # Cap error strings saved in stats to avoid huge memory / report blobs.
 _MAX_ERRORS = 200
@@ -97,6 +132,7 @@ class DatasetLoadStats:
     locality_reused: int = 0    # found in placemap
     geography_created: int = 0
     determination_created: int = 0
+    hybrid_determination: int = 0  # hybrid formula → taxon left unset
     taxon_matched: int = 0
     taxon_fallback_matched: int = 0
     taxon_unresolved: int = 0
@@ -104,6 +140,9 @@ class DatasetLoadStats:
     agent_unresolved: int = 0
     attachments_created: int = 0
     attachments_failed: int = 0
+    referencework_created: int = 0
+    collectionobject_citation_created: int = 0
+    literature_archived: int = 0
     errors: list[str] = field(default_factory=list)
     elapsed_s: float = 0.0
     estimate_total_s: float | None = None
@@ -113,14 +152,15 @@ class DatasetLoadStats:
 # Oracle SQL
 # ---------------------------------------------------------------------------
 
-# Phase 1 — page OBJECT_IDs in stable sorted order.
+# Phase 1 — page OBJECT_IDs in stable sorted order (keyset pagination over Oracle).
 _PAGE_SQL = """
     SELECT voa.object_id
       FROM {schema}.v_object_attributes voa
      WHERE voa.institutioncode = :icode
        AND voa.collectioncode  = :ccode
+       AND voa.object_id > :after_id
      ORDER BY voa.object_id
-     OFFSET :skip ROWS FETCH NEXT :batch ROWS ONLY
+     FETCH NEXT :batch ROWS ONLY
 """
 
 # Phase 2 — one query per page: full multi-join envelope.
@@ -159,12 +199,16 @@ _SPECIMEN_SQL = """
       oa.artsobs_nr,
       mon.object_notes,
       en.event_notes,
-      (SELECT MIN(tye.type_status)
+      (SELECT t.typeterm
          FROM {schema}.event_museum_object emo2
          JOIN {schema}.typification_event tye
            ON tye.event_id = emo2.event_id
+         JOIN {schema}.types t
+           ON t.type_id = tye.typification_type_id
         WHERE emo2.object_id = voa.object_id
-          AND tye.type_status IS NOT NULL
+          AND tye.typification_type_id IS NOT NULL
+        ORDER BY emo2.sequence_number DESC NULLS LAST, emo2.event_id DESC
+        FETCH FIRST 1 ROW ONLY
       ) AS type_status,
       emo.sequence_number,
       emo.prev_event_for_objekt,
@@ -190,12 +234,16 @@ _SPECIMEN_SQL = """
       cts.to_date          AS class_to_date,
       cts.time_as_text     AS class_time_as_text,
       cts.uncertain        AS class_date_uncertain,
+      ct.class_term_id,
       ct.classterm,
       ct.entered_classterm,
       ct.valid_classterm,
       ct.infraspes_name,
       ct.sensu_term,
       tcat.tax_cath_name   AS infraspes_rank_name,
+      tcat.tax_cath_abbrev AS infraspes_rank_abbrev,
+      ctl.precision_code,
+      ctl.relation_type,
       ln.latin_name_id,
       ln.latin_name,
       ln.full_name,
@@ -209,16 +257,6 @@ _SPECIMEN_SQL = """
       ln.is_valid          AS taxon_is_valid,
       erp.actor_id,
       erp.role_id,
-      (SELECT MIN(era.actor_id)
-         FROM {schema}.event_role_actor era
-        WHERE era.event_id = cte.event_id
-      ) AS classification_actor_id,
-      (SELECT MIN(pn.actor_id)
-         FROM {schema}.event_role_person_name erpn
-         JOIN {schema}.person_name pn
-           ON pn.person_name_id = erpn.person_name_id
-        WHERE erpn.event_id = cte.event_id
-      ) AS classification_person_name_actor_id,
       cte.detname_orig,
       cte.agg_personnames  AS det_agg_personnames
     FROM {schema}.v_object_attributes voa
@@ -650,48 +688,55 @@ def _resolve_or_create_taxon(
     return None, created_nodes
 
 
-def _resolve_agent(schema: str, actor_id: Any) -> Any:
-    """Look up an existing Specify ``Agent`` by remarks marker; never creates one."""
+def _resolve_agent(
+    schema: str,
+    actor_id: Any,
+    agent_cache: dict[int, int] | None = None,
+) -> Any:
+    """Look up an existing Specify ``Agent`` by remarks marker; never creates one.
+
+    Prefer ``agent_cache`` (built once per dataset run) — ``remarks__startswith`` is an
+    unindexed full table scan on ~250k Agent rows and dominates specimen throughput.
+    """
     if actor_id is None:
         return None
+    aid = int(actor_id)
     from specifyweb.specify.models import Agent
 
+    if agent_cache is not None:
+        pk = agent_cache.get(aid)
+        if pk is None:
+            return None
+        # PK-only stub is enough for ForeignKey assignment (avoids re-query).
+        return Agent(id=int(pk))
+
     sch = str(schema).strip().upper()
-    marker = f"MUSIT-migration: ACTOR; schema={sch}; ACTOR_ID={int(actor_id)}"
+    marker = f"MUSIT-migration: ACTOR; schema={sch}; ACTOR_ID={aid}"
     return Agent.objects.filter(remarks__startswith=marker).first()
 
 
-def _determination_dedupe_key(r: dict[str, Any]) -> tuple:
-    return (
-        r.get("adb_taxon_id"),
-        r.get("adb_latin_name_id"),
-        r.get("latin_name_id"),
-        _trunc(r.get("valid_classterm"), 255),
-        _trunc(r.get("classterm"), 255),
-    )
+_AGENT_REMARKS_ACTOR_RE = re.compile(
+    r"MUSIT-migration:\s*ACTOR;\s*schema=(?P<schema>[^;]+);\s*ACTOR_ID=(?P<actor_id>\d+)",
+    re.IGNORECASE,
+)
 
 
-def _first_non_null_classification_determiner_actor_id(
-    det_rows: list[dict[str, Any]], det_key: tuple
-) -> Any:
-    """Within rows sharing a determination dedupe key, pick a classification-event actor.
+def _load_musit_agent_cache(schema: str) -> dict[int, int]:
+    """Load ``{actor_id: agent_pk}`` for one Oracle schema (one scan of Agent.remarks)."""
+    from specifyweb.specify.models import Agent
 
-    Oracle join order can leave ``classification_*_actor_id`` null on the first row even when
-    another row for the same determination envelope has a value.
-    """
-    for r in det_rows:
-        if _determination_dedupe_key(r) != det_key:
+    sch = str(schema).strip().upper()
+    prefix = f"MUSIT-migration: ACTOR; schema={sch}; ACTOR_ID="
+    cache: dict[int, int] = {}
+    qs = Agent.objects.filter(remarks__startswith=prefix).values_list("id", "remarks")
+    for agent_pk, remarks in qs.iterator(chunk_size=5000):
+        m = _AGENT_REMARKS_ACTOR_RE.match(remarks or "")
+        if not m:
             continue
-        aid = r.get("classification_actor_id")
-        if aid is not None:
-            return aid
-    for r in det_rows:
-        if _determination_dedupe_key(r) != det_key:
+        if m.group("schema").strip().upper() != sch:
             continue
-        aid = r.get("classification_person_name_actor_id")
-        if aid is not None:
-            return aid
-    return None
+        cache[int(m.group("actor_id"))] = int(agent_pk)
+    return cache
 
 
 def _oracle_row_is_nominal_world_shell(r: dict[str, Any]) -> bool:
@@ -700,9 +745,9 @@ def _oracle_row_is_nominal_world_shell(r: dict[str, Any]) -> bool:
     Those nodes must not become a separate ``Geography`` under Earth (they would pick the
     Continent rank when ``TYPES`` is NULL).  Alias the Oracle HIERARCH_PLACE_ID to Earth instead.
     """
-    from flows.lib.oracle_geography_load import _NULL_ORACLE_TYPE_REDUNDANT_PARENT_NAMES, _norm_type
+    from flows.lib.oracle_geography_admin import oracle_row_is_world_or_planet_shell
 
-    return _norm_type(r.get("name")) in _NULL_ORACLE_TYPE_REDUNDANT_PARENT_NAMES
+    return oracle_row_is_world_or_planet_shell(r.get("name"), r.get("type_name"))
 
 
 def _fetch_hierarchical_chain_rows_for_place(
@@ -745,6 +790,10 @@ def _ensure_earth_root_for_treedef(*, treedef_id: int, dry_run: bool) -> Any:
     if earth is not None:
         if not dry_run:
             _fix_geography_root_nodenumber_if_needed(earth)
+            stale_root = (getattr(earth, "fullname", None) or "").strip()
+            if stale_root in {"Planet", "World"}:
+                Geography.objects.filter(pk=earth.id).update(fullname=None)
+                earth.refresh_from_db()
         return earth
     if dry_run:
         return None
@@ -756,7 +805,7 @@ def _ensure_earth_root_for_treedef(*, treedef_id: int, dry_run: bool) -> Any:
     with transaction.atomic():
         g = Geography.objects.create(
             name="Earth",
-            fullname="Earth",
+            fullname=None,
             definition_id=treedef_id,
             definitionitem=root_item,
             parent=None,
@@ -791,14 +840,22 @@ def _ensure_geography_for_place(
         _rank_items_by_name_lower,
         _resolve_rank_item,
         _treedef_items_ordered_by_rank,
+        ensure_deeper_geography_rank,
+        ensure_norwegian_geography_ranks,
         oracle_type_name_to_rank_item_name,
+        rank_item_for_geography_row,
     )
+    from flows.lib.oracle_geography_admin import should_alias_geography_to_parent
 
     earth = _ensure_earth_root_for_treedef(treedef_id=geography_treedef_id, dry_run=dry_run)
     if earth is None:
         return None
     _erk = getattr(earth, "rankid", None)
     geo_rankid_by_pk[int(earth.id)] = int(_erk) if _erk is not None else 0
+
+    nr = ensure_norwegian_geography_ranks(geography_treedef_id, dry_run=dry_run)
+    if nr.get("error") and not dry_run:
+        raise RuntimeError(f"GeographyTreeDef {geography_treedef_id}: {nr['error']}")
 
     rank_items = _rank_items_by_name_lower(geography_treedef_id)
     ordered_items = _treedef_items_ordered_by_rank(geography_treedef_id)
@@ -821,12 +878,11 @@ def _ensure_geography_for_place(
         if existing is not None:
             return int(existing.id)
         leaf_di = ordered_items[1]
-        fullname = f"Earth, {name}"[:500]
         with transaction.atomic():
             earth.refresh_from_db()
             g = earth.children.create(
                 name=name,
-                fullname=fullname,
+                fullname=None,
                 definition_id=geography_treedef_id,
                 definitionitem=leaf_di,
                 rankid=leaf_di.rankid,
@@ -879,14 +935,53 @@ def _ensure_geography_for_place(
         hier = HierRow(hid, r["name"], r["partof"], r.get("type_name"))
         parent_geo = _effective_parent_geography_for_untyped(parent_geo, hier, earth)
 
+        # Same-name parent (untyped repeats, or Gammel kommune Tønsberg under Kommune Tønsberg)
+        # would burn a rank; alias the hid onto the parent so nested historical units fit.
+        if should_alias_geography_to_parent(
+            child_name=r.get("name"),
+            parent_name=getattr(parent_geo, "name", None),
+            parent_is_earth=int(getattr(parent_geo, "id", 0)) == int(getattr(earth, "id", -1)),
+        ):
+            if not dry_run:
+                oracle_hid_to_geo[hid] = int(parent_geo.id)
+                geo_cache[int(parent_geo.id)] = parent_geo
+                _pr0 = getattr(parent_geo, "rankid", None)
+                geo_rankid_by_pk[int(parent_geo.id)] = int(_pr0) if _pr0 is not None else 0
+            continue
+
         # Earth has rankid=0 — never use ``(rankid or -1)`` here: 0 is falsy and would become -1,
         # then ``next(rankid > -1)`` picks the *Earth* treedef item again → duplicate rank 0 under
         # Earth → Specify Tree validation fails (and their error payload crashes on parent.parent).
         _pr = getattr(parent_geo, "rankid", None)
         parent_rankid = int(_pr) if _pr is not None else -1
-        logical = oracle_type_name_to_rank_item_name(r["type_name"])
-        di = _resolve_rank_item(rank_items, logical) if logical else None
-        if di is None or int(di.rankid) <= parent_rankid:
+        di, _opt = rank_item_for_geography_row(
+            type_name=r.get("type_name"),
+            parent_rankid=parent_rankid,
+            rank_items=rank_items,
+            ordered_items=ordered_items,
+            treedef_id=geography_treedef_id,
+            dry_run=dry_run,
+        )
+        if _opt and _opt.get("created") and not dry_run:
+            rank_items = _rank_items_by_name_lower(geography_treedef_id)
+            ordered_items = _treedef_items_ordered_by_rank(geography_treedef_id)
+            di, _ = rank_item_for_geography_row(
+                type_name=r.get("type_name"),
+                parent_rankid=parent_rankid,
+                rank_items=rank_items,
+                ordered_items=ordered_items,
+                treedef_id=geography_treedef_id,
+                dry_run=dry_run,
+            )
+        if di is None and not dry_run:
+            # Deep untyped leaf (e.g. Botne under Sted Holmestrand) — add Place rank.
+            ensure_deeper_geography_rank(
+                geography_treedef_id,
+                min_parent_rankid=parent_rankid,
+                dry_run=False,
+            )
+            rank_items = _rank_items_by_name_lower(geography_treedef_id)
+            ordered_items = _treedef_items_ordered_by_rank(geography_treedef_id)
             di = next((it for it in ordered_items if int(it.rankid) > parent_rankid), None)
         if di is None:
             raise RuntimeError(
@@ -898,13 +993,11 @@ def _ensure_geography_for_place(
             continue
 
         name = r["name"]
-        parent_full = (getattr(parent_geo, "fullname", None) or getattr(parent_geo, "name", "Earth"))
-        fullname = f"{parent_full}, {name}"[:500]
         with transaction.atomic():
             parent_geo.refresh_from_db()
             g = parent_geo.children.create(
                 name=name,
-                fullname=fullname,
+                fullname=None,
                 definition_id=geography_treedef_id,
                 definitionitem=di,
                 rankid=di.rankid,
@@ -940,6 +1033,7 @@ def _get_or_create_locality(
     locality_cache: dict[tuple[int, int], int],  # (discipline_id, place_id) → locality pk
     stats: DatasetLoadStats,
     biogeo_region: str | None = None,
+    geography_maps_cache: dict[str, Any] | None = None,
 ) -> Any:
     """Return an existing or newly created Specify ``Locality`` for this Oracle PLACE_ID.
 
@@ -987,25 +1081,32 @@ def _get_or_create_locality(
     agg, loc_text = _fetch_place_text(oracle_cursor, owner, place_id)
     coord = _fetch_coordinate_bundle(oracle_cursor, owner, place_id)
 
-    # Rebuild geo rank map (lightweight — only the set already in memory).
     owner_lower = owner.lower()
     geo_guid_prefix = f"urn:oracle:{owner_lower}:hpo:"
-    geo_rankid_by_pk: dict[int, int] = dict(
-        Geography.objects.filter(
+    maps_key = f"{geography_treedef_id}:{owner_lower}"
+    if geography_maps_cache is not None and maps_key in geography_maps_cache:
+        geo_rankid_by_pk = geography_maps_cache[maps_key]["geo_rankid_by_pk"]
+        oracle_hid_to_geo = geography_maps_cache[maps_key]["oracle_hid_to_geo"]
+    else:
+        geo_rankid_by_pk = dict(
+            Geography.objects.filter(
+                definition_id=geography_treedef_id,
+                guid__startswith=geo_guid_prefix,
+            ).values_list("id", "rankid")
+        )
+        oracle_hid_to_geo: dict[int, int] = {}
+        for g in Geography.objects.filter(
             definition_id=geography_treedef_id,
             guid__startswith=geo_guid_prefix,
-        ).values_list("id", "rankid")
-    )
-    # Build hid→geo_id for this place's hierarchical nodes.
-    oracle_hid_to_geo: dict[int, int] = {}
-    for g in Geography.objects.filter(
-        definition_id=geography_treedef_id,
-        guid__startswith=geo_guid_prefix,
-    ).values("id", "guid"):
-        tail = g["guid"][len(geo_guid_prefix):]
-        if tail.isdigit():
-            oracle_hid_to_geo[int(tail)] = int(g["id"])
-
+        ).values("id", "guid"):
+            tail = g["guid"][len(geo_guid_prefix):]
+            if tail.isdigit():
+                oracle_hid_to_geo[int(tail)] = int(g["id"])
+        if geography_maps_cache is not None:
+            geography_maps_cache[maps_key] = {
+                "geo_rankid_by_pk": geo_rankid_by_pk,
+                "oracle_hid_to_geo": oracle_hid_to_geo,
+            }
     geo_id = _deepest_geography_for_place(
         oracle_cursor, owner, place_id, oracle_hid_to_geo, geo_rankid_by_pk
     )
@@ -1700,71 +1801,26 @@ def _fetch_legnr_rows(
     return rows
 
 
-def _fetch_collector_actor_ids_for_event(
-    oracle_cursor: Any,
-    schema: str,
-    event_id: int,
-) -> list[int]:
-    """Return ordered unique collector ``actor_id`` values for one collecting event."""
-    sch = str(schema).strip().upper()
-    ordered: list[int] = []
-    seen: set[int] = set()
-
-    oracle_cursor.execute(
-        f"""
-        SELECT pn.actor_id
-          FROM {sch}.event_role_person_name erpn
-          JOIN {sch}.person_name pn
-            ON pn.person_name_id = erpn.person_name_id
-         WHERE erpn.event_id = :eid
-           AND pn.actor_id IS NOT NULL
-         ORDER BY erpn.sorting_sequence NULLS LAST, erpn.event_person_name_role_id
-        """,
-        {"eid": int(event_id)},
-    )
-    for (actor_id,) in oracle_cursor.fetchall():
-        aid = int(actor_id)
-        if aid not in seen:
-            seen.add(aid)
-            ordered.append(aid)
-
-    oracle_cursor.execute(
-        f"""
-        SELECT era.actor_id
-          FROM {sch}.event_role_actor era
-         WHERE era.event_id = :eid
-           AND era.actor_id IS NOT NULL
-         ORDER BY era.event_actor_role_id
-        """,
-        {"eid": int(event_id)},
-    )
-    for (actor_id,) in oracle_cursor.fetchall():
-        aid = int(actor_id)
-        if aid not in seen:
-            seen.add(aid)
-            ordered.append(aid)
-
-    return ordered
-
-
 def _attach_collectors_to_collecting_event(
     *,
     owner: str,
-    collecting_event_id: int,
     ce: Any,
-    oracle_cursor: Any,
     object_id: int,
     stats: DatasetLoadStats,
+    agent_cache: dict[int, int] | None = None,
+    collector_roles: list[EventPersonRole],
+    legnr_for_actor: dict[int, str] | None = None,
 ) -> int:
     """Create ``Collector`` rows for all resolved agents on a collecting event."""
     from specifyweb.specify.models import Collector
 
-    actor_ids = _fetch_collector_actor_ids_for_event(
-        oracle_cursor, owner, collecting_event_id
-    )
+    if not collector_roles:
+        return 0
+    legnr_map = legnr_for_actor or {}
+    order_numbers = _ordernumbers_for_roles(collector_roles)
     created = 0
-    for idx, actor_id in enumerate(actor_ids):
-        agent = _resolve_agent(owner, actor_id)
+    for role, order_number in zip(collector_roles, order_numbers, strict=True):
+        agent = _resolve_agent(owner, role.actor_id, agent_cache=agent_cache)
         if agent is None:
             stats.agent_unresolved += 1
             continue
@@ -1773,8 +1829,9 @@ def _attach_collectors_to_collecting_event(
             Collector.objects.create(
                 agent=agent,
                 collectingevent=ce,
-                isprimary=(idx == 0),
-                ordernumber=idx + 1,
+                text1=_trunc(legnr_map.get(role.actor_id), 255),
+                yesno1=role.is_scr,
+                ordernumber=order_number,
             )
             created += 1
         except Exception as exc:  # noqa: BLE001
@@ -1782,10 +1839,57 @@ def _attach_collectors_to_collecting_event(
                 "warning",
                 "object_id=%s: collector link failed actor_id=%s: %s",
                 object_id,
-                actor_id,
+                role.actor_id,
                 exc,
             )
     return created
+
+
+def _attach_determiners_to_determination(
+    *,
+    owner: str,
+    determination: Any,
+    object_id: int,
+    stats: DatasetLoadStats,
+    agent_cache: dict[int, int] | None = None,
+    determiner_roles: list[EventPersonRole] | None = None,
+) -> tuple[int, list[int]]:
+    """Create ``Determiner`` rows for all resolved agents on a determination.
+
+    Returns ``(created_count, unresolved_actor_ids)``.
+    """
+    from specifyweb.specify.models import Determiner
+
+    if not determiner_roles:
+        return 0, []
+    order_numbers = _ordernumbers_for_roles(determiner_roles)
+    created = 0
+    unresolved: list[int] = []
+    for role, order_number in zip(determiner_roles, order_numbers, strict=True):
+        agent = _resolve_agent(owner, role.actor_id, agent_cache=agent_cache)
+        if agent is None:
+            stats.agent_unresolved += 1
+            unresolved.append(int(role.actor_id))
+            continue
+        stats.agent_matched += 1
+        try:
+            Determiner.objects.create(
+                agent=agent,
+                determination=determination,
+                yesno1=role.is_scr,
+                ordernumber=order_number,
+            )
+            created += 1
+        except Exception as exc:  # noqa: BLE001
+            unresolved.append(int(role.actor_id))
+            _log(
+                "warning",
+                "object_id=%s: determiner link failed actor_id=%s: %s",
+                object_id,
+                role.actor_id,
+                exc,
+            )
+    return created, unresolved
 
 
 # ---------------------------------------------------------------------------
@@ -1806,6 +1910,11 @@ def _write_one_object(
     locality_cache: dict[tuple[int, int], int],
     stats: DatasetLoadStats,
     avbilder_by_object: dict[int, list[int]] | None = None,
+    agent_cache: dict[int, int] | None = None,
+    geography_maps_cache: dict[str, Any] | None = None,
+    skip_media: bool = False,
+    literature_by_object: dict[int, dict[str, list[dict[str, Any]]]] | None = None,
+    typification_meta_by_object: dict[int, dict[str, Any]] | None = None,
 ) -> None:
     """Write one CollectionObject + CollectingEvent + Determination(s) for ``object_id``.
 
@@ -1823,20 +1932,32 @@ def _write_one_object(
     collecting_row = _select_primary_collecting_row(rows)
     owner = config.oracle_schema
     collecting_event_id = collecting_row.get("event_id") if collecting_row else None
-    primary_collector_actor_id: int | None = None
+    collector_roles: list[EventPersonRole] = []
     if collecting_event_id is not None:
-        collector_actor_ids = _fetch_collector_actor_ids_for_event(
+        collector_roles = _fetch_collector_roles(
             oracle_cursor, owner, int(collecting_event_id)
         )
-        if collector_actor_ids:
-            primary_collector_actor_id = collector_actor_ids[0]
 
     legnr_rows = _fetch_legnr_rows(oracle_cursor, owner, object_id)
-    field_number, legnr_resolution = resolve_field_number_from_legnr_rows(
-        legnr_rows,
-        primary_actor_id=primary_collector_actor_id,
-    )
+    legnr_for_actor = legnr_by_actor(legnr_rows)
     musit_object_number = coerce_musit_identifier_num(obj_row.get("identifier_num"))
+
+    literature_bundle = (literature_by_object or {}).get(object_id) or {
+        "specimen": [],
+        "taxon": [],
+        "type_info": [],
+    }
+    typification_meta = (typification_meta_by_object or {}).get(object_id)
+    literature_archive = _literature_archive_payload(literature_bundle)
+    typification_co_updates = _build_typification_co_field_updates(
+        type_status_raw=obj_row.get("type_status"),
+        type_info=literature_bundle.get("type_info") or [],
+        typification_meta=typification_meta,
+        literature_bundle=literature_bundle,
+        schema=owner,
+        agent_cache=agent_cache,
+        resolve_agent=_resolve_agent,
+    )
 
     # ---- Unmapped payload for JSON archival ----
     unmapped: dict[str, Any] = {}
@@ -1914,34 +2035,35 @@ def _write_one_object(
             }
         )
 
-    json_payload = json.dumps(
-        {
-            "source": {
-                "owner": owner,
-                "object_id": object_id,
-                "dataset": config.dataset_label,
-            },
-            "unmapped": unmapped,
-            "classification_sensu_outliers": classification_sensu_outliers(rows),
-            "field_number": {
-                "musit_identifier_num": musit_object_number,
-                "specify_integer1": musit_object_number,
-                "specify_fieldnumber": field_number,
-                "legnr_rows": legnr_rows,
-                "legnr_resolution": legnr_resolution,
-                "primary_collector_actor_id": primary_collector_actor_id,
-            },
-            "collecting_event_candidates": _collecting_event_candidates(rows),
-            "locality_candidates": locality_candidates,
-            "selected_locality_source": selected_source,
-            "migration_meta": {
-                "exported_at_utc": run_ts,
-                "mapping_version": config.dataset_label,
-            },
+    hybrid_archives = _classification_hybrid_archives(rows)
+    json_body: dict[str, Any] = {
+        "source": {
+            "owner": owner,
+            "object_id": object_id,
+            "dataset": config.dataset_label,
         },
-        ensure_ascii=False,
-        default=str,
-    )
+        "unmapped": unmapped,
+        "classification_sensu_outliers": classification_sensu_outliers(rows),
+        "legnr": {
+            "musit_identifier_num": musit_object_number,
+            "specify_integer1": musit_object_number,
+            "legnr_rows": legnr_rows,
+            "legnr_by_actor": legnr_for_actor,
+        },
+        "collecting_event_candidates": _collecting_event_candidates(rows),
+        "locality_candidates": locality_candidates,
+        "selected_locality_source": selected_source,
+        "migration_meta": {
+            "exported_at_utc": run_ts,
+            "mapping_version": config.dataset_label,
+        },
+    }
+    if literature_archive:
+        json_body["literature"] = literature_archive
+    if hybrid_archives:
+        # Hybrid parent species (N-way) — Specify Taxon only supports 2 parents.
+        json_body["hybrid_determinations"] = hybrid_archives
+    json_payload = json.dumps(json_body, ensure_ascii=False, default=str)
 
     with transaction.atomic():
         # 1. Locality (resolve or create on-the-fly) — failures abort the whole object write.
@@ -1971,6 +2093,7 @@ def _write_one_object(
                 locality_cache=locality_cache,
                 stats=stats,
                 biogeo_region=biogeo_region,
+                geography_maps_cache=geography_maps_cache,
             )
 
         # 2. CollectingEvent
@@ -2040,7 +2163,8 @@ def _write_one_object(
                 primary_group_id=obj_row.get("mediagruppe_enhets_id"),
                 avbilder_by_object=avbilder_by_object or {},
             )
-            stats.attachments_created += len(media_group_ids)
+            if not skip_media:
+                stats.attachments_created += len(media_group_ids)
             return
 
         ce = Collectingevent(**ce_kwargs)
@@ -2052,11 +2176,12 @@ def _write_one_object(
         if collecting_event_id is not None:
             collectors_created = _attach_collectors_to_collecting_event(
                 owner=owner,
-                collecting_event_id=int(collecting_event_id),
                 ce=ce,
-                oracle_cursor=oracle_cursor,
                 object_id=object_id,
                 stats=stats,
+                agent_cache=agent_cache,
+                collector_roles=collector_roles,
+                legnr_for_actor=legnr_for_actor,
             )
         if collectors_created == 0 and collector_str:
             fallback_remarks = ce_kwargs.get("remarks") or ""
@@ -2122,7 +2247,6 @@ def _write_one_object(
             text6=_trunc(obj_row.get("same_sheet_as"), 255), # Same sheet as
             text7=_trunc(obj_row.get("analysis_request"), 255), # Analysis request
             text8=admin_text,                                # Administrative (MUSIT) audit
-            fieldnumber=_trunc(field_number, 50),
             integer1=musit_object_number,
             altcatalognumber=_trunc(obj_row.get("artsobs_nr"), 32),
             countamt=obj_row.get("number_of_sheets"),
@@ -2144,45 +2268,23 @@ def _write_one_object(
             co.date1 = approved_date
             co.date1precision = 1
 
+        _apply_typification_co_field_updates(co, typification_co_updates)
+
         co.save()
         stats.co_created += 1
 
-        # 4b. Image attachments: all Avbilder media groups → asset server (one per group).
-        media_group_ids = _media_group_ids_for_object(
-            object_id=object_id,
-            primary_group_id=obj_row.get("mediagruppe_enhets_id"),
-            avbilder_by_object=avbilder_by_object or {},
-        )
-        for ordinal, mgid in enumerate(media_group_ids, start=1):
-            try:
-                _attach_media_to_collection_object(
-                    oracle_cursor=oracle_cursor,
-                    co=co,
-                    media_group_id=int(mgid),
-                    collection_name=str(collection.collectionname),
-                    object_withheld=obj_row.get("object_withheld"),
-                    ordinal=ordinal,
-                    dry_run=False,
-                    stats=stats,
-                )
-            except Exception as exc:  # noqa: BLE001
-                stats.attachments_failed += 1
-                _log(
-                    "warning",
-                    "object_id=%s mediagruppe_enhets_id=%s: media attachment migration failed: %s",
-                    object_id,
-                    mgid,
-                    exc,
-                )
-
-        # 5. Determination(s) — deduplicate by best available source keys/text.
+        # 5. Determination(s) — one per MUSIT classification event (do not collapse
+        # same-taxon events across different dates). Join fan-out within an event
+        # is still deduped via determination_dedupe_key.
         seen_det_keys: set[tuple] = set()
         taxontreedef_id = int(discipline.taxontreedef_id)
         latin_name_lineage_cache: dict[int, dict[str, Any]] = {}
         rank_item_cache: dict[int, dict[str, Any]] = {}
+        institution = discipline.division.institution
+        if literature_archive:
+            stats.literature_archived += 1
 
-        # Sort rows so that the "most current" determination (lowest class_event_id = oldest,
-        # highest = most recent — we treat highest event_id as current).
+        # Sort so the first processed event is the most recent (highest event_id).
         det_rows_all = [
             r
             for r in rows
@@ -2198,7 +2300,7 @@ def _write_one_object(
         ]
         if not det_rows_all:
             # No determination data; create a blank determination so the CO is valid.
-            Determination.objects.create(
+            det = Determination.objects.create(
                 collectionobject=co,
                 iscurrent=True,
             )
@@ -2224,66 +2326,90 @@ def _write_one_object(
                     continue
                 seen_det_keys.add(det_key)
 
-                taxon, created_nodes = _resolve_or_create_taxon(
-                    oracle_cursor=oracle_cursor,
-                    owner=owner,
-                    latin_name_id=ln_id,
-                    adb_taxon_id=adb_taxon_id,
-                    adb_latin_name_id=adb_id,
-                    nhm_taxon_id=dr.get("nhm_taxon_id"),
-                    latin_name=dr.get("latin_name") or dr.get("valid_classterm") or dr.get("classterm"),
-                    valid_classterm=dr.get("valid_classterm"),
-                    full_name=dr.get("full_name"),
-                    full_name_author=dr.get("full_name_author"),
-                    taxontreedef_id=taxontreedef_id,
-                    lineage_cache=latin_name_lineage_cache,
-                    rank_item_cache=rank_item_cache,
-                    object_id=object_id,
-                    catalog_number=_trunc(obj_row.get("identifier_string"), 32),
-                )
-                if created_nodes:
-                    _log("debug", "object_id=%s catalog=%s fallback_debug=%s", object_id, obj_row.get("identifier_string"), created_nodes[0])
-                if taxon is not None:
-                    stats.taxon_matched += 1
-                    if adb_taxon_id is None:
-                        stats.taxon_fallback_matched += 1
-                else:
-                    stats.taxon_unresolved += 1
-                    fallback_debug = created_nodes[0] if created_nodes else {}
-                    candidate_scores = fallback_debug.get("fallback_candidates", [])
+                # Hybrids: keep formula + parent archive; do not link a parent species.
+                hybrid_archive = _hybrid_archive_for_det_key(det_rows_all, det_key)
+                is_hybrid = hybrid_archive is not None
+                taxon = None
+                created_nodes: list[dict[str, Any]] = []
+                if is_hybrid:
+                    stats.hybrid_determination += 1
                     _log(
                         "debug",
-                        "object_id=%s catalog=%s unresolved taxon det_class_term_id=%r det_latin_name_id=%r det_latin_name=%r probe=%r top_candidates=%s adb_taxon_id=%r adb_latin_name_id=%r nhm_taxon_id=%r",
+                        "object_id=%s catalog=%s hybrid determination class_event_id=%r "
+                        "parents=%s — leaving taxon unset",
                         object_id,
                         obj_row.get("identifier_string"),
-                        dr.get("class_term_id"),
-                        dr.get("latin_name_id"),
-                        dr.get("latin_name") or dr.get("valid_classterm") or dr.get("classterm"),
-                        fallback_debug.get("fallback_probe"),
-                        candidate_scores[:5],
-                        adb_taxon_id,
-                        adb_id,
-                        dr.get("nhm_taxon_id"),
+                        dr.get("class_event_id"),
+                        len((hybrid_archive or {}).get("parents") or []),
                     )
-                    if len(stats.errors) < _MAX_ERRORS:
-                        stats.errors.append(
-                            f"object_id={object_id}: unresolved taxon "
-                            f"(class_term_id={dr.get('class_term_id')!r}, "
-                            f"latin_name_id={dr.get('latin_name_id')!r}, "
-                            f"latin_name={dr.get('latin_name')!r}, "
-                            f"valid_classterm={dr.get('valid_classterm')!r}, "
-                            f"classterm={dr.get('classterm')!r}, "
-                            f"probe={fallback_debug.get('fallback_probe')!r}, "
-                            f"top_candidates={candidate_scores[:5]!r}, "
-                            f"adb_taxon_id={adb_taxon_id!r}, "
-                            f"adb_latin_name_id={adb_id!r}, nhm_taxon_id={dr.get('nhm_taxon_id')!r})"
+                else:
+                    taxon, created_nodes = _resolve_or_create_taxon(
+                        oracle_cursor=oracle_cursor,
+                        owner=owner,
+                        latin_name_id=ln_id,
+                        adb_taxon_id=adb_taxon_id,
+                        adb_latin_name_id=adb_id,
+                        nhm_taxon_id=dr.get("nhm_taxon_id"),
+                        latin_name=dr.get("latin_name") or dr.get("valid_classterm") or dr.get("classterm"),
+                        valid_classterm=dr.get("valid_classterm"),
+                        full_name=dr.get("full_name"),
+                        full_name_author=dr.get("full_name_author"),
+                        taxontreedef_id=taxontreedef_id,
+                        lineage_cache=latin_name_lineage_cache,
+                        rank_item_cache=rank_item_cache,
+                        object_id=object_id,
+                        catalog_number=_trunc(obj_row.get("identifier_string"), 32),
+                    )
+                    if created_nodes:
+                        _log(
+                            "debug",
+                            "object_id=%s catalog=%s fallback_debug=%s",
+                            object_id,
+                            obj_row.get("identifier_string"),
+                            created_nodes[0],
                         )
+                    if taxon is not None:
+                        stats.taxon_matched += 1
+                        if adb_taxon_id is None:
+                            stats.taxon_fallback_matched += 1
+                    else:
+                        stats.taxon_unresolved += 1
+                        fallback_debug = created_nodes[0] if created_nodes else {}
+                        candidate_scores = fallback_debug.get("fallback_candidates", [])
+                        _log(
+                            "debug",
+                            "object_id=%s catalog=%s unresolved taxon det_class_term_id=%r "
+                            "det_latin_name_id=%r det_latin_name=%r probe=%r top_candidates=%s "
+                            "adb_taxon_id=%r adb_latin_name_id=%r nhm_taxon_id=%r",
+                            object_id,
+                            obj_row.get("identifier_string"),
+                            dr.get("class_term_id"),
+                            dr.get("latin_name_id"),
+                            dr.get("latin_name") or dr.get("valid_classterm") or dr.get("classterm"),
+                            fallback_debug.get("fallback_probe"),
+                            candidate_scores[:5],
+                            adb_taxon_id,
+                            adb_id,
+                            dr.get("nhm_taxon_id"),
+                        )
+                        if len(stats.errors) < _MAX_ERRORS:
+                            stats.errors.append(
+                                f"object_id={object_id}: unresolved taxon "
+                                f"(class_term_id={dr.get('class_term_id')!r}, "
+                                f"latin_name_id={dr.get('latin_name_id')!r}, "
+                                f"latin_name={dr.get('latin_name')!r}, "
+                                f"valid_classterm={dr.get('valid_classterm')!r}, "
+                                f"classterm={dr.get('classterm')!r}, "
+                                f"probe={fallback_debug.get('fallback_probe')!r}, "
+                                f"top_candidates={candidate_scores[:5]!r}, "
+                                f"adb_taxon_id={adb_taxon_id!r}, "
+                                f"adb_latin_name_id={adb_id!r}, nhm_taxon_id={dr.get('nhm_taxon_id')!r})"
+                            )
 
-                # Determiner: MUSIT roles on the classification (determination) event — not the collecting event.
-                det_actor = _first_non_null_classification_determiner_actor_id(
-                    det_rows_all, det_key
+                # Determiners: MUSIT roles on classification (determination) event(s).
+                determiner_roles = _classification_determiner_roles_for_det_key(
+                    det_rows_all, det_key, oracle_cursor, owner
                 )
-                determiner = _resolve_agent(owner, det_actor) if det_actor else None
                 det_date = _coerce_date(dr.get("class_from_date")) or _coerce_date(
                     dr.get("class_to_date")
                 )
@@ -2292,41 +2418,78 @@ def _write_one_object(
                 )
 
                 is_current = not has_current
-                # Infraspecific rank + name (MUSIT CLASSIFICATION_TERM) → text3.
-                infraspes_parts = [
-                    p
-                    for p in (
-                        _trunc(dr.get("infraspes_rank_name"), 64),
-                        _trunc(dr.get("infraspes_name"), 128),
-                    )
-                    if p
-                ]
-                infraspes_text = " ".join(infraspes_parts) if infraspes_parts else None
-                # MUSIT object-level type status applies to the current determination only.
-                type_status = _trunc(obj_row.get("type_status"), 50) if is_current else None
-
-                det_remarks = _determination_remarks(dr, determiner=determiner)
+                # MUSIT CLASSIFICATION_TERM.INFRASPES_NAME → text3;
+                # TAXON_CATHEGORY.TAX_CATH_ABBREV (ssp./var./form./cv.) → text4.
+                infraspes_name = _trunc(dr.get("infraspes_name"), 128)
+                infraspes_rank = _trunc(
+                    dr.get("infraspes_rank_abbrev") or dr.get("infraspes_rank_name"),
+                    128,
+                )
                 sensu_addendum, _sensu_archived, _sensu_outlier = resolve_sensu_addendum(
                     dr.get("sensu_term")
+                )
+                # Keep the full hybrid formula (DB column is TEXT; do not 255-truncate).
+                entered_name = _entered_taxon_name_for_determination(dr)
+                hybrid_parents_text = (
+                    _hybrid_parents_display(hybrid_archive.get("parents") or [])
+                    if is_hybrid and hybrid_archive
+                    else None
                 )
                 det = Determination(
                     collectionobject=co,
                     taxon=taxon,
                     iscurrent=is_current,
-                    typestatusname=type_status,
-                    text1=_trunc(dr.get("classterm"), 255),
-                    text2=_trunc(dr.get("valid_classterm"), 255),
-                    text3=infraspes_text,
+                    # MUSIT UI: Entered=ENTERED_CLASSTERM, Valid=CLASSTERM,
+                    # Accepted=VALID_CLASSTERM (tree preferredTaxon in Specify).
+                    text1=entered_name,
+                    text2=_trunc(dr.get("classterm"), 65535),
+                    text3=infraspes_name,
+                    text4=infraspes_rank,
+                    text5=hybrid_parents_text,
                     addendum=_trunc(sensu_addendum, 16),
-                    determiner=determiner,
+                    yesno1=True if is_hybrid else None,
                     determineddate=det_datetime,
                     determineddateprecision=(1 if det_datetime is not None else None),
-                    remarks=det_remarks,
                 )
                 det.save()
-                if det.iscurrent:
+                determiners_created, unresolved_det_actor_ids = _attach_determiners_to_determination(
+                    owner=owner,
+                    determination=det,
+                    object_id=object_id,
+                    stats=stats,
+                    agent_cache=agent_cache,
+                    determiner_roles=determiner_roles,
+                )
+                unresolved_det_names: list[str] = []
+                if unresolved_det_actor_ids:
+                    name_by_actor = _fetch_actor_display_names(
+                        oracle_cursor, owner, unresolved_det_actor_ids
+                    )
+                    unresolved_det_names = [
+                        name_by_actor.get(int(aid), f"ACTOR_ID={aid}")
+                        for aid in unresolved_det_actor_ids
+                    ]
+                det_remarks = _determination_remarks(
+                    dr,
+                    has_resolved_determiner=determiners_created > 0,
+                    unresolved_determiner_names=unresolved_det_names,
+                )
+                if det_remarks:
+                    # Bypass ORM pre_save: only_one_determination_iscurrent bulk-updates
+                    # iscurrent=False on *all* CO determinations when iscurrent=True.
+                    Determination.objects.filter(pk=det.pk).update(remarks=det_remarks)
+                    det.remarks = det_remarks
+                if is_current:
                     has_current = True
                 stats.determination_created += 1
+
+        _attach_type_publications(
+            collection_object=co,
+            type_info=literature_bundle.get("type_info") or [],
+            institution=institution,
+            collection_id=int(collection.id),
+            stats=stats,
+        )
 
         # 6. Upsert objectmap row
         upsert_objectmap_row(
@@ -2338,6 +2501,60 @@ def _write_one_object(
             dry_run=False,
         )
 
+    # 7. Media outside the atomic block so a long TIFF download/upload does not hold
+    # MariaDB locks, and so CO progress is visible before attachments finish.
+    if skip_media or dry_run:
+        return
+    media_group_ids = _media_group_ids_for_object(
+        object_id=object_id,
+        primary_group_id=obj_row.get("mediagruppe_enhets_id"),
+        avbilder_by_object=avbilder_by_object or {},
+    )
+    if not media_group_ids:
+        return
+    _log(
+        "info",
+        "object_id=%s catalog=%s: attaching %s media group(s)",
+        object_id,
+        obj_row.get("identifier_string"),
+        len(media_group_ids),
+    )
+    for ordinal, mgid in enumerate(media_group_ids, start=1):
+        t_media = time.monotonic()
+        try:
+            _attach_media_to_collection_object(
+                oracle_cursor=oracle_cursor,
+                co=co,
+                media_group_id=int(mgid),
+                collection_name=str(collection.collectionname),
+                object_withheld=obj_row.get("object_withheld"),
+                ordinal=ordinal,
+                dry_run=False,
+                stats=stats,
+            )
+            _log(
+                "info",
+                "object_id=%s media %s/%s group=%s ok in %.1fs (att_ok=%s att_fail=%s)",
+                object_id,
+                ordinal,
+                len(media_group_ids),
+                mgid,
+                time.monotonic() - t_media,
+                stats.attachments_created,
+                stats.attachments_failed,
+            )
+        except Exception as exc:  # noqa: BLE001
+            stats.attachments_failed += 1
+            _log(
+                "warning",
+                "object_id=%s mediagruppe_enhets_id=%s: media attachment migration failed "
+                "after %.1fs: %s",
+                object_id,
+                mgid,
+                time.monotonic() - t_media,
+                exc,
+            )
+
 
 # ---------------------------------------------------------------------------
 # Oracle fetch helpers
@@ -2347,13 +2564,20 @@ def _write_one_object(
 def _fetch_page_object_ids(
     oracle_cursor: Any,
     config: MusitDatasetConfig,
-    skip: int,
+    *,
+    after_id: int,
     batch: int,
 ) -> list[int]:
+    """Fetch the next page of OBJECT_IDs strictly after ``after_id`` (keyset pagination)."""
     sql = _PAGE_SQL.format(schema=config.oracle_schema)
     oracle_cursor.execute(
         sql,
-        {"icode": config.institutioncode, "ccode": config.collectioncode, "skip": skip, "batch": batch},
+        {
+            "icode": config.institutioncode,
+            "ccode": config.collectioncode,
+            "after_id": after_id,
+            "batch": batch,
+        },
     )
     return [int(row[0]) for row in oracle_cursor.fetchall()]
 
@@ -2426,8 +2650,11 @@ def load_musit_dataset(
     oracle_cursor: Any,
     dry_run: bool,
     limit: int | None = None,
+    only_catalog: str | None = None,
+    only_object_id: int | None = None,
     page_size: int = 1000,
     run_ts: str,
+    skip_media: bool = False,
 ) -> DatasetLoadStats:
     """Stream Oracle MUSIT objects into Specify for the given dataset config.
 
@@ -2436,17 +2663,23 @@ def load_musit_dataset(
         oracle_cursor: Open Oracle cursor (caller manages connection lifecycle).
         dry_run:      When True, resolve and count but do not write to Specify or bridge tables.
         limit:        Stop after this many objects (for test runs with time estimates).
+        only_catalog: Migrate a single specimen by MUSIT catalog number (e.g. ``O-V-398038``).
+        only_object_id: Migrate a single specimen by Oracle ``OBJECT_ID``.
         page_size:    Number of OBJECT_IDs per Oracle page.
         run_ts:       ISO timestamp string stamped on all bridge table rows.
+        skip_media:   When True, skip Unimus download / asset-server upload (CO/CE/Det only).
 
     Returns:
         ``DatasetLoadStats`` with counters and (when ``limit`` is set) a time estimate.
     """
     from flows.lib.migration_oracle_objectmap import (
         ensure_objectmap_table,
-        object_ids_already_migrated,
+        filter_already_migrated_object_ids,
     )
     from flows.lib.migration_oracle_placemap import ensure_placemap_table
+
+    if only_catalog and only_object_id is not None:
+        raise ValueError("Specify only one of only_catalog or only_object_id")
 
     stats = DatasetLoadStats()
     t0 = time.monotonic()
@@ -2455,24 +2688,54 @@ def load_musit_dataset(
     collection = ctx.collection
     discipline = ctx.discipline
 
-    _log("info", "load_musit_dataset | collection=%s discipline=%s dry_run=%s limit=%s",
-         config.specify_collection_code, config.specify_discipline_name, dry_run, limit)
+    single_shot = only_catalog is not None or only_object_id is not None
+    pinned_object_ids: list[int] = []
+    if single_shot:
+        pinned_object_ids = resolve_musit_object_ids(
+            oracle_cursor,
+            oracle_schema=config.oracle_schema,
+            institutioncode=config.institutioncode,
+            collectioncode=config.collectioncode,
+            catalog_number=only_catalog,
+            object_id=only_object_id,
+        )
+
+    _log(
+        "info",
+        "load_musit_dataset | collection=%s discipline=%s dry_run=%s limit=%s"
+        " only_catalog=%s only_object_id=%s skip_media=%s",
+        config.specify_collection_code,
+        config.specify_discipline_name,
+        dry_run,
+        limit,
+        only_catalog,
+        only_object_id,
+        skip_media,
+    )
+    if single_shot:
+        _log(
+            "info",
+            "load_musit_dataset | single-record mode: object_ids=%s",
+            pinned_object_ids,
+        )
 
     ensure_objectmap_table(dry_run=dry_run)
     ensure_placemap_table(dry_run=dry_run)
 
-    # Load already-migrated OBJECT_IDs for idempotency.
-    already_done: set[int] = set()
+    agent_cache: dict[int, int] = {}
     if not dry_run:
-        already_done = object_ids_already_migrated(
-            source_owner=config.oracle_schema.upper(),
-            specify_collection_id=int(collection.id),
+        _log("info", "load_musit_dataset | loading Agent cache for schema=%s …",
+             config.oracle_schema.upper())
+        t_agents = time.monotonic()
+        agent_cache = _load_musit_agent_cache(config.oracle_schema)
+        _log(
+            "info",
+            "load_musit_dataset | Agent cache ready: %s actors in %.1fs",
+            len(agent_cache),
+            time.monotonic() - t_agents,
         )
-        if already_done:
-            _log("info", "load_musit_dataset | idempotency: %s objects already in objectmap → will skip",
-                 len(already_done))
 
-    total_oracle = _count_total_objects(oracle_cursor, config)
+    total_oracle = len(pinned_object_ids) if single_shot else _count_total_objects(oracle_cursor, config)
     _log("info", "load_musit_dataset | total Oracle objects for filter: %s", total_oracle)
 
     museum_object_tabell_id = _resolve_museum_object_tabell_id(
@@ -2487,22 +2750,41 @@ def load_musit_dataset(
 
     # In-memory locality cache: (discipline_id, place_id) → specify locality pk
     locality_cache: dict[tuple[int, int], int] = {}
-    total_processed = 0
-    skip = 0
+    geography_maps_cache: dict[str, Any] = {}
+    total_seen = 0          # Oracle objects visited (including skipped)
+    total_processed = 0     # New objects written this run
+    last_progress_at = 0
 
+    after_id = 0
     while True:
         # Periodic Django connection refresh (long-running flow protection).
-        if total_processed > 0 and total_processed % 5000 == 0:
+        if total_seen > 0 and total_seen % 5000 == 0:
             close_old_connections()
 
-        page_ids = _fetch_page_object_ids(oracle_cursor, config, skip=skip, batch=page_size)
-        if not page_ids:
-            break
+        if single_shot:
+            page_ids = pinned_object_ids
+        else:
+            page_ids = _fetch_page_object_ids(
+                oracle_cursor, config, after_id=after_id, batch=page_size,
+            )
+            if not page_ids:
+                break
+            after_id = page_ids[-1]
+        total_seen += len(page_ids)
 
-        # Filter already-migrated.
-        ids_to_process = [oid for oid in page_ids if oid not in already_done]
+        # Batch idempotency check before fetching heavy Oracle joins.
+        already_on_page: set[int] = set()
+        if not dry_run:
+            already_on_page = filter_already_migrated_object_ids(
+                source_owner=config.oracle_schema.upper(),
+                object_ids=page_ids,
+                specify_collection_id=int(collection.id),
+                run_ts=run_ts,
+            )
+        stats.co_skipped += len(already_on_page)
+        ids_to_process = [oid for oid in page_ids if oid not in already_on_page]
 
-        # Fetch full specimen rows for this page (one round-trip).
+        # Fetch full specimen rows for pending objects only (one round-trip per page).
         if ids_to_process:
             specimen_rows = _fetch_specimen_rows(oracle_cursor, config, ids_to_process)
             grouped = _group_rows_by_object_id(specimen_rows)
@@ -2511,15 +2793,25 @@ def load_musit_dataset(
                 museum_object_tabell_id=museum_object_tabell_id,
                 object_ids=ids_to_process,
             )
+            literature_by_object = _fetch_literature_for_objects(
+                oracle_cursor,
+                config.oracle_schema,
+                ids_to_process,
+                batch_size=_SPECIMEN_BATCH,
+            )
+            typification_meta_by_object = _fetch_typification_meta_for_objects(
+                oracle_cursor,
+                config.oracle_schema,
+                ids_to_process,
+                batch_size=_SPECIMEN_BATCH,
+            )
         else:
             grouped = {}
             avbilder_by_object = {}
+            literature_by_object = {}
+            typification_meta_by_object = {}
 
-        for oid in page_ids:
-            if oid in already_done:
-                stats.co_skipped += 1
-                continue
-
+        for oid in ids_to_process:
             rows = grouped.get(oid)
             if not rows:
                 # Object visible in V_OBJECT_ATTRIBUTES but no rows in join — skip.
@@ -2538,29 +2830,47 @@ def load_musit_dataset(
                 locality_cache=locality_cache,
                 stats=stats,
                 avbilder_by_object=avbilder_by_object,
+                agent_cache=agent_cache,
+                geography_maps_cache=geography_maps_cache,
+                skip_media=skip_media,
+                literature_by_object=literature_by_object,
+                typification_meta_by_object=typification_meta_by_object,
             )
 
             total_processed += 1
 
-            if total_processed % _PROGRESS_EVERY == 0 or total_processed == 1:
+            should_log = (
+                total_processed <= _PROGRESS_ALWAYS_FIRST_N
+                or total_processed % _PROGRESS_EVERY == 0
+                or (total_seen - last_progress_at) >= _PROGRESS_EVERY
+            )
+            if should_log:
+                last_progress_at = total_seen
                 elapsed = time.monotonic() - t0
-                pct = 100.0 * total_processed / total_oracle if total_oracle else 0.0
+                pct = 100.0 * total_seen / total_oracle if total_oracle else 0.0
+                rate = total_processed / elapsed if elapsed > 0 else 0.0
                 _log(
                     "info",
-                    "load_musit_dataset | %s/%s (%.1f%%) co=%s ce=%s loc_new=%s det=%s"
-                    " taxon_ok=%s taxon_fallback=%s taxon_unresolved=%s agent_ok=%s err=%s elapsed=%s",
-                    total_processed,
+                    "load_musit_dataset | %s/%s (%.1f%%) co=%s skipped=%s ce=%s loc_new=%s det=%s"
+                    " hybrid=%s taxon_ok=%s taxon_fallback=%s taxon_unresolved=%s agent_ok=%s"
+                    " att_ok=%s att_fail=%s err=%s rate=%.2f/s elapsed=%s",
+                    total_seen,
                     total_oracle,
                     pct,
                     stats.co_created,
+                    stats.co_skipped,
                     stats.ce_created,
                     stats.locality_created,
                     stats.determination_created,
+                    stats.hybrid_determination,
                     stats.taxon_matched,
                     stats.taxon_fallback_matched,
                     stats.taxon_unresolved,
                     stats.agent_matched,
+                    stats.attachments_created,
+                    stats.attachments_failed,
                     len(stats.errors),
+                    rate,
                     _format_duration(elapsed),
                 )
 
@@ -2581,20 +2891,23 @@ def load_musit_dataset(
                 stats.elapsed_s = elapsed
                 return stats
 
-        skip += page_size
+        if single_shot:
+            break
         if len(page_ids) < page_size:
             break  # last page
 
     stats.elapsed_s = time.monotonic() - t0
     _log(
         "info",
-        "load_musit_dataset | done total_processed=%s co=%s ce=%s loc_new=%s det=%s"
-        " taxon_ok=%s agent_ok=%s skipped=%s err=%s elapsed=%s",
+        "load_musit_dataset | done seen=%s migrated=%s co=%s ce=%s loc_new=%s det=%s"
+        " hybrid=%s taxon_ok=%s agent_ok=%s skipped=%s err=%s elapsed=%s",
+        total_seen,
         total_processed,
         stats.co_created,
         stats.ce_created,
         stats.locality_created,
         stats.determination_created,
+        stats.hybrid_determination,
         stats.taxon_matched,
         stats.agent_matched,
         stats.co_skipped,

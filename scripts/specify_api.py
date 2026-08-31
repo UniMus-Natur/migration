@@ -557,7 +557,7 @@ def _cmd_purge_geography_via_api(
         guid = f"urn:migration:geography-root:treedef-{tid}"[:128]
         body = {
             "name": "Earth",
-            "fullname": "Planet",
+            "fullname": "Earth",
             "definition": f"/api/specify/geographytreedef/{tid}/",
             "definitionitem": di_uri,
             "parent": None,

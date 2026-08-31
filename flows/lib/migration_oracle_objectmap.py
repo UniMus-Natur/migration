@@ -19,6 +19,16 @@ TABLE_NAME = "migration_oracle_objectmap"
 _SOURCE_KIND_CO = "collectionobject"
 
 
+def collectionobject_guid_prefix(source_owner: str) -> str:
+    """Return the GUID prefix used for migrated CollectionObjects from ``source_owner``."""
+    return f"urn:oracle:{source_owner.lower()}:object:"
+
+
+def collectionobject_guid(source_owner: str, object_id: int) -> str:
+    """Stable GUID written on migrated CollectionObjects for ``object_id``."""
+    return f"{collectionobject_guid_prefix(source_owner)}{int(object_id)}"[:128]
+
+
 def ensure_objectmap_table(*, dry_run: bool) -> dict[str, Any]:
     """Create ``migration_oracle_objectmap`` if missing (idempotent)."""
     out: dict[str, Any] = {"table": TABLE_NAME, "created": False, "dry_run": dry_run}
@@ -78,24 +88,101 @@ def upsert_objectmap_row(
         )
 
 
-def object_ids_already_migrated(
+def is_object_already_migrated(
+    *,
     source_owner: str,
+    object_id: int,
     specify_collection_id: int,
-) -> set[int]:
-    """Return the set of Oracle OBJECT_IDs already present in the objectmap for this collection.
+    run_ts: str | None = None,
+    backfill_objectmap: bool = True,
+) -> bool:
+    """Return True when this Oracle OBJECT_ID is already present in Specify.
 
-    Used at flow start to build an in-memory skip-set for idempotent re-runs.
+    Checks ``migration_oracle_objectmap`` first (indexed unique key), then falls back to
+    the deterministic CollectionObject GUID. When found only via GUID and
+    ``backfill_objectmap`` is True, writes the missing objectmap row.
     """
-    sql = f"""
-    SELECT source_id
-      FROM {TABLE_NAME}
-     WHERE source_owner = %s
-       AND source_kind  = %s
-       AND specify_collection_id = %s
+    done = filter_already_migrated_object_ids(
+        source_owner=source_owner,
+        object_ids=[int(object_id)],
+        specify_collection_id=specify_collection_id,
+        run_ts=run_ts,
+        backfill_objectmap=backfill_objectmap,
+    )
+    return int(object_id) in done
+
+
+def filter_already_migrated_object_ids(
+    *,
+    source_owner: str,
+    object_ids: list[int],
+    specify_collection_id: int,
+    run_ts: str | None = None,
+    backfill_objectmap: bool = True,
+) -> set[int]:
+    """Return the subset of ``object_ids`` already present in Specify.
+
+    One objectmap IN-query plus one GUID IN-query for the remainder — avoids a
+    per-object round-trip when paging Oracle IDs.
     """
+    if not object_ids:
+        return set()
+
+    owner = source_owner.upper()
+    coll_id = int(specify_collection_id)
+    wanted = {int(oid) for oid in object_ids}
+    found: set[int] = set()
+
+    id_list = sorted(wanted)
+    # Chunk IN-lists to keep query size bounded.
+    chunk = 500
     try:
         with connection.cursor() as cur:
-            cur.execute(sql, [source_owner[:64], _SOURCE_KIND_CO, specify_collection_id])
-            return {int(row[0]) for row in cur.fetchall()}
+            for i in range(0, len(id_list), chunk):
+                part = id_list[i : i + chunk]
+                placeholders = ", ".join(["%s"] * len(part))
+                sql = f"""
+                SELECT source_id
+                  FROM {TABLE_NAME}
+                 WHERE source_owner = %s
+                   AND source_kind  = %s
+                   AND specify_collection_id = %s
+                   AND source_id IN ({placeholders})
+                """
+                cur.execute(
+                    sql,
+                    [owner[:64], _SOURCE_KIND_CO, coll_id, *[str(oid)[:64] for oid in part]],
+                )
+                for (source_id,) in cur.fetchall():
+                    found.add(int(source_id))
     except Exception:  # table may not exist yet on first run
-        return set()
+        pass
+
+    missing = sorted(wanted - found)
+    if not missing:
+        return found
+
+    from specifyweb.specify.models import Collectionobject
+
+    guid_to_oid = {collectionobject_guid(owner, oid): oid for oid in missing}
+    for i in range(0, len(missing), chunk):
+        part_guids = [collectionobject_guid(owner, oid) for oid in missing[i : i + chunk]]
+        rows = Collectionobject.objects.filter(
+            collection_id=coll_id,
+            guid__in=part_guids,
+        ).values_list("id", "guid")
+        for co_id, guid in rows:
+            oid = guid_to_oid.get(str(guid))
+            if oid is None:
+                continue
+            found.add(oid)
+            if backfill_objectmap and run_ts:
+                upsert_objectmap_row(
+                    source_owner=owner,
+                    source_id=str(oid),
+                    specify_co_id=int(co_id),
+                    specify_collection_id=coll_id,
+                    run_ts=run_ts,
+                    dry_run=False,
+                )
+    return found
