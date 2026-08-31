@@ -2209,8 +2209,7 @@ def _write_one_object(
         if audit_parts:
             co_remarks_parts.append(f"Audit: {', '.join(audit_parts)}")
 
-        if obj_row.get("uuid"):
-            co_remarks_parts.append(f"MUSIT UUID: {obj_row.get('uuid')}")
+        musit_uuid = _trunc(obj_row.get("uuid"), 128)
 
         # Administrative / audit block (MUSIT "Adm" tab) → readonly text8.
         admin_bits: list[str] = []
@@ -2235,6 +2234,7 @@ def _write_one_object(
         co = Collectionobject(
             catalognumber=_trunc(obj_row.get("identifier_string"), 32),
             guid=f"urn:oracle:{owner.lower()}:object:{object_id}"[:128],
+            uniqueidentifier=musit_uuid,
             collectingevent=ce,
             collection=collection,
             collectionmemberid=int(collection.id),

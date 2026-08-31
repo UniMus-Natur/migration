@@ -345,6 +345,10 @@ class SpecifyAdapter:
         return _str(value) if value is not None else ""
 
     @property
+    def unique_identifier(self) -> str:
+        return _str(self._co.get("uniqueidentifier"))
+
+    @property
     def remarks(self) -> str:
         return _str(self._co.get("remarks"))
 
@@ -480,16 +484,15 @@ def run_checks(oracle: OracleAdapter, specify: SpecifyAdapter) -> list[CheckResu
     else:
         chk("catalog_number_match", "FAIL", ov=oc, sv=sc)
 
-    # 3. uuid_in_remarks
+    # 3. uuid → uniqueIdentifier
     o_uuid = oracle.uuid
-    remarks = specify.remarks
-    guid = specify.guid
+    s_uuid = specify.unique_identifier
     if not o_uuid:
-        chk("uuid_in_remarks", "SKIP", detail="Oracle UUID is null")
-    elif o_uuid.lower() in remarks.lower() or o_uuid.lower() in guid.lower():
-        chk("uuid_in_remarks", "PASS", ov=o_uuid, sv=f"remarks/guid contains UUID")
+        chk("uuid_match", "SKIP", detail="Oracle UUID is null")
+    elif o_uuid.lower() == s_uuid.lower():
+        chk("uuid_match", "PASS", ov=o_uuid, sv=s_uuid)
     else:
-        chk("uuid_in_remarks", "FAIL", ov=o_uuid, sv=f"remarks={remarks!r}  guid={guid!r}")
+        chk("uuid_match", "FAIL", ov=o_uuid, sv=s_uuid)
 
     # 4. identifier_num → integer1
     o_num = oracle.identifier_num
@@ -781,7 +784,7 @@ def render_markdown(
     lines.append("| Field | Oracle source | Specify sink | Match |")
     lines.append("|---|---|---|---|")
     lines.append(f"| catalog_number | {oracle.catalog_number} | {specify.catalog_number} | {_match_icon(oracle.catalog_number, specify.catalog_number)} |")
-    lines.append(f"| uuid / guid | {oracle.uuid or '—'} | {specify.guid or '—'} | {_uuid_match_icon(oracle.uuid, specify.guid, specify.remarks)} |")
+    lines.append(f"| uuid / uniqueIdentifier | {oracle.uuid or '—'} | {specify.unique_identifier or '—'} | {_match_icon(oracle.uuid.lower() if oracle.uuid else '', specify.unique_identifier.lower() if specify.unique_identifier else '')} |")
     lines.append(f"| identifier_num / integer1 | {oracle.identifier_num or '—'} | {specify.integer1 or '—'} | {_match_icon(oracle.identifier_num, specify.integer1)} |")
     lines.append(f"| legnr / fieldNumber | {oracle.legnr or '—'} | {specify.field_number or '—'} | {_match_icon(oracle.legnr, specify.field_number)} |")
     lines.append("")
