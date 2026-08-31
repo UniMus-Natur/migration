@@ -6,10 +6,11 @@ import unittest
 from unittest.mock import MagicMock
 
 from flows.lib.musit_determiner_actors import (
-    classification_determiner_actor_ids_for_det_key,
+    EventPersonRole,
+    classification_determiner_roles_for_det_key,
     classification_event_ids_for_det_key,
     determination_dedupe_key,
-    fetch_event_role_actor_ids,
+    fetch_event_person_roles,
 )
 
 
@@ -25,7 +26,6 @@ class MusitDeterminerActorIdsTests(unittest.TestCase):
         e2015 = {**same_taxon, "class_event_id": 100, "class_from_date": "2015-03-13"}
         e2019 = {**same_taxon, "class_event_id": 200, "class_from_date": "2019-03-14"}
         self.assertNotEqual(determination_dedupe_key(e2015), determination_dedupe_key(e2019))
-        # Join fan-out on one event still shares one key.
         e2019_dup = {**e2019, "latin_name_id": 99}
         self.assertEqual(determination_dedupe_key(e2019), determination_dedupe_key(e2019_dup))
 
@@ -63,16 +63,21 @@ class MusitDeterminerActorIdsTests(unittest.TestCase):
             [200],
         )
 
-    def test_fetch_event_role_actor_ids_dedupes_across_sources(self) -> None:
+    def test_fetch_event_person_roles_returns_actor_ids(self) -> None:
         cursor = MagicMock()
-        cursor.fetchall.side_effect = [((11,), (12,)), ((12,), (13,))]
-        self.assertEqual(
-            fetch_event_role_actor_ids(cursor, "MUSIT_BOTANIKK_FELLES", 999),
-            [11, 12, 13],
+        cursor.fetchall.return_value = [(11, 1, "DET"), (12, 2, "DETSCR")]
+        roles = fetch_event_person_roles(
+            cursor,
+            "MUSIT_BOTANIKK_FELLES",
+            999,
+            role_terms=frozenset({"DET", "DETSCR"}),
         )
-        self.assertEqual(cursor.execute.call_count, 2)
+        self.assertEqual([r.actor_id for r in roles], [11, 12])
+        self.assertFalse(roles[0].is_scr)
+        self.assertTrue(roles[1].is_scr)
+        self.assertEqual(cursor.execute.call_count, 1)
 
-    def test_classification_determiner_actor_ids_stay_on_one_event(self) -> None:
+    def test_classification_determiner_roles_stay_on_one_event(self) -> None:
         rows = [
             {
                 "class_event_id": 100,
@@ -92,16 +97,13 @@ class MusitDeterminerActorIdsTests(unittest.TestCase):
             },
         ]
         cursor = MagicMock()
-        cursor.fetchall.side_effect = [
-            ((10,),),
-            (),
-        ]
+        cursor.fetchall.return_value = [(10, 1, "DET")]
         det_key = determination_dedupe_key(rows[0])
         self.assertEqual(
-            classification_determiner_actor_ids_for_det_key(
+            classification_determiner_roles_for_det_key(
                 rows, det_key, cursor, "MUSIT_BOTANIKK_FELLES"
             ),
-            [10],
+            [EventPersonRole(actor_id=10, sorting_sequence=1, is_scr=False)],
         )
 
 

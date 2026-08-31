@@ -47,15 +47,17 @@ from django.db import close_old_connections, transaction
 
 from flows.lib.musit_field_number_map import (
     coerce_musit_identifier_num,
-    resolve_field_number_from_legnr_rows,
+    legnr_by_actor,
 )
 from flows.lib.musit_catalog_lookup import resolve_musit_object_ids
 from flows.lib.musit_determination_remarks import determination_remarks as _determination_remarks
 from flows.lib.musit_determiner_actors import (
-    classification_determiner_actor_ids_for_det_key as _classification_determiner_actor_ids_for_det_key,
+    EventPersonRole,
+    classification_determiner_roles_for_det_key as _classification_determiner_roles_for_det_key,
     determination_dedupe_key as _determination_dedupe_key,
     fetch_actor_display_names as _fetch_actor_display_names,
-    fetch_event_role_actor_ids as _fetch_event_role_actor_ids,
+    fetch_collector_roles as _fetch_collector_roles,
+    ordernumbers_for_roles as _ordernumbers_for_roles,
 )
 from flows.lib.musit_hybrid import (
     classification_hybrid_archives as _classification_hybrid_archives,
@@ -1799,36 +1801,26 @@ def _fetch_legnr_rows(
     return rows
 
 
-def _fetch_collector_actor_ids_for_event(
-    oracle_cursor: Any,
-    schema: str,
-    event_id: int,
-) -> list[int]:
-    """Return ordered unique collector ``actor_id`` values for one collecting event."""
-    return _fetch_event_role_actor_ids(oracle_cursor, schema, event_id)
-
-
 def _attach_collectors_to_collecting_event(
     *,
     owner: str,
-    collecting_event_id: int,
     ce: Any,
-    oracle_cursor: Any,
     object_id: int,
     stats: DatasetLoadStats,
     agent_cache: dict[int, int] | None = None,
-    actor_ids: list[int] | None = None,
+    collector_roles: list[EventPersonRole],
+    legnr_for_actor: dict[int, str] | None = None,
 ) -> int:
     """Create ``Collector`` rows for all resolved agents on a collecting event."""
     from specifyweb.specify.models import Collector
 
-    if actor_ids is None:
-        actor_ids = _fetch_collector_actor_ids_for_event(
-            oracle_cursor, owner, collecting_event_id
-        )
+    if not collector_roles:
+        return 0
+    legnr_map = legnr_for_actor or {}
+    order_numbers = _ordernumbers_for_roles(collector_roles)
     created = 0
-    for idx, actor_id in enumerate(actor_ids):
-        agent = _resolve_agent(owner, actor_id, agent_cache=agent_cache)
+    for role, order_number in zip(collector_roles, order_numbers, strict=True):
+        agent = _resolve_agent(owner, role.actor_id, agent_cache=agent_cache)
         if agent is None:
             stats.agent_unresolved += 1
             continue
@@ -1837,8 +1829,9 @@ def _attach_collectors_to_collecting_event(
             Collector.objects.create(
                 agent=agent,
                 collectingevent=ce,
-                isprimary=(idx == 0),
-                ordernumber=idx + 1,
+                text1=_trunc(legnr_map.get(role.actor_id), 255),
+                yesno1=role.is_scr,
+                ordernumber=order_number,
             )
             created += 1
         except Exception as exc:  # noqa: BLE001
@@ -1846,7 +1839,7 @@ def _attach_collectors_to_collecting_event(
                 "warning",
                 "object_id=%s: collector link failed actor_id=%s: %s",
                 object_id,
-                actor_id,
+                role.actor_id,
                 exc,
             )
     return created
@@ -1859,7 +1852,7 @@ def _attach_determiners_to_determination(
     object_id: int,
     stats: DatasetLoadStats,
     agent_cache: dict[int, int] | None = None,
-    actor_ids: list[int] | None = None,
+    determiner_roles: list[EventPersonRole] | None = None,
 ) -> tuple[int, list[int]]:
     """Create ``Determiner`` rows for all resolved agents on a determination.
 
@@ -1867,32 +1860,33 @@ def _attach_determiners_to_determination(
     """
     from specifyweb.specify.models import Determiner
 
-    if not actor_ids:
+    if not determiner_roles:
         return 0, []
+    order_numbers = _ordernumbers_for_roles(determiner_roles)
     created = 0
     unresolved: list[int] = []
-    for idx, actor_id in enumerate(actor_ids):
-        agent = _resolve_agent(owner, actor_id, agent_cache=agent_cache)
+    for role, order_number in zip(determiner_roles, order_numbers, strict=True):
+        agent = _resolve_agent(owner, role.actor_id, agent_cache=agent_cache)
         if agent is None:
             stats.agent_unresolved += 1
-            unresolved.append(int(actor_id))
+            unresolved.append(int(role.actor_id))
             continue
         stats.agent_matched += 1
         try:
             Determiner.objects.create(
                 agent=agent,
                 determination=determination,
-                isprimary=(created == 0),
-                ordernumber=created + 1,
+                yesno1=role.is_scr,
+                ordernumber=order_number,
             )
             created += 1
         except Exception as exc:  # noqa: BLE001
-            unresolved.append(int(actor_id))
+            unresolved.append(int(role.actor_id))
             _log(
                 "warning",
                 "object_id=%s: determiner link failed actor_id=%s: %s",
                 object_id,
-                actor_id,
+                role.actor_id,
                 exc,
             )
     return created, unresolved
@@ -1938,20 +1932,14 @@ def _write_one_object(
     collecting_row = _select_primary_collecting_row(rows)
     owner = config.oracle_schema
     collecting_event_id = collecting_row.get("event_id") if collecting_row else None
-    primary_collector_actor_id: int | None = None
-    collector_actor_ids: list[int] = []
+    collector_roles: list[EventPersonRole] = []
     if collecting_event_id is not None:
-        collector_actor_ids = _fetch_collector_actor_ids_for_event(
+        collector_roles = _fetch_collector_roles(
             oracle_cursor, owner, int(collecting_event_id)
         )
-        if collector_actor_ids:
-            primary_collector_actor_id = collector_actor_ids[0]
 
     legnr_rows = _fetch_legnr_rows(oracle_cursor, owner, object_id)
-    field_number, legnr_resolution = resolve_field_number_from_legnr_rows(
-        legnr_rows,
-        primary_actor_id=primary_collector_actor_id,
-    )
+    legnr_for_actor = legnr_by_actor(legnr_rows)
     musit_object_number = coerce_musit_identifier_num(obj_row.get("identifier_num"))
 
     literature_bundle = (literature_by_object or {}).get(object_id) or {
@@ -2056,13 +2044,11 @@ def _write_one_object(
         },
         "unmapped": unmapped,
         "classification_sensu_outliers": classification_sensu_outliers(rows),
-        "field_number": {
+        "legnr": {
             "musit_identifier_num": musit_object_number,
             "specify_integer1": musit_object_number,
-            "specify_fieldnumber": field_number,
             "legnr_rows": legnr_rows,
-            "legnr_resolution": legnr_resolution,
-            "primary_collector_actor_id": primary_collector_actor_id,
+            "legnr_by_actor": legnr_for_actor,
         },
         "collecting_event_candidates": _collecting_event_candidates(rows),
         "locality_candidates": locality_candidates,
@@ -2190,13 +2176,12 @@ def _write_one_object(
         if collecting_event_id is not None:
             collectors_created = _attach_collectors_to_collecting_event(
                 owner=owner,
-                collecting_event_id=int(collecting_event_id),
                 ce=ce,
-                oracle_cursor=oracle_cursor,
                 object_id=object_id,
                 stats=stats,
                 agent_cache=agent_cache,
-                actor_ids=collector_actor_ids,
+                collector_roles=collector_roles,
+                legnr_for_actor=legnr_for_actor,
             )
         if collectors_created == 0 and collector_str:
             fallback_remarks = ce_kwargs.get("remarks") or ""
@@ -2262,7 +2247,6 @@ def _write_one_object(
             text6=_trunc(obj_row.get("same_sheet_as"), 255), # Same sheet as
             text7=_trunc(obj_row.get("analysis_request"), 255), # Analysis request
             text8=admin_text,                                # Administrative (MUSIT) audit
-            fieldnumber=_trunc(field_number, 50),
             integer1=musit_object_number,
             altcatalognumber=_trunc(obj_row.get("artsobs_nr"), 32),
             countamt=obj_row.get("number_of_sheets"),
@@ -2423,7 +2407,7 @@ def _write_one_object(
                             )
 
                 # Determiners: MUSIT roles on classification (determination) event(s).
-                det_actor_ids = _classification_determiner_actor_ids_for_det_key(
+                determiner_roles = _classification_determiner_roles_for_det_key(
                     det_rows_all, det_key, oracle_cursor, owner
                 )
                 det_date = _coerce_date(dr.get("class_from_date")) or _coerce_date(
@@ -2474,7 +2458,7 @@ def _write_one_object(
                     object_id=object_id,
                     stats=stats,
                     agent_cache=agent_cache,
-                    actor_ids=det_actor_ids,
+                    determiner_roles=determiner_roles,
                 )
                 unresolved_det_names: list[str] = []
                 if unresolved_det_actor_ids:

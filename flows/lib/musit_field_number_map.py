@@ -20,6 +20,21 @@ def coerce_musit_identifier_num(value: Any) -> int | None:
     return int(num)
 
 
+def legnr_by_actor(rows: list[dict[str, Any]]) -> dict[int, str]:
+    """Build ``{actor_id: legnr}`` from ``MUSEUM_OBJECT_LEGNR_PERSON`` rows."""
+    out: dict[int, str] = {}
+    for row in rows:
+        actor_id = row.get("actor_id")
+        legnr = row.get("legnr")
+        if actor_id is None or legnr is None:
+            continue
+        text = str(legnr).strip()
+        if not text:
+            continue
+        out[int(actor_id)] = text
+    return out
+
+
 def resolve_field_number_from_legnr_rows(
     rows: list[dict[str, Any]],
     *,
