@@ -2446,6 +2446,7 @@ def _write_one_object(
                     text3=infraspes_name,
                     text4=infraspes_rank,
                     text5=hybrid_parents_text,
+                    text6=_trunc(dr.get("class_time_as_text"), 128),
                     addendum=_trunc(sensu_addendum, 16),
                     yesno1=True if is_hybrid else None,
                     determineddate=det_datetime,
