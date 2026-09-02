@@ -25,6 +25,8 @@ Design constraints
 * Typification metadata (type status, designators, year, note) is stored on
   ``CollectionObject`` (``restrictions``, ``agent1``, ``cataloger``, ``integer2``,
   ``reservedtext3``).
+* MUSIT ``OBJECT_ATTRIBUTES.UUID`` → ``CollectionObject.reservedText`` (labelled
+  UUID in forms). Not ``uniqueIdentifier`` — many O-V objects share the same UUID.
 * Each specimen is wrapped in ``transaction.atomic`` so partial failures roll back
   cleanly without leaving orphan records.
 * Idempotent / resumable: before each object is migrated, the loader checks
@@ -2234,7 +2236,9 @@ def _write_one_object(
         co = Collectionobject(
             catalognumber=_trunc(obj_row.get("identifier_string"), 32),
             guid=f"urn:oracle:{owner.lower()}:object:{object_id}"[:128],
-            uniqueidentifier=musit_uuid,
+            # MUSIT OBJECT_ATTRIBUTES.UUID — stored on reservedText (not uniqueIdentifier)
+            # because many O-V objects share the same UUID (sibling sheets / media groups).
+            reservedtext=musit_uuid,
             collectingevent=ce,
             collection=collection,
             collectionmemberid=int(collection.id),

@@ -345,8 +345,8 @@ class SpecifyAdapter:
         return _str(value) if value is not None else ""
 
     @property
-    def unique_identifier(self) -> str:
-        return _str(self._co.get("uniqueidentifier"))
+    def musit_uuid(self) -> str:
+        return _str(self._co.get("reservedtext"))
 
     @property
     def remarks(self) -> str:
@@ -484,9 +484,9 @@ def run_checks(oracle: OracleAdapter, specify: SpecifyAdapter) -> list[CheckResu
     else:
         chk("catalog_number_match", "FAIL", ov=oc, sv=sc)
 
-    # 3. uuid → uniqueIdentifier
+    # 3. uuid → CollectionObject.reservedText (MUSIT UUID; not uniqueIdentifier)
     o_uuid = oracle.uuid
-    s_uuid = specify.unique_identifier
+    s_uuid = specify.musit_uuid
     if not o_uuid:
         chk("uuid_match", "SKIP", detail="Oracle UUID is null")
     elif o_uuid.lower() == s_uuid.lower():
@@ -784,7 +784,7 @@ def render_markdown(
     lines.append("| Field | Oracle source | Specify sink | Match |")
     lines.append("|---|---|---|---|")
     lines.append(f"| catalog_number | {oracle.catalog_number} | {specify.catalog_number} | {_match_icon(oracle.catalog_number, specify.catalog_number)} |")
-    lines.append(f"| uuid / uniqueIdentifier | {oracle.uuid or '—'} | {specify.unique_identifier or '—'} | {_match_icon(oracle.uuid.lower() if oracle.uuid else '', specify.unique_identifier.lower() if specify.unique_identifier else '')} |")
+    lines.append(f"| uuid / reservedText | {oracle.uuid or '—'} | {specify.musit_uuid or '—'} | {_match_icon(oracle.uuid.lower() if oracle.uuid else '', specify.musit_uuid.lower() if specify.musit_uuid else '')} |")
     lines.append(f"| identifier_num / integer1 | {oracle.identifier_num or '—'} | {specify.integer1 or '—'} | {_match_icon(oracle.identifier_num, specify.integer1)} |")
     lines.append(f"| legnr / fieldNumber | {oracle.legnr or '—'} | {specify.field_number or '—'} | {_match_icon(oracle.legnr, specify.field_number)} |")
     lines.append("")
