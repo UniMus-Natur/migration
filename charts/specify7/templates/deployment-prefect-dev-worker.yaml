@@ -37,6 +37,8 @@ spec:
             - --type
             - process
           env:
+            - name: GIT_TERMINAL_PROMPT
+              value: "0"
             {{- if .Values.prefect.server.enabled }}
             - name: PREFECT_API_URL
               value: "http://{{ include "specify7.fullname" . }}-prefect-server:4200/api"

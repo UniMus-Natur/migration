@@ -144,6 +144,10 @@ kubectl logs -f -l component=prefect-dev-worker
   Verify `S3_BUCKET`, credentials, endpoint/region, and path-style settings in your secret.
   For MinIO/proxy setups with `XAmzContentSHA256Mismatch`, set `S3_PAYLOAD_SIGNING_ENABLED=false`.
 
+- `git_clone` failed with `could not read Username for 'https://github.com'` / exit 128  
+  This is **not** a migration code bug and usually **not** a GitHub outage. The worker clones `https://github.com/UniMus-Natur/migration.git` (branch `dev`, with `specify7` submodule) on every flow run. Anonymous HTTPS from cluster egress IPs often hits GitHub rate limits; Git then tries to prompt for credentials and fails in a non-interactive pod (`No such device or address`).  
+  **Fix:** add a read-only `GITHUB_TOKEN` (PAT, `public_repo` scope) to `specify-secret`. `prefect.yaml` configures git to use it when present. Redeploy worker if you add `GIT_TERMINAL_PROMPT=0` via Helm. Then `prefect deploy --all` and retry the flow run.
+
 - `Process exited with status code -9` / `SIGKILL` / memory allocation message  
   The dev worker pod hit its cgroup memory limit (check `kubectl describe pod -l component=prefect-dev-worker` → Limits). Raise `prefect.devWorker.resources.limits.memory` in Helm and restart the deployment.
 
