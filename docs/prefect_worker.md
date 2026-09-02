@@ -146,7 +146,7 @@ kubectl logs -f -l component=prefect-dev-worker
 
 - `git_clone` failed with `could not read Username for 'https://github.com'` / exit 128  
   This is **not** a migration code bug and usually **not** a GitHub outage. The worker clones `https://github.com/UniMus-Natur/migration.git` (branch `dev`, with `specify7` submodule) on every flow run. Anonymous HTTPS from cluster egress IPs often hits GitHub rate limits; Git then tries to prompt for credentials and fails in a non-interactive pod (`No such device or address`).  
-  **Fix:** add a read-only `GITHUB_TOKEN` (PAT, `public_repo` scope) to `specify-secret`. `prefect.yaml` runs a `run_shell_script` pull step (`shell: true`) to configure git when the token is present. Redeploy worker if you add `GIT_TERMINAL_PROMPT=0` via Helm. Then `prefect deploy --all` and retry the flow run.
+  **Fix:** ensure `GITHUB_TOKEN` (read-only PAT, `public_repo` scope) is set in `specify-secret` on the prefect-dev-worker. `prefect.yaml` rewrites `https://github.com/` URLs to use it before `git_clone` (including the `specify7` submodule). Then `prefect deploy --all` and retry.
 
 - `Process exited with status code -9` / `SIGKILL` / memory allocation message  
   The dev worker pod hit its cgroup memory limit (check `kubectl describe pod -l component=prefect-dev-worker` → Limits). Raise `prefect.devWorker.resources.limits.memory` in Helm and restart the deployment.

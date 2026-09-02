@@ -10,14 +10,10 @@ push: null
 
 # pull section allows you to provide instructions for cloning this project in remote locations
 pull:
-  # Optional GITHUB_TOKEN in the worker env (specify-secret) avoids anonymous GitHub
-  # rate limits from cluster egress IPs. When unset, clone falls back to anonymous HTTPS.
+  # GITHUB_TOKEN (read-only PAT) must be in specify-secret on the prefect-dev-worker.
   - prefect.deployments.steps.run_shell_script:
       id: configure-git-auth
-      script: |
-        if [ -n "${GITHUB_TOKEN:-}" ]; then
-          git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
-        fi
+      script: git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
       shell: true
       stream_output: false
   - prefect.deployments.steps.git_clone:
