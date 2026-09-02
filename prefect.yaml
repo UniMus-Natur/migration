@@ -18,6 +18,7 @@ pull:
         if [ -n "${GITHUB_TOKEN:-}" ]; then
           git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
         fi
+      shell: true
       stream_output: false
   - prefect.deployments.steps.git_clone:
       id: clone-step
