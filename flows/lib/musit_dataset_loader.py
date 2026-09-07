@@ -838,13 +838,10 @@ def _ensure_geography_for_place(
         HierRow,
         _deepest_geography_for_place,
         _effective_parent_geography_for_untyped,
-        _fetch_place_text,
         _rank_items_by_name_lower,
-        _resolve_rank_item,
         _treedef_items_ordered_by_rank,
         ensure_deeper_geography_rank,
         ensure_norwegian_geography_ranks,
-        oracle_type_name_to_rank_item_name,
         rank_item_for_geography_row,
     )
     from flows.lib.oracle_geography_admin import should_alias_geography_to_parent
@@ -859,41 +856,17 @@ def _ensure_geography_for_place(
     if nr.get("error") and not dry_run:
         raise RuntimeError(f"GeographyTreeDef {geography_treedef_id}: {nr['error']}")
 
+    rows = _fetch_hierarchical_chain_rows_for_place(oracle_cursor, owner, place_id)
+    if not rows:
+        # No PLACE_HIERACHICAL_PLACE / MV_HIERARKISK_STED chain — do **not** invent a
+        # Continent (or other rank) named after locality free text. Attach Locality to
+        # Earth; free text already lives on Locality.localityName and
+        # CollectingEvent.verbatimLocality.
+        return int(earth.id)
+
     rank_items = _rank_items_by_name_lower(geography_treedef_id)
     ordered_items = _treedef_items_ordered_by_rank(geography_treedef_id)
     guid_prefix = f"urn:oracle:{owner.lower()}:hpo:"
-
-    rows = _fetch_hierarchical_chain_rows_for_place(oracle_cursor, owner, place_id)
-    if not rows:
-        # No MV_HIERARKISK_STED chain for this PLACE_ID — attach a single leaf under Earth
-        # so Locality always has a valid Geography (Specify tree code requires numbered roots).
-        if dry_run:
-            return None
-        if len(ordered_items) < 2:
-            raise RuntimeError(
-                f"GeographyTreeDef {geography_treedef_id} has no ranks below Earth — cannot create place fallback."
-            )
-        agg, loc_text = _fetch_place_text(oracle_cursor, owner, place_id)
-        name = ((loc_text or agg or f"Place {place_id}").strip() or f"Place {place_id}")[:128]
-        guid = f"{guid_prefix}place{place_id}"
-        existing = Geography.objects.filter(definition_id=geography_treedef_id, guid=guid).first()
-        if existing is not None:
-            return int(existing.id)
-        leaf_di = ordered_items[1]
-        with transaction.atomic():
-            earth.refresh_from_db()
-            g = earth.children.create(
-                name=name,
-                fullname=None,
-                definition_id=geography_treedef_id,
-                definitionitem=leaf_di,
-                rankid=leaf_di.rankid,
-                isaccepted=True,
-                iscurrent=True,
-                guid=guid,
-            )
-        stats.geography_created += 1
-        return int(g.id)
 
     geo_cache: dict[int, Any] = {int(earth.id): earth}
 

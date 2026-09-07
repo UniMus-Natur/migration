@@ -173,6 +173,18 @@ deployments:
       name: dev-process
       work_queue_name: default
 
+  - name: cleanup-unplaced-place-geography-dev
+    version: 1.0.0
+    tags: ["specify", "geography", "locality", "maintenance", "dev"]
+    description: "Re-point Locality/placemap from legacy hpo:place* Continent placeholders onto Earth, then delete those Geography rows. Default dry_run."
+    entrypoint: flows/cleanup_unplaced_place_geography.py:cleanup_unplaced_place_geography_flow
+    parameters:
+      dry_run: true
+      geography_treedef_id: null
+    work_pool:
+      name: dev-process
+      work_queue_name: default
+
   - name: migrate-oslo-vascular-dev
     version: 1.0.0
     tags: ["specify", "specimens", "botany", "migration", "dev"]
