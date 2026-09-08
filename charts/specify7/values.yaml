@@ -179,6 +179,20 @@ reportRunner:
   service:
     port: 80
   resources: {}
+  # Jasper font-extension jar (https://github.com/specify/report-runner-service#fonts).
+  # Mounted at WEB-INF/lib so reports do not fall back to built-in PDF fonts.
+  # The jar (~7.6MiB) cannot live in a ConfigMap (1MiB etcd limit); copy it from
+  # a small image (see fonts/Dockerfile) into an emptyDir.
+  fontsJar:
+    enabled: false
+    image:
+      repository: ""
+      tag: ""
+      pullPolicy: IfNotPresent
+    sourcePath: /report-fonts.jar
+    mountPath: /var/lib/jetty/webapps/ROOT/WEB-INF/lib/report-fonts.jar
+  extraVolumes: []
+  extraVolumeMounts: []
 
 # Redis Sub-chart Configuration (Bitnami)
 redis:

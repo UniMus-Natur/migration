@@ -137,3 +137,16 @@ true
 false
 {{- end -}}
 {{- end -}}
+
+{{/*
+True when report-runner should copy a Jasper font-extension jar into WEB-INF/lib.
+The jar is too large for a ConfigMap (~7.6MiB vs 1MiB etcd limit), so it is
+copied from a container image into an emptyDir.
+*/}}
+{{- define "specify7.reportRunnerFontsJarEnabled" -}}
+{{- if and .Values.reportRunner.fontsJar.enabled .Values.reportRunner.fontsJar.image.repository -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end -}}

@@ -17,7 +17,28 @@ spec:
       labels:
         {{- include "specify7.selectorLabels" . | nindent 8 }}
         component: report-runner
+      {{- if eq (include "specify7.reportRunnerFontsJarEnabled" .) "true" }}
+      annotations:
+        checksum/fonts-jar: {{ printf "%s:%s:%s" .Values.reportRunner.fontsJar.image.repository (.Values.reportRunner.fontsJar.image.tag | default "latest") (.Values.reportRunner.fontsJar.sourcePath | default "/report-fonts.jar") | sha256sum }}
+      {{- end }}
     spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if eq (include "specify7.reportRunnerFontsJarEnabled" .) "true" }}
+      initContainers:
+        - name: copy-report-fonts
+          image: "{{ .Values.reportRunner.fontsJar.image.repository }}:{{ .Values.reportRunner.fontsJar.image.tag | default "latest" }}"
+          imagePullPolicy: {{ .Values.reportRunner.fontsJar.image.pullPolicy | default "IfNotPresent" }}
+          command:
+            - cp
+            - {{ .Values.reportRunner.fontsJar.sourcePath | default "/report-fonts.jar" | quote }}
+            - /target/report-fonts.jar
+          volumeMounts:
+            - name: report-fonts
+              mountPath: /target
+      {{- end }}
       containers:
         - name: report-runner
           image: "{{ .Values.reportRunner.image.repository }}:{{ .Values.reportRunner.image.tag | default "latest" }}"
@@ -31,6 +52,28 @@ spec:
             - secretRef:
                 name: {{ .Values.secrets.existingSecret }}
           {{- end }}
+          {{- if or (eq (include "specify7.reportRunnerFontsJarEnabled" .) "true") .Values.reportRunner.extraVolumeMounts }}
+          volumeMounts:
+            {{- if eq (include "specify7.reportRunnerFontsJarEnabled" .) "true" }}
+            - name: report-fonts
+              mountPath: {{ .Values.reportRunner.fontsJar.mountPath | default "/var/lib/jetty/webapps/ROOT/WEB-INF/lib/report-fonts.jar" | quote }}
+              subPath: report-fonts.jar
+              readOnly: true
+            {{- end }}
+            {{- with .Values.reportRunner.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
           resources:
             {{- toYaml .Values.reportRunner.resources | nindent 12 }}
+      {{- if or (eq (include "specify7.reportRunnerFontsJarEnabled" .) "true") .Values.reportRunner.extraVolumes }}
+      volumes:
+        {{- if eq (include "specify7.reportRunnerFontsJarEnabled" .) "true" }}
+        - name: report-fonts
+          emptyDir: {}
+        {{- end }}
+        {{- with .Values.reportRunner.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
 {{- end }}
