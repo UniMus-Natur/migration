@@ -257,6 +257,12 @@ def assert_compatible(report: CompatibilityReport, *, force: bool = False) -> No
 
 
 def _dump_cmd(ep: MariaDBEndpoint) -> list[str]:
+    """Dump one schema's objects without ``CREATE DATABASE`` / ``USE`` (cross-DB rename safe).
+
+    ``--databases`` would emit ``CREATE DATABASE `source``` and ``USE `source```, which
+    fails when the target user only has grants on a differently named DB (e.g. staging
+    ``specify`` → cloud ``norway``).
+    """
     dump = shutil.which("mariadb-dump") or shutil.which("mysqldump")
     if not dump:
         raise RuntimeError("mariadb-dump/mysqldump not found (install mariadb-client)")
@@ -273,12 +279,12 @@ def _dump_cmd(ep: MariaDBEndpoint) -> list[str]:
         "--hex-blob",
         "--add-drop-table",
         "--default-character-set=utf8mb4",
-        "--databases",
         ep.database,
     ]
 
 
 def _mysql_cmd(ep: MariaDBEndpoint) -> list[str]:
+    """Restore client connected to ``ep.database`` (objects land in that schema)."""
     client = shutil.which("mariadb") or shutil.which("mysql")
     if not client:
         raise RuntimeError("mariadb/mysql client not found (install mariadb-client)")
@@ -289,11 +295,16 @@ def _mysql_cmd(ep: MariaDBEndpoint) -> list[str]:
         f"--user={ep.user}",
         f"--password={ep.password}",
         "--default-character-set=utf8mb4",
+        ep.database,
     ]
 
 
 def stream_dump_restore(*, source: MariaDBEndpoint, target: MariaDBEndpoint) -> dict[str, Any]:
-    """Pipe ``mysqldump`` from ``source`` into ``mysql`` on ``target`` (destructive replace)."""
+    """Pipe ``mysqldump`` from ``source`` into ``mysql`` on ``target`` (destructive replace).
+
+    Source and target database *names* may differ; dump omits CREATE DATABASE and the
+    restore client selects ``target.database``.
+    """
     dump_cmd = _dump_cmd(source)
     restore_cmd = _mysql_cmd(target)
     logger.info(
@@ -339,14 +350,24 @@ def stream_dump_restore(*, source: MariaDBEndpoint, target: MariaDBEndpoint) -> 
         "dump_stderr_tail": dump_stderr.decode("utf-8", errors="replace")[-4000:],
         "restore_stderr_tail": restore_stderr.decode("utf-8", errors="replace")[-4000:],
         "restore_stdout_tail": restore_stdout.decode("utf-8", errors="replace")[-1000:],
+        "source_database": source.database,
+        "target_database": target.database,
     }
+    # Prefer restore stderr when dump dies with EPIPE/SIGPIPE (exit 5 / errno 32):
+    # that usually means the client rejected SQL and closed the pipe.
+    if restore_proc.returncode != 0:
+        raise RuntimeError(
+            f"mysql restore failed (exit {restore_proc.returncode}): "
+            f"{out['restore_stderr_tail'] or '(no stderr)'}"
+            + (
+                f" | dump also exited {dump_code}: {out['dump_stderr_tail']}"
+                if dump_code != 0
+                else ""
+            )
+        )
     if dump_code != 0:
         raise RuntimeError(
             f"mysqldump failed (exit {dump_code}): {out['dump_stderr_tail']}"
-        )
-    if restore_proc.returncode != 0:
-        raise RuntimeError(
-            f"mysql restore failed (exit {restore_proc.returncode}): {out['restore_stderr_tail']}"
         )
     out["message"] = "dump|restore completed"
     return out

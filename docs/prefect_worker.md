@@ -157,6 +157,8 @@ Flow: **Sync Specify DB to Test** / `sync-specify-db-to-test-dev`.
 
 Streams a full logical dump of the in-cluster staging MariaDB into the test database through an SSH LocalForward on the prefect-dev-worker. **Hard-fails** unless SHA-256 fingerprints of `information_schema.COLUMNS` for the app schema match, unless you pass `force=true` (intentional wipe-and-replace when the target was bootstrapped with different DDL). After a live restore, fingerprints must still match. `spversion` is logged for diagnostics but not required on the target (empty cloud DBs are OK).
 
+Dump omits `CREATE DATABASE` so source/target schema names may differ (e.g. staging `specify` → cloud `norway`); the restore client selects `TEST_DB_NAME`. The test DB user needs `ALL` on that schema only (not global `CREATE DATABASE`).
+
 Does **not** copy S3 attachments, Redis, or Oracle. Default `dry_run=true`, `force=false`.
 
 ### Setup

@@ -11,8 +11,25 @@ from flows.lib.mariadb_logical_sync import (
     SpVersionInfo,
     assert_compatible,
     assert_not_same_endpoint,
+    _dump_cmd,
+    _mysql_cmd,
 )
 from flows.lib.ssh_tunnel import SshTunnelConfig, _build_ssh_command, validate_ssh_tunnel_config
+
+
+class DumpRestoreCommandTests(unittest.TestCase):
+    def test_dump_omits_databases_flag_for_rename(self) -> None:
+        ep = MariaDBEndpoint("h", 3306, "specify", "u", "p")
+        with patch("flows.lib.mariadb_logical_sync.shutil.which", return_value="/bin/mariadb-dump"):
+            cmd = _dump_cmd(ep)
+        self.assertNotIn("--databases", cmd)
+        self.assertEqual(cmd[-1], "specify")
+
+    def test_restore_selects_target_database(self) -> None:
+        ep = MariaDBEndpoint("h", 3306, "norway", "u", "p")
+        with patch("flows.lib.mariadb_logical_sync.shutil.which", return_value="/bin/mariadb"):
+            cmd = _mysql_cmd(ep)
+        self.assertEqual(cmd[-1], "norway")
 
 
 class AssertNotSameEndpointTests(unittest.TestCase):
