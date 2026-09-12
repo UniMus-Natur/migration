@@ -62,7 +62,8 @@ class CompatibilityReport:
 
     @property
     def compatible(self) -> bool:
-        return self.versions_match and self.schemas_match
+        # Gate is schema fingerprint only; spversion is informational (target may be empty).
+        return self.schemas_match
 
 
 def staging_endpoint_from_env() -> MariaDBEndpoint:
@@ -143,6 +144,7 @@ def _connect(ep: MariaDBEndpoint):
 
 
 def read_spversion(ep: MariaDBEndpoint) -> SpVersionInfo:
+    """Read ``spversion`` if present; empty DBs return zero rows without failing."""
     with _connect(ep) as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -151,7 +153,13 @@ def read_spversion(ep: MariaDBEndpoint) -> SpVersionInfo:
             )
             rows = cur.fetchall()
     if not rows:
-        raise RuntimeError(f"{ep.label}: spversion has no rows")
+        logger.info("%s: spversion has no rows (empty or uninitialized)", ep.label)
+        return SpVersionInfo(
+            app_version="",
+            schema_version="",
+            workbench_schema_version="",
+            row_count=0,
+        )
     if len(rows) != 1:
         logger.warning("%s: spversion has %s rows; using first", ep.label, len(rows))
     app, schema, wb = rows[0]
@@ -232,18 +240,11 @@ def compatibility_report_dict(report: CompatibilityReport) -> dict[str, Any]:
 def assert_compatible(report: CompatibilityReport) -> None:
     if report.compatible:
         return
-    parts: list[str] = []
-    if not report.versions_match:
-        parts.append(
-            f"spversion mismatch source={report.source_version.as_tuple()!r} "
-            f"target={report.target_version.as_tuple()!r}"
-        )
-    if not report.schemas_match:
-        parts.append(
-            f"schema fingerprint mismatch source={report.source_schema_fingerprint} "
-            f"target={report.target_schema_fingerprint}"
-        )
-    raise RuntimeError("Compatibility gate failed: " + "; ".join(parts))
+    raise RuntimeError(
+        "Compatibility gate failed: schema fingerprint mismatch "
+        f"source={report.source_schema_fingerprint} "
+        f"target={report.target_schema_fingerprint}"
+    )
 
 
 def _dump_cmd(ep: MariaDBEndpoint) -> list[str]:

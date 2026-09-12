@@ -188,7 +188,7 @@ deployments:
   - name: sync-specify-db-to-test-dev
     version: 1.0.0
     tags: ["specify", "mariadb", "maintenance", "dev", "test"]
-    description: "Stream full logical dump of staging Specify MariaDB into test via SSH bastion LocalForward. Hard-fails unless spversion + schema fingerprint match. Default dry_run."
+    description: "Stream full logical dump of staging Specify MariaDB into test via SSH bastion LocalForward. Hard-fails unless schema fingerprints match (spversion is informational). Default dry_run."
     entrypoint: flows/sync_specify_db_to_test.py:sync_specify_db_to_test_flow
     parameters:
       dry_run: true

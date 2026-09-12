@@ -53,13 +53,25 @@ class CompatibilityGateTests(unittest.TestCase):
             schemas_match=schemas,
         )
 
-    def test_compatible_ok(self) -> None:
-        assert_compatible(self._report(versions=True, schemas=True))
+    def test_compatible_when_fingerprints_match(self) -> None:
+        # spversion mismatch is ignored; fingerprint is the gate.
+        assert_compatible(self._report(versions=False, schemas=True))
 
-    def test_version_mismatch_fails(self) -> None:
-        with self.assertRaises(RuntimeError) as ctx:
-            assert_compatible(self._report(versions=False, schemas=True))
-        self.assertIn("spversion mismatch", str(ctx.exception))
+    def test_empty_target_version_ok_if_fingerprint_matches(self) -> None:
+        empty = SpVersionInfo("", "", "", 0)
+        report = CompatibilityReport(
+            source_version=SpVersionInfo("6.8.03", "2.10", "", 1),
+            target_version=empty,
+            source_schema_fingerprint="aaa",
+            target_schema_fingerprint="aaa",
+            source_table_count=1,
+            target_table_count=1,
+            source_approx_data_bytes=1,
+            target_approx_data_bytes=0,
+            versions_match=False,
+            schemas_match=True,
+        )
+        assert_compatible(report)
 
     def test_schema_mismatch_fails(self) -> None:
         with self.assertRaises(RuntimeError) as ctx:

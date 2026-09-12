@@ -88,7 +88,8 @@ def sync_specify_db_to_test_task(*, dry_run: bool) -> dict[str, Any]:
 def sync_specify_db_to_test_flow(dry_run: bool = True) -> dict[str, Any]:
     """Full logical dump of staging Specify DB into test through an SSH bastion tunnel.
 
-    Hard-fails unless ``spversion`` and ``information_schema`` fingerprints match.
+    Hard-fails unless ``information_schema`` column fingerprints match.
+    ``spversion`` is reported for diagnostics but not required on the target.
     Default ``dry_run=True`` only opens the tunnel and runs the gate.
     """
     logger = get_run_logger()

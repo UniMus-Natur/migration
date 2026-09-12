@@ -155,10 +155,7 @@ kubectl logs -f -l component=prefect-dev-worker
 
 Flow: **Sync Specify DB to Test** / `sync-specify-db-to-test-dev`.
 
-Streams a full logical dump of the in-cluster staging MariaDB into the test database through an SSH LocalForward on the prefect-dev-worker. **Hard-fails** unless:
-
-1. `spversion` (`AppVersion`, `SchemaVersion`, `WorkbenchSchemaVersion`) matches on both sides, and  
-2. SHA-256 fingerprints of `information_schema.COLUMNS` for the app schema match.
+Streams a full logical dump of the in-cluster staging MariaDB into the test database through an SSH LocalForward on the prefect-dev-worker. **Hard-fails** unless SHA-256 fingerprints of `information_schema.COLUMNS` for the app schema match. `spversion` is logged for diagnostics but not required on the target (empty cloud DBs are OK).
 
 Does **not** copy S3 attachments, Redis, or Oracle. Default `dry_run=true`.
 
