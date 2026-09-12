@@ -78,6 +78,9 @@ class CompatibilityGateTests(unittest.TestCase):
             assert_compatible(self._report(versions=True, schemas=False))
         self.assertIn("schema fingerprint mismatch", str(ctx.exception))
 
+    def test_schema_mismatch_force_bypasses(self) -> None:
+        assert_compatible(self._report(versions=True, schemas=False), force=True)
+
 
 class SshCommandTests(unittest.TestCase):
     def test_build_includes_local_forward(self) -> None:

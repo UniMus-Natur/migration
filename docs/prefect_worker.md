@@ -155,9 +155,9 @@ kubectl logs -f -l component=prefect-dev-worker
 
 Flow: **Sync Specify DB to Test** / `sync-specify-db-to-test-dev`.
 
-Streams a full logical dump of the in-cluster staging MariaDB into the test database through an SSH LocalForward on the prefect-dev-worker. **Hard-fails** unless SHA-256 fingerprints of `information_schema.COLUMNS` for the app schema match. `spversion` is logged for diagnostics but not required on the target (empty cloud DBs are OK).
+Streams a full logical dump of the in-cluster staging MariaDB into the test database through an SSH LocalForward on the prefect-dev-worker. **Hard-fails** unless SHA-256 fingerprints of `information_schema.COLUMNS` for the app schema match, unless you pass `force=true` (intentional wipe-and-replace when the target was bootstrapped with different DDL). After a live restore, fingerprints must still match. `spversion` is logged for diagnostics but not required on the target (empty cloud DBs are OK).
 
-Does **not** copy S3 attachments, Redis, or Oracle. Default `dry_run=true`.
+Does **not** copy S3 attachments, Redis, or Oracle. Default `dry_run=true`, `force=false`.
 
 ### Setup
 
@@ -183,7 +183,10 @@ sshKeyMountPath: "/var/secrets/test-db-ssh"
 
 ```bash
 prefect deployment run "Sync Specify DB to Test/sync-specify-db-to-test-dev" -p dry_run=true
-# after gates look good (maintenance window on test):
+# first sync when test DDL differs from staging (empty Django bootstrap, etc.):
+prefect deployment run "Sync Specify DB to Test/sync-specify-db-to-test-dev" \
+  -p dry_run=false -p force=true
+# later syncs once fingerprints already match:
 prefect deployment run "Sync Specify DB to Test/sync-specify-db-to-test-dev" -p dry_run=false
 ```
 

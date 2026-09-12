@@ -237,14 +237,23 @@ def compatibility_report_dict(report: CompatibilityReport) -> dict[str, Any]:
     return d
 
 
-def assert_compatible(report: CompatibilityReport) -> None:
+def assert_compatible(report: CompatibilityReport, *, force: bool = False) -> None:
+    """Fail on schema fingerprint mismatch unless ``force`` bypasses the gate.
+
+    Use ``force=True`` only for intentional wipe-and-replace when the target was
+    bootstrapped with a different DDL shape (e.g. empty Django-created schema).
+    """
     if report.compatible:
         return
-    raise RuntimeError(
+    msg = (
         "Compatibility gate failed: schema fingerprint mismatch "
         f"source={report.source_schema_fingerprint} "
         f"target={report.target_schema_fingerprint}"
     )
+    if force:
+        logger.warning("force=True: bypassing schema fingerprint gate (%s)", msg)
+        return
+    raise RuntimeError(msg)
 
 
 def _dump_cmd(ep: MariaDBEndpoint) -> list[str]:
