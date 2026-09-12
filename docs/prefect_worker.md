@@ -151,6 +151,45 @@ kubectl logs -f -l component=prefect-dev-worker
 - `Process exited with status code -9` / `SIGKILL` / memory allocation message  
   The dev worker pod hit its cgroup memory limit (check `kubectl describe pod -l component=prefect-dev-worker` → Limits). Raise `prefect.devWorker.resources.limits.memory` in Helm and restart the deployment.
 
+## Sync staging DB → test (SSH tunnel)
+
+Flow: **Sync Specify DB to Test** / `sync-specify-db-to-test-dev`.
+
+Streams a full logical dump of the in-cluster staging MariaDB into the test database through an SSH LocalForward on the prefect-dev-worker. **Hard-fails** unless:
+
+1. `spversion` (`AppVersion`, `SchemaVersion`, `WorkbenchSchemaVersion`) matches on both sides, and  
+2. SHA-256 fingerprints of `information_schema.COLUMNS` for the app schema match.
+
+Does **not** copy S3 attachments, Redis, or Oracle. Default `dry_run=true`.
+
+### Setup
+
+1. Rebuild the migration image so it includes `openssh-client` (see root `Dockerfile`), roll the prefect-dev-worker.
+2. Create a key secret and enable the Helm mount:
+
+```bash
+kubectl create secret generic specify-test-db-ssh --from-file=id_ed25519=./id_ed25519
+```
+
+In Helm values (`prefect.devWorker`):
+
+```yaml
+sshKeySecret: "specify-test-db-ssh"
+sshKeySecretKey: "id_ed25519"
+sshKeyMountPath: "/var/secrets/test-db-ssh"
+```
+
+3. Put bastion + test DB settings in `specify-secret` (see `example.env` section *Sync staging Specify DB → test*). The chart sets `TEST_DB_SSH_PRIVATE_KEY_PATH` when `sshKeySecret` is set.
+4. Test DB user needs privileges to replace objects in `TEST_DB_NAME` (`DROP`/`CREATE` table, routines, etc.).
+
+### Run
+
+```bash
+prefect deployment run "Sync Specify DB to Test/sync-specify-db-to-test-dev" -p dry_run=true
+# after gates look good (maintenance window on test):
+prefect deployment run "Sync Specify DB to Test/sync-specify-db-to-test-dev" -p dry_run=false
+```
+
 ## Practical Tips
 
 - Use explicit image tags (not only `latest`) for reproducibility.

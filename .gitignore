@@ -49,3 +49,5 @@ config/local_specify_settings.py
 tmp/
 *.tmp
 *.bak
+
+secrets/

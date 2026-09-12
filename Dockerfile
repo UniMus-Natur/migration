@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y \
     libsasl2-dev \
     iputils-ping \
     socat \
+    openssh-client \
     openssh-server \
     unzip \
     && rm -rf /var/lib/apt/lists/* \

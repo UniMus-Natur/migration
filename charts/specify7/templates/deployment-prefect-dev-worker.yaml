@@ -48,11 +48,28 @@ spec:
             - name: ASSET_SERVER_INTERNAL_BASE
               value: "http://{{ include "specify7.fullname" . }}-asset-server"
             {{- end }}
+            {{- if .Values.prefect.devWorker.sshKeySecret }}
+            - name: TEST_DB_SSH_PRIVATE_KEY_PATH
+              value: "{{ .Values.prefect.devWorker.sshKeyMountPath }}/{{ .Values.prefect.devWorker.sshKeySecretKey }}"
+            {{- end }}
           {{- if .Values.secrets.existingSecret }}
           envFrom:
             - secretRef:
                 name: {{ .Values.secrets.existingSecret }}
           {{- end }}
+          {{- if .Values.prefect.devWorker.sshKeySecret }}
+          volumeMounts:
+            - name: test-db-ssh-key
+              mountPath: {{ .Values.prefect.devWorker.sshKeyMountPath | quote }}
+              readOnly: true
+          {{- end }}
           resources:
             {{- toYaml .Values.prefect.devWorker.resources | nindent 12 }}
+      {{- if .Values.prefect.devWorker.sshKeySecret }}
+      volumes:
+        - name: test-db-ssh-key
+          secret:
+            secretName: {{ .Values.prefect.devWorker.sshKeySecret | quote }}
+            defaultMode: 0400
+      {{- end }}
 {{- end }}
