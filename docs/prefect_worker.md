@@ -144,8 +144,53 @@ kubectl logs -f -l component=prefect-dev-worker
   Verify `S3_BUCKET`, credentials, endpoint/region, and path-style settings in your secret.
   For MinIO/proxy setups with `XAmzContentSHA256Mismatch`, set `S3_PAYLOAD_SIGNING_ENABLED=false`.
 
+- `git_clone` failed with `could not read Username for 'https://github.com'` / exit 128  
+  This is **not** a migration code bug and usually **not** a GitHub outage. The worker clones `https://github.com/UniMus-Natur/migration.git` (branch `dev`, with `specify7` submodule) on every flow run. Anonymous HTTPS from cluster egress IPs often hits GitHub rate limits; Git then tries to prompt for credentials and fails in a non-interactive pod (`No such device or address`).  
+  **Fix:** ensure `GITHUB_TOKEN` (read-only PAT, `public_repo` scope) is set in `specify-secret` on the prefect-dev-worker. `prefect.yaml` rewrites `https://github.com/` URLs to use it before `git_clone` (including the `specify7` submodule). Then `prefect deploy --all` and retry.
+
 - `Process exited with status code -9` / `SIGKILL` / memory allocation message  
   The dev worker pod hit its cgroup memory limit (check `kubectl describe pod -l component=prefect-dev-worker` → Limits). Raise `prefect.devWorker.resources.limits.memory` in Helm and restart the deployment.
+
+## Sync staging DB → test (SSH tunnel)
+
+Flow: **Sync Specify DB to Test** / `sync-specify-db-to-test-dev`.
+
+Streams a full logical dump of the in-cluster staging MariaDB into the test database through an SSH LocalForward on the prefect-dev-worker. **Hard-fails** unless SHA-256 fingerprints of `information_schema.COLUMNS` for the app schema match, unless you pass `force=true` (intentional wipe-and-replace when the target was bootstrapped with different DDL). After a live restore, fingerprints must still match. `spversion` is logged for diagnostics but not required on the target (empty cloud DBs are OK).
+
+Dump omits `CREATE DATABASE` so source/target schema names may differ (e.g. staging `specify` → cloud `norway`); the restore client selects `TEST_DB_NAME`. The test DB user needs `ALL` on that schema only (not global `CREATE DATABASE`).
+
+Does **not** copy S3 attachments, Redis, or Oracle. Default `dry_run=true`, `force=false`.
+
+### Setup
+
+1. Rebuild the migration image so it includes `openssh-client` (see root `Dockerfile`), roll the prefect-dev-worker.
+2. Create a key secret and enable the Helm mount:
+
+```bash
+kubectl create secret generic specify-test-db-ssh --from-file=id_ed25519=./id_ed25519
+```
+
+In Helm values (`prefect.devWorker`):
+
+```yaml
+sshKeySecret: "specify-test-db-ssh"
+sshKeySecretKey: "id_ed25519"
+sshKeyMountPath: "/var/secrets/test-db-ssh"
+```
+
+3. Put bastion + test DB settings in `specify-secret` (see `example.env` section *Sync staging Specify DB → test*). The chart sets `TEST_DB_SSH_PRIVATE_KEY_PATH` when `sshKeySecret` is set.
+4. Test DB user needs privileges to replace objects in `TEST_DB_NAME` (`DROP`/`CREATE` table, routines, etc.).
+
+### Run
+
+```bash
+prefect deployment run "Sync Specify DB to Test/sync-specify-db-to-test-dev" -p dry_run=true
+# first sync when test DDL differs from staging (empty Django bootstrap, etc.):
+prefect deployment run "Sync Specify DB to Test/sync-specify-db-to-test-dev" \
+  -p dry_run=false -p force=true
+# later syncs once fingerprints already match:
+prefect deployment run "Sync Specify DB to Test/sync-specify-db-to-test-dev" -p dry_run=false
+```
 
 ## Practical Tips
 

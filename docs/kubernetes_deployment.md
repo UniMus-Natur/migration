@@ -59,3 +59,36 @@ helm install staging ./charts/specify7 \
 | `mariadb.enabled` | Enable the bundled MariaDB | `true` |
 | `specify.database` | Database connection (auto-configured if mariadb enabled) | `mariadb` |
 | `specify.secretKey` | Django Secret Key | `change-me...` |
+| `reportRunner.fontsJar` | Jasper font-extension jar for labels/reports | `enabled: false` |
+
+## Report fonts
+
+The [report-runner service](https://github.com/specify/report-runner-service#fonts) uses built-in PDF fonts unless a Jasper font-extension jar is mounted at:
+
+```
+/var/lib/jetty/webapps/ROOT/WEB-INF/lib/report-fonts.jar
+```
+
+That is the Docker volume equivalent of:
+
+```
+-v ./report-fonts.jar:/var/lib/jetty/webapps/ROOT/WEB-INF/lib/report-fonts.jar
+```
+
+The jar in `fonts/report-fonts.jar` is ~7.6MiB, so it **cannot** be stored in a Kubernetes ConfigMap (1MiB etcd limit). The chart copies it from a tiny image (`fonts/Dockerfile`) into an `emptyDir`, then bind-mounts the file into Jetty.
+
+1. Commit and push `fonts/report-fonts.jar` (Kaniko builds from the remote branch).
+2. Build and push the image:
+
+   ```bash
+   ./scripts/build-report-fonts-k8s.sh
+   ```
+
+   Staging values expect `ghcr.io/unimus-natur/report-fonts:latest`.
+3. Enable `reportRunner.fontsJar` (already on in `staging.values.yaml`) and upgrade:
+
+   ```bash
+   helm upgrade staging ./charts/specify7 -f charts/specify7/staging.values.yaml
+   ```
+
+Make the GHCR package visible to the cluster the same way as `migration` / `migration-harness` (`ghcr-secret` plus package visibility).

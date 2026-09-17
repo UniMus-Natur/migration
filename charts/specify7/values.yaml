@@ -179,6 +179,20 @@ reportRunner:
   service:
     port: 80
   resources: {}
+  # Jasper font-extension jar (https://github.com/specify/report-runner-service#fonts).
+  # Mounted at WEB-INF/lib so reports do not fall back to built-in PDF fonts.
+  # The jar (~7.6MiB) cannot live in a ConfigMap (1MiB etcd limit); copy it from
+  # a small image (see fonts/Dockerfile) into an emptyDir.
+  fontsJar:
+    enabled: false
+    image:
+      repository: ""
+      tag: ""
+      pullPolicy: IfNotPresent
+    sourcePath: /report-fonts.jar
+    mountPath: /var/lib/jetty/webapps/ROOT/WEB-INF/lib/report-fonts.jar
+  extraVolumes: []
+  extraVolumeMounts: []
 
 # Redis Sub-chart Configuration (Bitnami)
 redis:
@@ -276,6 +290,12 @@ prefect:
       limits:
         cpu: 1000m
         memory: 2Gi
+    # Optional: mount a private key for SSH LocalForward to the test MariaDB bastion
+    # (sync-specify-db-to-test flow). Create a Secret with key `id_ed25519` (or set keyName).
+    # Example: kubectl create secret generic specify-test-db-ssh --from-file=id_ed25519=./id_ed25519
+    sshKeySecret: ""
+    sshKeySecretKey: "id_ed25519"
+    sshKeyMountPath: "/var/secrets/test-db-ssh"
 
 # App network policies
 networkPolicy:
