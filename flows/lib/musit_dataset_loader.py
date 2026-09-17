@@ -1805,6 +1805,7 @@ def _attach_collectors_to_collecting_event(
                 agent=agent,
                 collectingevent=ce,
                 text1=_trunc(legnr_map.get(role.actor_id), 255),
+                text2=_trunc(role.verbatim_name, 65535),
                 yesno1=role.is_scr,
                 ordernumber=order_number,
             )
@@ -1851,6 +1852,7 @@ def _attach_determiners_to_determination(
             Determiner.objects.create(
                 agent=agent,
                 determination=determination,
+                text1=_trunc(role.verbatim_name, 65535),
                 yesno1=role.is_scr,
                 ordernumber=order_number,
             )

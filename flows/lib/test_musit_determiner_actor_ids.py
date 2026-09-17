@@ -65,7 +65,10 @@ class MusitDeterminerActorIdsTests(unittest.TestCase):
 
     def test_fetch_event_person_roles_returns_actor_ids(self) -> None:
         cursor = MagicMock()
-        cursor.fetchall.return_value = [(11, 1, "DET"), (12, 2, "DETSCR")]
+        cursor.fetchall.return_value = [
+            (11, 1, "DET", 100, "Ruud", "Joh. Tidemand", None),
+            (12, 2, "DETSCR", 101, "Ruud", "J. Tid.", None),
+        ]
         roles = fetch_event_person_roles(
             cursor,
             "MUSIT_BOTANIKK_FELLES",
@@ -75,6 +78,9 @@ class MusitDeterminerActorIdsTests(unittest.TestCase):
         self.assertEqual([r.actor_id for r in roles], [11, 12])
         self.assertFalse(roles[0].is_scr)
         self.assertTrue(roles[1].is_scr)
+        self.assertEqual(roles[0].person_name_id, 100)
+        self.assertEqual(roles[0].verbatim_name, "Ruud, Joh. Tidemand")
+        self.assertEqual(roles[1].verbatim_name, "Ruud, J. Tid.")
         self.assertEqual(cursor.execute.call_count, 1)
 
     def test_classification_determiner_roles_stay_on_one_event(self) -> None:
@@ -97,13 +103,23 @@ class MusitDeterminerActorIdsTests(unittest.TestCase):
             },
         ]
         cursor = MagicMock()
-        cursor.fetchall.return_value = [(10, 1, "DET")]
+        cursor.fetchall.return_value = [
+            (10, 1, "DET", 55, "Ruud", "Johan Tidemand", None),
+        ]
         det_key = determination_dedupe_key(rows[0])
         self.assertEqual(
             classification_determiner_roles_for_det_key(
                 rows, det_key, cursor, "MUSIT_BOTANIKK_FELLES"
             ),
-            [EventPersonRole(actor_id=10, sorting_sequence=1, is_scr=False)],
+            [
+                EventPersonRole(
+                    actor_id=10,
+                    sorting_sequence=1,
+                    is_scr=False,
+                    person_name_id=55,
+                    verbatim_name="Ruud, Johan Tidemand",
+                )
+            ],
         )
 
 

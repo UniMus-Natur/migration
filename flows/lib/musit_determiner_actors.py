@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from flows.lib.musit_agent_variants import format_person_name_variant
+
 COLLECTOR_ROLE_TERMS: frozenset[str] = frozenset({"LEG", "LEGSCR"})
 DETERMINER_ROLE_TERMS: frozenset[str] = frozenset({"DET", "DETSCR"})
 SCR_ROLE_TERMS: frozenset[str] = frozenset({"LEGSCR", "DETSCR"})
@@ -17,6 +19,9 @@ class EventPersonRole:
     actor_id: int
     sorting_sequence: int | None
     is_scr: bool
+    # Exact MUSIT PERSON_NAME spelling used on this role (for Collector.text2 / Determiner.text1).
+    person_name_id: int | None = None
+    verbatim_name: str | None = None
 
 
 def _trunc(s: Any, max_len: int) -> str | None:
@@ -115,7 +120,11 @@ def fetch_event_person_roles(
         f"""
         SELECT pn.actor_id,
                erpn.sorting_sequence,
-               UPPER(r.roleterm) AS roleterm
+               UPPER(r.roleterm) AS roleterm,
+               erpn.person_name_id,
+               pn.person_surname,
+               pn.person_given_name,
+               pn.person_middle_name
           FROM {sch}.event_role_person_name erpn
           JOIN {sch}.person_name pn
             ON pn.person_name_id = erpn.person_name_id
@@ -131,7 +140,15 @@ def fetch_event_person_roles(
 
     ordered: list[EventPersonRole] = []
     seen: set[int] = set()
-    for actor_id, sorting_sequence, roleterm in oracle_cursor.fetchall():
+    for (
+        actor_id,
+        sorting_sequence,
+        roleterm,
+        person_name_id,
+        surname,
+        given,
+        middle,
+    ) in oracle_cursor.fetchall():
         if actor_id is None:
             continue
         aid = int(actor_id)
@@ -144,11 +161,18 @@ def fetch_event_person_roles(
         else:
             sort_val = int(sorting_sequence)
         role_upper = str(roleterm or "").strip().upper()
+        pn_id: int | None
+        if person_name_id is None:
+            pn_id = None
+        else:
+            pn_id = int(person_name_id)
         ordered.append(
             EventPersonRole(
                 actor_id=aid,
                 sorting_sequence=sort_val,
                 is_scr=role_upper in SCR_ROLE_TERMS,
+                person_name_id=pn_id,
+                verbatim_name=format_person_name_variant(surname, given, middle),
             )
         )
     return ordered

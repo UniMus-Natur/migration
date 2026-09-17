@@ -75,8 +75,8 @@ When `S3_BUCKET` is set:
 
 ## What this does **not** do
 
-- Does **not** change how Det/Leg **display** names on specimens (still the Agent primary name).
-- Does **not** link a determination/collector role to a specific variant (Specify has no such FK).
+- Does **not** change how Det/Leg **display** names on specimens (still the Agent primary name in the Agent control).
+- Does **not** link a determination/collector role to a specific `AgentVariant` (Specify has no such FK). Specimen migration stores the MUSIT `PERSON_NAME` spelling separately as **Verbatim name** on `Collector.text2` / `Determiner.text1`.
 - Does **not** use VarType Label Name (4); all alternates use Variant (0). Relabel in Schema Config if desired.
 
 ## Run

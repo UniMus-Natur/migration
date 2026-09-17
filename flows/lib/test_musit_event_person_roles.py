@@ -37,8 +37,8 @@ class MusitEventPersonRolesTests(unittest.TestCase):
     def test_fetch_event_person_roles_filters_and_marks_scr(self) -> None:
         cursor = MagicMock()
         cursor.fetchall.return_value = [
-            (39829, 1, "LEGSCR"),
-            (33926, 2, "LEG"),
+            (39829, 1, "LEGSCR", 501, "Ruud", "J. Tid.", None),
+            (33926, 2, "LEG", 502, "Ruud", "Joh. Tidemand", None),
         ]
         roles = fetch_event_person_roles(
             cursor,
@@ -49,12 +49,14 @@ class MusitEventPersonRolesTests(unittest.TestCase):
         self.assertEqual(len(roles), 2)
         self.assertTrue(roles[0].is_scr)
         self.assertFalse(roles[1].is_scr)
+        self.assertEqual(roles[0].verbatim_name, "Ruud, J. Tid.")
+        self.assertEqual(roles[1].verbatim_name, "Ruud, Joh. Tidemand")
 
     def test_fetch_event_person_roles_dedupes_actor_id(self) -> None:
         cursor = MagicMock()
         cursor.fetchall.return_value = [
-            (10, 1, "DET"),
-            (10, 2, "DETSCR"),
+            (10, 1, "DET", 11, "Ruud", "Joh. Tidemand", None),
+            (10, 2, "DETSCR", 12, "Ruud", "J. Tid.", None),
         ]
         roles = fetch_event_person_roles(
             cursor,
@@ -64,6 +66,8 @@ class MusitEventPersonRolesTests(unittest.TestCase):
         )
         self.assertEqual([r.actor_id for r in roles], [10])
         self.assertFalse(roles[0].is_scr)
+        # First occurrence wins (including its PERSON_NAME spelling).
+        self.assertEqual(roles[0].verbatim_name, "Ruud, Joh. Tidemand")
 
     def test_classification_determiner_roles_stay_on_one_event(self) -> None:
         rows = [
@@ -85,13 +89,23 @@ class MusitEventPersonRolesTests(unittest.TestCase):
             },
         ]
         cursor = MagicMock()
-        cursor.fetchall.return_value = [(10, 1, "DET")]
+        cursor.fetchall.return_value = [
+            (10, 1, "DET", 55, "Ruud", "Johan Tidemand", None),
+        ]
         det_key = determination_dedupe_key(rows[0])
         self.assertEqual(
             classification_determiner_roles_for_det_key(
                 rows, det_key, cursor, "MUSIT_BOTANIKK_FELLES"
             ),
-            [EventPersonRole(actor_id=10, sorting_sequence=1, is_scr=False)],
+            [
+                EventPersonRole(
+                    actor_id=10,
+                    sorting_sequence=1,
+                    is_scr=False,
+                    person_name_id=55,
+                    verbatim_name="Ruud, Johan Tidemand",
+                )
+            ],
         )
         self.assertEqual(
             classification_determiner_actor_ids_for_det_key(
