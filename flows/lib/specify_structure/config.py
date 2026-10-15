@@ -8,6 +8,24 @@ from typing import Any
 
 import yaml
 
+# Must match Specify DisciplineType picklist values and DISCIPLINE_DIRS keys
+# (specifyweb.backend.context.app_resource.DISCIPLINE_DIRS).
+VALID_DISCIPLINE_TYPES = frozenset(
+    {
+        "fish",
+        "herpetology",
+        "paleobotany",
+        "invertpaleo",
+        "vertpaleo",
+        "bird",
+        "mammal",
+        "insect",
+        "botany",
+        "invertebrate",
+        "geology",
+    }
+)
+
 
 @dataclass
 class TreeDefSpec:
@@ -78,6 +96,13 @@ def _discipline_from_mapping(raw: dict[str, Any]) -> DisciplineSpec:
         raise ValueError("discipline requires non-empty name")
     if not dtype:
         raise ValueError(f"discipline {name!r} requires non-empty type")
+    if dtype not in VALID_DISCIPLINE_TYPES:
+        allowed = ", ".join(sorted(VALID_DISCIPLINE_TYPES))
+        raise ValueError(
+            f"discipline {name!r}: type {dtype!r} is not a Specify DisciplineType "
+            f"picklist value (needed for DISCIPLINE_DIRS / disk defaults). "
+            f"Allowed: {allowed}"
+        )
     geo = _tree_from_mapping(raw.get("geography_tree") or raw.get("geographyTree"), default_name="Geography")
     tax = _tree_from_mapping(raw.get("taxon_tree") or raw.get("taxonTree"), default_name="Taxon")
     cols_raw = raw.get("collections") or []

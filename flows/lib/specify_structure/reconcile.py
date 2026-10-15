@@ -22,6 +22,7 @@ class ReconcileResult:
     divisions_skipped: int = 0
     disciplines_created: int = 0
     disciplines_skipped: int = 0
+    disciplines_type_updated: int = 0
     taxon_trees_created: int = 0
     collections_created: int = 0
     collections_skipped: int = 0
@@ -65,8 +66,10 @@ def _build_discipline_trees_payload(
 def reconcile_structure(config: StructureConfig, *, dry_run: bool = True) -> ReconcileResult:
     """Apply structure: create missing divisions, disciplines (with trees), and collections.
 
-    Idempotent: safe to re-run; existing rows are skipped. Discipline names are matched
-    globally (Specify constraint). Collections matched by (discipline_id, code).
+    Idempotent: safe to re-run; existing rows are skipped for create. Discipline
+    ``type`` is updated when an existing row disagrees with YAML (must be a stock
+    DisciplineType / DISCIPLINE_DIRS key). Discipline names are matched globally
+    (Specify constraint). Collections matched by (discipline_id, code).
 
     Callers must invoke ``setup_django()`` from ``flows.lib.specify_setup`` first so
     ``specifyweb`` is importable.
@@ -324,6 +327,26 @@ def reconcile_structure(config: StructureConfig, *, dry_run: bool = True) -> Rec
                         f"but YAML nests it under {div_spec.name!r} (id={div.id}). "
                         "Skipping discipline create; applying collections to the existing discipline row."
                     )
+                current_type = (disc.type or "").strip()
+                if current_type != dspec.type:
+                    if dry_run:
+                        result.disciplines_type_updated += 1
+                        logger.info(
+                            "Would update discipline %s type %r → %r",
+                            dspec.name,
+                            current_type,
+                            dspec.type,
+                        )
+                    else:
+                        disc.type = dspec.type
+                        disc.save(update_fields=["type"])
+                        result.disciplines_type_updated += 1
+                        logger.info(
+                            "Updated discipline %s type %r → %r",
+                            dspec.name,
+                            current_type,
+                            dspec.type,
+                        )
                 logger.info("Discipline exists: %s (id=%s)", dspec.name, disc.id)
             else:
                 if dry_run:

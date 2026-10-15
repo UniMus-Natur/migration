@@ -64,11 +64,15 @@ institution_name: "UniMus:Natur"
 divisions:
   Biology
     disciplines: Karplanter Moser (botany), Alger (botany), Lav Sopp (botany),
-                 Insekter (entomology), Marine invertebrater (invertebrate zoology),
-                 Pattedyr (vertebrate zoology), Fugl (vertebrate zoology),
-                 Fisk og herptiler (vertebrate zoology)
+                 Insekter (insect), Marine invertebrater (invertebrate),
+                 Pattedyr (mammal), Fugl (bird), Fisk og herptiler (fish)
   Geology/paleontology
     disciplines: Geologi (geology), Paleontologi (invertpaleo)
+
+`discipline.type` must be a Specify DisciplineType picklist value (`bird`,
+`insect`, `botany`, …). Those keys select `config/<folder>/` disk defaults via
+`DISCIPLINE_DIRS`. Re-running the flow updates a mismatched type on an existing
+discipline row.
 
 collections per discipline: NHM, UM, UTM, VM, NBH
 ```

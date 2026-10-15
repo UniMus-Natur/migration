@@ -2,7 +2,15 @@
 # Sync with: flows/sync_specify_structure.py
 #
 # institution_name: must match an existing Institution row.
-# divisions / disciplines / collections: additive only (create-if-missing).
+# divisions / disciplines / collections: additive only (create-if-missing);
+# discipline.type is reconciled (updated if wrong).
+#
+# discipline.type MUST be a Specify DisciplineType picklist value — these are
+# the keys in specifyweb.backend.context.app_resource.DISCIPLINE_DIRS and select
+# which config/<folder>/ disk defaults (forms, express search, …) apply:
+#
+#   fish | herpetology | paleobotany | invertpaleo | vertpaleo
+#   bird | mammal | insect | botany | invertebrate | geology
 
 institution_name: "UniMus:Natur"
 
@@ -18,15 +26,17 @@ divisions:
       - name: Lav Sopp
         type: botany
       - name: Insekter
-        type: entomology
+        type: insect
       - name: Marine invertebrater
-        type: invertebrate zoology
+        type: invertebrate
       - name: Pattedyr
-        type: vertebrate zoology
+        type: mammal
       - name: Fugl
-        type: vertebrate zoology
+        type: bird
+      # Combined fish+herps in one discipline: stock Specify has no joint type.
+      # Use fish defaults; split to herpetology later if needed.
       - name: Fisk og herptiler
-        type: vertebrate zoology
+        type: fish
 
   - name: Geology/paleontology
     disciplines:

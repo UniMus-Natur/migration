@@ -37,6 +37,7 @@ def _structure_report_dict(
         "divisions_skipped": result.divisions_skipped,
         "disciplines_created": result.disciplines_created,
         "disciplines_skipped": result.disciplines_skipped,
+        "disciplines_type_updated": result.disciplines_type_updated,
         "taxon_trees_created": result.taxon_trees_created,
         "collections_created": result.collections_created,
         "collections_skipped": result.collections_skipped,
@@ -72,12 +73,13 @@ def sync_specify_structure_flow(
     result = reconcile_structure(config, dry_run=dry_run)
 
     logger.info(
-        "Structure sync finished: divisions +%s ~%s, disciplines +%s ~%s, "
-        "taxon trees +%s, collections +%s ~%s",
+        "Structure sync finished: divisions +%s ~%s, disciplines +%s ~%s "
+        "(type updates %s), taxon trees +%s, collections +%s ~%s",
         result.divisions_created,
         result.divisions_skipped,
         result.disciplines_created,
         result.disciplines_skipped,
+        result.disciplines_type_updated,
         result.taxon_trees_created,
         result.collections_created,
         result.collections_skipped,

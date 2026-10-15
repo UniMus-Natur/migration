@@ -62,6 +62,37 @@ divisions:
             with self.assertRaises(ValueError):
                 load_structure_config(p)
 
+    def test_rejects_non_stock_discipline_type(self) -> None:
+        content = """
+institution_name: "Test Org"
+divisions:
+  - name: DivOne
+    disciplines:
+      - name: Bugs
+        type: entomology
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "bad.yaml"
+            p.write_text(content, encoding="utf-8")
+            with self.assertRaises(ValueError) as ctx:
+                load_structure_config(p)
+        self.assertIn("entomology", str(ctx.exception))
+        self.assertIn("DisciplineType", str(ctx.exception))
+
+    def test_loads_repo_unimus_natur_yaml(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        cfg = load_structure_config(root / "config" / "specify_structure" / "unimus_natur.yaml")
+        by_name = {
+            d.name: d.type
+            for div in cfg.divisions
+            for d in div.disciplines
+        }
+        self.assertEqual(by_name["Insekter"], "insect")
+        self.assertEqual(by_name["Fugl"], "bird")
+        self.assertEqual(by_name["Pattedyr"], "mammal")
+        self.assertEqual(by_name["Marine invertebrater"], "invertebrate")
+        self.assertEqual(by_name["Fisk og herptiler"], "fish")
+
 
 if __name__ == "__main__":
     unittest.main()
