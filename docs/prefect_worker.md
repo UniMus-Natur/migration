@@ -192,6 +192,25 @@ prefect deployment run "Sync Specify DB to Test/sync-specify-db-to-test-dev" \
 prefect deployment run "Sync Specify DB to Test/sync-specify-db-to-test-dev" -p dry_run=false
 ```
 
+## Sync users test → staging (SSH tunnel)
+
+Flow: **Sync Users Test to Staging** / `sync-users-test-to-staging-dev`.
+
+Selectively copies Specify users that exist on **test** into **staging** (same bastion tunnel as the DB sync). For each user it brings across the linked **Agent**, **`spuserexternalid`** (Feide SSO), and optionally **`spuserpolicy` / `spuserrole`** plus shared Sp6 group principals. Match key is `SpecifyUser.Name`. Users already on staging are skipped (SSO rows can still be backfilled when `update_existing_sso=true`).
+
+Use this **before** a full `sync-specify-db-to-test` when accounts were created on test and should not be lost.
+
+Requires the same `TEST_DB_*` / SSH setup as the full DB sync. Default `dry_run=true`.
+
+```bash
+prefect deployment run "Sync Users Test to Staging/sync-users-test-to-staging-dev" -p dry_run=true
+# live pull of everyone only on test:
+prefect deployment run "Sync Users Test to Staging/sync-users-test-to-staging-dev" -p dry_run=false
+# or a named subset:
+prefect deployment run "Sync Users Test to Staging/sync-users-test-to-staging-dev" \
+  -p dry_run=false -p 'usernames=["alice","bob"]'
+```
+
 ## Practical Tips
 
 - Use explicit image tags (not only `latest`) for reproducibility.
