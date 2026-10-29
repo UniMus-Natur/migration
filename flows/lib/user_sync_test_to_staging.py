@@ -16,6 +16,7 @@ from flows.lib.mariadb_logical_sync import (
     MariaDBEndpoint,
     connect_endpoint,
 )
+from flows.lib.oauth_provider_normalize import canonicalize_provider
 
 logger = logging.getLogger(__name__)
 
@@ -381,7 +382,7 @@ def _extract_external_ids(
         uid = int(row["specifyuser_id"])
         out.setdefault(uid, []).append(
             ExternalIdRow(
-                provider=str(row["provider"] or ""),
+                provider=canonicalize_provider(str(row["provider"] or "")),
                 providerid=str(row["providerid"] or ""),
                 enabled=_as_bool(row.get("enabled")),
                 idtoken=_parse_idtoken(row.get("idtoken")),

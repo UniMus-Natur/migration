@@ -192,6 +192,19 @@ prefect deployment run "Sync Specify DB to Test/sync-specify-db-to-test-dev" \
 prefect deployment run "Sync Specify DB to Test/sync-specify-db-to-test-dev" -p dry_run=false
 ```
 
+## Normalize Feide provider key (staging + test)
+
+Flow: **Normalize Feide Provider Key** / `normalize-feide-provider-key-dev`.
+
+Renames `spuserexternalid.provider` from lowercase `feide` (any non-canonical casing) to **`Feide`** on both staging and test. If both casings exist for the same `providerid`, keeps `Feide` and deletes the duplicate. Aligns DB rows with Helm `specify7.specify.oauth.providers.Feide`. Default `dry_run=true`.
+
+```bash
+prefect deployment run "Normalize Feide Provider Key/normalize-feide-provider-key-dev" -p dry_run=true
+prefect deployment run "Normalize Feide Provider Key/normalize-feide-provider-key-dev" -p dry_run=false
+```
+
+Run this (and Helm-upgrade staging so `OAUTH_LOGIN_PROVIDERS` uses the `Feide` key) **before** `sync-users-test-to-staging` when fixing the casing discrepancy.
+
 ## Sync users test → staging (SSH tunnel)
 
 Flow: **Sync Users Test to Staging** / `sync-users-test-to-staging-dev`.

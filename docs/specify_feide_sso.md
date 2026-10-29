@@ -55,7 +55,7 @@ Suggested initial provider config (to be injected into Specify settings):
 
 ```python
 OAUTH_LOGIN_PROVIDERS = {
-    "feide": {
+    "Feide": {
         "title": "Feide",
         "client_id": "<from-feide-portal>",
         "client_secret": "<from-feide-portal>",
@@ -64,6 +64,8 @@ OAUTH_LOGIN_PROVIDERS = {
     }
 }
 ```
+
+The dict key (`"Feide"`) is what Specify stores in `spuserexternalid.provider`. Keep it capital-F everywhere (Helm values key, staging, and test DB).
 
 Notes:
 
@@ -98,7 +100,7 @@ The chart now exposes `specify.oauth.providers` in `values.yaml` / `staging.valu
 | `FEIDE_OIDC_CLIENT_ID` | Feide OIDC client id |
 | `FEIDE_OIDC_CLIENT_SECRET` | Feide OIDC client secret |
 
-Non-secret provider settings (title, issuer, scopes) live under `specify7.specify.oauth.providers.feide` in the umbrella Helm values.
+Non-secret provider settings (title, issuer, scopes) live under `specify7.specify.oauth.providers.Feide` in the umbrella Helm values (YAML key must be `Feide`, not `feide`).
 
 ### Rollout checklist (do not skip steps)
 
@@ -111,12 +113,13 @@ Non-secret provider settings (title, issuer, scopes) live under `specify7.specif
    kubectl patch secret specify-secret -n <namespace> --type merge -p \
      '{"stringData":{"FEIDE_OIDC_CLIENT_ID":"<from-portal>","FEIDE_OIDC_CLIENT_SECRET":"<from-portal>"}}'
    ```
-3. **Helm upgrade** — staging values already have `specify7.specify.oauth.providers.feide.enabled: true`:
+3. **Helm upgrade** — staging values already have `specify7.specify.oauth.providers.Feide.enabled: true`:
    ```bash
    cd migration
    helm dependency build charts/unimus-specify
    helm upgrade staging ./charts/unimus-specify -f charts/unimus-specify/staging.values.yaml -n <namespace>
    ```
+   After renaming the provider key, normalize existing DB rows (staging + test) with Prefect deployment `normalize-feide-provider-key-dev` before relying on SSO login.
 4. **Verify** — visit `/accounts/login/` and confirm the Feide button appears; test with a Feide test user and an invite link for account linking.
 
 ### Troubleshooting: redirect URI uses `http://` instead of `https://`

@@ -22,7 +22,8 @@ specify7:
     debug: false
     oauth:
       providers:
-        feide:
+        # Provider dict key == spuserexternalid.provider (use capital F: Feide).
+        Feide:
           enabled: true
           title: Feide
           config: https://auth.dataporten.no
