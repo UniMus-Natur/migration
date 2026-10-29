@@ -18,6 +18,7 @@ build/
 # Helm / Kubernetes
 **/staging.values.yaml
 **/production.values.yaml
+charts/*/charts/*.tgz
 
 # Node / frontend
 node_modules/

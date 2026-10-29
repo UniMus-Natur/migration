@@ -1,24 +1,29 @@
 {{- if .Values.migrationHarness.enabled }}
+{{- $s7 := .Values.specify7 | default dict }}
+{{- $mariadb := $s7.mariadb | default dict }}
+{{- $mariadbAuth := $mariadb.auth | default dict }}
+{{- $specify := $s7.specify | default dict }}
+{{- $db := $specify.database | default dict }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "specify7.fullname" . }}-migration-harness
+  name: {{ include "unimus-specify.specify7Fullname" . }}-migration-harness
   labels:
-    {{- include "specify7.labels" . | nindent 4 }}
+    {{- include "unimus-specify.labels" . | nindent 4 }}
     component: migration-harness
 spec:
   replicas: 1
   selector:
     matchLabels:
-      {{- include "specify7.selectorLabels" . | nindent 6 }}
+      {{- include "unimus-specify.selectorLabels" . | nindent 6 }}
       component: migration-harness
   template:
     metadata:
       labels:
-        {{- include "specify7.selectorLabels" . | nindent 8 }}
+        {{- include "unimus-specify.selectorLabels" . | nindent 8 }}
         component: migration-harness
     spec:
-      {{- with .Values.imagePullSecrets }}
+      {{- with $s7.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -48,13 +53,13 @@ spec:
             failureThreshold: 3
           env:
             - name: DB_HOST
-              value: {{ if .Values.mariadb.enabled }}{{ include "specify7.fullname" . }}-mariadb{{ else }}{{ .Values.specify.database.host | quote }}{{ end }}
+              value: {{ if $mariadb.enabled }}{{ .Release.Name }}-mariadb{{ else }}{{ $db.host | quote }}{{ end }}
             - name: DB_PORT
-              value: {{ .Values.specify.database.port | quote }}
+              value: {{ $db.port | default 3306 | quote }}
             - name: DB_NAME
-              value: {{ .Values.mariadb.auth.database | quote }}
+              value: {{ $mariadbAuth.database | quote }}
             - name: DB_USER
-              value: {{ .Values.mariadb.auth.username | quote }}
+              value: {{ $mariadbAuth.username | quote }}
             - name: HARNESS_PORT
               value: {{ .Values.migrationHarness.service.port | quote }}
             - name: HARNESS_BASE_PATH
@@ -63,10 +68,11 @@ spec:
               value: {{ .Values.migrationHarness.defaultCollection | quote }}
             - name: HARNESS_DEFAULT_ORACLE_ENV
               value: {{ .Values.migrationHarness.defaultOracleEnv | quote }}
-          {{- if .Values.secrets.existingSecret }}
+          {{- $secret := include "unimus-specify.existingSecret" . }}
+          {{- if $secret }}
           envFrom:
             - secretRef:
-                name: {{ .Values.secrets.existingSecret }}
+                name: {{ $secret }}
           {{- end }}
           resources:
             {{- toYaml .Values.migrationHarness.resources | nindent 12 }}

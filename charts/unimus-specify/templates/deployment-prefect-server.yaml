@@ -2,20 +2,20 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "specify7.fullname" . }}-prefect-server
+  name: {{ include "unimus-specify.specify7Fullname" . }}-prefect-server
   labels:
-    {{- include "specify7.labels" . | nindent 4 }}
+    {{- include "unimus-specify.labels" . | nindent 4 }}
     component: prefect-server
 spec:
   replicas: 1
   selector:
     matchLabels:
-      {{- include "specify7.selectorLabels" . | nindent 6 }}
+      {{- include "unimus-specify.selectorLabels" . | nindent 6 }}
       component: prefect-server
   template:
     metadata:
       labels:
-        {{- include "specify7.selectorLabels" . | nindent 8 }}
+        {{- include "unimus-specify.selectorLabels" . | nindent 8 }}
         component: prefect-server
     spec:
       containers:
@@ -32,10 +32,11 @@ spec:
             - name: http
               containerPort: 4200
               protocol: TCP
-          {{- if .Values.secrets.existingSecret }}
+          {{- $secret := include "unimus-specify.existingSecret" . }}
+          {{- if $secret }}
           envFrom:
             - secretRef:
-                name: {{ .Values.secrets.existingSecret }}
+                name: {{ $secret }}
           {{- end }}
           resources:
             {{- toYaml .Values.prefect.server.resources | nindent 12 }}

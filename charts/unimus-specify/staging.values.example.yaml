@@ -1,0 +1,59 @@
+# Example shape for charts/unimus-specify/staging.values.yaml (gitignored).
+# Copy to staging.values.yaml and fill secrets / hosts.
+# Former charts/specify7 top-level Specify keys move under specify7:.
+
+specify7:
+  image:
+    tag: "v7.11.3"
+  ingress:
+    enabled: true
+    hosts:
+      - host: specify-stg.natur.unimus.no
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+  secrets:
+    existingSecret: specify-secret
+  mariadb:
+    auth:
+      existingSecret: specify-secret
+  specify:
+    debug: false
+    oauth:
+      providers:
+        feide:
+          enabled: true
+          title: Feide
+          config: https://auth.dataporten.no
+          scope: openid profile email
+          clientIdEnv: FEIDE_OIDC_CLIENT_ID
+          clientSecretEnv: FEIDE_OIDC_CLIENT_SECRET
+  reportRunner:
+    fontsJar:
+      enabled: true
+      image:
+        repository: ghcr.io/unimus-natur/report-fonts
+        tag: latest
+
+secrets:
+  existingSecret: specify-secret
+
+prefect:
+  enabled: true
+  server:
+    enabled: true
+  devWorker:
+    enabled: true
+    workPool: "dev-process"
+    image:
+      repository: ghcr.io/unimus-natur/migration
+      tag: "latest"
+    resources:
+      requests:
+        memory: 2Gi
+      limits:
+        memory: 4Gi
+
+migrationHarness:
+  enabled: false

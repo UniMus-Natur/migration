@@ -1,0 +1,6 @@
+dependencies:
+- name: specify7
+  repository: file://../../../specify7-helm/charts/specify7
+  version: 0.1.0
+digest: sha256:99a306c617cc9d1b805deeb649ab89fa3a43c9bf293b7ccfeb1fe5a5d1261785
+generated: "2026-10-22T17:31:30.609022+02:00"

@@ -1,0 +1,45 @@
+{{- if and .Values.migrationHarness.enabled .Values.harnessIngress.enabled }}
+{{- $s7 := .Values.specify7 | default dict }}
+{{- $ingress := $s7.ingress | default dict }}
+{{- if $ingress.enabled }}
+{{- $fullName := include "unimus-specify.specify7Fullname" . }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullName }}-migration-harness
+  labels:
+    {{- include "unimus-specify.labels" . | nindent 4 }}
+    component: migration-harness
+  {{- with $ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if $ingress.className }}
+  ingressClassName: {{ $ingress.className }}
+  {{- end }}
+  {{- if $ingress.tls }}
+  tls:
+    {{- range $ingress.tls }}
+    - hosts:
+        {{- range .hosts }}
+        - {{ . | quote }}
+        {{- end }}
+      secretName: {{ .secretName }}
+    {{- end }}
+  {{- end }}
+  rules:
+    {{- range $ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          - path: {{ $.Values.migrationHarness.basePath }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullName }}-migration-harness
+                port:
+                  number: {{ $.Values.migrationHarness.service.port }}
+    {{- end }}
+{{- end }}
+{{- end }}

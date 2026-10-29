@@ -1,0 +1,12 @@
+apiVersion: v2
+name: unimus-specify
+description: UniMus Natur staging stack — Specify7 plus Prefect and migration harness
+type: application
+version: 0.1.0
+appVersion: "v0.1.0"
+dependencies:
+  - name: specify7
+    version: "0.1.0"
+    # Local path while developing; switch to OCI once specify7-helm is published:
+    # repository: "oci://ghcr.io/unimus-natur/charts"
+    repository: "file://../../../specify7-helm/charts/specify7"

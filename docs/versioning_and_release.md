@@ -17,8 +17,8 @@ When code is pushed to the `main` branch, the build script:
     -   `feat:` triggers a **MINOR** bump.
     -   `fix:` (or any other commit) triggers a **PATCH** bump.
 2.  **Updates Helm Charts**:
-    -   Updates `version` and `appVersion` in `charts/specify7/Chart.yaml`.
-    -   Updates `image.tag` in `charts/specify7/values.yaml`.
+    -   Updates `version` and `appVersion` in `charts/unimus-specify/Chart.yaml`.
+    -   Updates `prefect.devWorker.image.tag` in `charts/unimus-specify/values.yaml` (migration image).
 3.  **Tags and Commits**:
     -   Creates a git tag (e.g., `v1.2.3`).
     -   Commits the updated YAML files with message `chore: release v1.2.3`.
@@ -30,8 +30,8 @@ When code is pushed to the `main` branch, the build script:
 When building from any other branch:
 1.  **Version**: Uses the short git hash (e.g., `a1b2c3d`).
 2.  **Updates Staging Config**:
-    -   Updates `image.tag` in `charts/specify7/staging.values.yaml` to the short hash.
-    -   *Note*: `charts/specify7/values.yaml` is NOT touched to keep the main release version stable.
+    -   Updates `prefect.devWorker.image.tag` in `charts/unimus-specify/staging.values.yaml` to the short hash.
+    -   *Note*: default `values.yaml` is NOT touched on feature branches.
 3.  **Builds Image**:
     -   Triggers a Kaniko build in Kubernetes using the short hash as the tag.
 

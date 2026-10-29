@@ -135,19 +135,19 @@ def main():
             (r'(^|\n)appVersion:\s*"[^"]+"', f'\\g<1>appVersion: "{version}"')
         ])
 
-        # Update values.yaml
-        # tag: "..." assuming it's under image. This is a bit risky with regex but 
-        # based on file content viewed earlier, image key is at top.
-        # We'll look for `  tag: ".*"` or `tag: ".*"`
+        # Update migration image tag (prefect.devWorker.image next to ghcr.io/unimus-natur/migration)
+        migration_tag_re = (
+            r'(repository:\s*ghcr\.io/unimus-natur/migration\n\s+tag:\s*)"[^"]+"'
+        )
         print(f"Updating {values_path}...")
         update_file(values_path, [
-            (r'(\n\s+tag:\s*)"[^"]+"', f'\\g<1>"{version}"')
+            (migration_tag_re, f'\\g<1>"{version}"')
         ])
         
         if staging_path:
              print(f"Updating {staging_path}...")
              update_file(staging_path, [
-                (r'(\n\s+tag:\s*)"[^"]+"', f'\\g<1>"{version}"')
+                (migration_tag_re, f'\\g<1>"{version}"')
             ])
 
         return

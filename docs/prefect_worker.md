@@ -22,14 +22,14 @@ This means you do **not** need to rebuild the image for normal code changes; com
 
 ## Helm Configuration Notes
 
-In `charts/specify7/staging.values.yaml`:
+In `charts/unimus-specify/staging.values.yaml`:
 
 - `prefect.server.enabled: true`
 - `prefect.devWorker.enabled: true`
 - `prefect.devWorker.workPool: "dev-process"`
 - `prefect.devWorker.image.*` points to your migration image tag.
 - `prefect.devWorker.resources.limits.memory`: long specimen migrations (Django + Oracle + media uploads) need more than **1Gi**. Staging uses **4Gi** (namespace quota is **32G** with ~25Gi already allocated; **8Gi** cannot schedule). Limit/request ratio must be ≤ **2:1**.
-- `secrets.existingSecret` points to the env secret with Oracle and Prefect vars.
+- `secrets.existingSecret` (and `specify7.secrets.existingSecret`) point to the env secret with Oracle and Prefect vars.
 
 ## Daily Dev Loop
 
@@ -190,6 +190,25 @@ prefect deployment run "Sync Specify DB to Test/sync-specify-db-to-test-dev" \
   -p dry_run=false -p force=true
 # later syncs once fingerprints already match:
 prefect deployment run "Sync Specify DB to Test/sync-specify-db-to-test-dev" -p dry_run=false
+```
+
+## Sync users test → staging (SSH tunnel)
+
+Flow: **Sync Users Test to Staging** / `sync-users-test-to-staging-dev`.
+
+Selectively copies Specify users that exist on **test** into **staging** (same bastion tunnel as the DB sync). For each user it brings across the linked **Agent**, **`spuserexternalid`** (Feide SSO), and optionally **`spuserpolicy` / `spuserrole`** plus shared Sp6 group principals. Match key is `SpecifyUser.Name`. Users already on staging are skipped (SSO rows can still be backfilled when `update_existing_sso=true`).
+
+Use this **before** a full `sync-specify-db-to-test` when accounts were created on test and should not be lost.
+
+Requires the same `TEST_DB_*` / SSH setup as the full DB sync. Default `dry_run=true`.
+
+```bash
+prefect deployment run "Sync Users Test to Staging/sync-users-test-to-staging-dev" -p dry_run=true
+# live pull of everyone only on test:
+prefect deployment run "Sync Users Test to Staging/sync-users-test-to-staging-dev" -p dry_run=false
+# or a named subset:
+prefect deployment run "Sync Users Test to Staging/sync-users-test-to-staging-dev" \
+  -p dry_run=false -p 'usernames=["alice","bob"]'
 ```
 
 ## Practical Tips

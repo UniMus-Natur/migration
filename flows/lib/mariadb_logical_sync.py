@@ -130,7 +130,8 @@ def assert_not_same_endpoint(source: MariaDBEndpoint, *, test_remote_host: str, 
         )
 
 
-def _connect(ep: MariaDBEndpoint):
+def connect_endpoint(ep: MariaDBEndpoint):
+    """Open a MySQL/MariaDB connection to ``ep`` (MySQLdb or PyMySQL)."""
     MySQLdb = _mysql_module()
     return MySQLdb.connect(
         host=ep.host,
@@ -141,6 +142,10 @@ def _connect(ep: MariaDBEndpoint):
         charset="utf8mb4",
         connect_timeout=30,
     )
+
+
+def _connect(ep: MariaDBEndpoint):
+    return connect_endpoint(ep)
 
 
 def read_spversion(ep: MariaDBEndpoint) -> SpVersionInfo:
