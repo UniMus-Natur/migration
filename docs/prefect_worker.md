@@ -22,14 +22,14 @@ This means you do **not** need to rebuild the image for normal code changes; com
 
 ## Helm Configuration Notes
 
-In `charts/specify7/staging.values.yaml`:
+In `charts/unimus-specify/staging.values.yaml`:
 
 - `prefect.server.enabled: true`
 - `prefect.devWorker.enabled: true`
 - `prefect.devWorker.workPool: "dev-process"`
 - `prefect.devWorker.image.*` points to your migration image tag.
 - `prefect.devWorker.resources.limits.memory`: long specimen migrations (Django + Oracle + media uploads) need more than **1Gi**. Staging uses **4Gi** (namespace quota is **32G** with ~25Gi already allocated; **8Gi** cannot schedule). Limit/request ratio must be ≤ **2:1**.
-- `secrets.existingSecret` points to the env secret with Oracle and Prefect vars.
+- `secrets.existingSecret` (and `specify7.secrets.existingSecret`) point to the env secret with Oracle and Prefect vars.
 
 ## Daily Dev Loop
 

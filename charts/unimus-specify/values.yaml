@@ -1,0 +1,72 @@
+# UniMus Natur umbrella: Specify7 (subchart) + Prefect + migration harness.
+# Subchart values nest under `specify7:`.
+
+specify7:
+  # Pass-through; override in staging.values.yaml
+  secrets:
+    existingSecret: ""
+  networkPolicy:
+    enabled: true
+    allowAllNamespaces: true
+
+# Shared by Prefect / harness pods (same Secret as specify7.secrets.existingSecret).
+secrets:
+  existingSecret: ""
+
+prefect:
+  enabled: true
+  image:
+    repository: prefecthq/prefect
+    tag: "3.6.20-python3.12"
+    pullPolicy: IfNotPresent
+
+  server:
+    enabled: true
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+
+  # Optional in-cluster worker for rapid development.
+  # Runs flows as process jobs in a long-lived pod (sync code without rebuilds).
+  devWorker:
+    enabled: true
+    workPool: "dev-process"
+    image:
+      repository: ghcr.io/unimus-natur/migration
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+    # Optional SSH key for LocalForward to the test MariaDB bastion.
+    # kubectl create secret generic specify-test-db-ssh --from-file=id_ed25519=./id_ed25519
+    sshKeySecret: ""
+    sshKeySecretKey: "id_ed25519"
+    sshKeyMountPath: "/var/secrets/test-db-ssh"
+
+migrationHarness:
+  enabled: false
+  image:
+    repository: ghcr.io/unimus-natur/migration-harness
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    port: 8088
+  basePath: /migration-harness
+  defaultCollection: O-V
+  defaultOracleEnv: prod
+  # Set HARNESS_TOKEN via secrets.existingSecret.
+  resources: {}
+
+# When harness is enabled, attach its path to the Specify ingress host.
+# Uses the first specify7.ingress.hosts entry.
+harnessIngress:
+  enabled: true

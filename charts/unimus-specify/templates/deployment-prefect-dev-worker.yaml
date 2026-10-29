@@ -2,9 +2,9 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "specify7.fullname" . }}-prefect-dev-worker
+  name: {{ include "unimus-specify.specify7Fullname" . }}-prefect-dev-worker
   labels:
-    {{- include "specify7.labels" . | nindent 4 }}
+    {{- include "unimus-specify.labels" . | nindent 4 }}
     component: prefect-dev-worker
 spec:
   replicas: 1
@@ -13,15 +13,15 @@ spec:
     rollingUpdate: null
   selector:
     matchLabels:
-      {{- include "specify7.selectorLabels" . | nindent 6 }}
+      {{- include "unimus-specify.selectorLabels" . | nindent 6 }}
       component: prefect-dev-worker
   template:
     metadata:
       labels:
-        {{- include "specify7.selectorLabels" . | nindent 8 }}
+        {{- include "unimus-specify.selectorLabels" . | nindent 8 }}
         component: prefect-dev-worker
     spec:
-      {{- with .Values.imagePullSecrets }}
+      {{- with .Values.specify7.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -41,21 +41,21 @@ spec:
               value: "0"
             {{- if .Values.prefect.server.enabled }}
             - name: PREFECT_API_URL
-              value: "http://{{ include "specify7.fullname" . }}-prefect-server:4200/api"
+              value: "http://{{ include "unimus-specify.specify7Fullname" . }}-prefect-server:4200/api"
             {{- end }}
-            {{- if not (eq .Values.assetServer.enabled false) }}
-            # In-cluster asset server base for migration uploads (avoids ingress hairpin on large POSTs).
+            {{- if not (eq (.Values.specify7.assetServer).enabled false) }}
             - name: ASSET_SERVER_INTERNAL_BASE
-              value: "http://{{ include "specify7.fullname" . }}-asset-server"
+              value: "http://{{ include "unimus-specify.specify7Fullname" . }}-asset-server"
             {{- end }}
             {{- if .Values.prefect.devWorker.sshKeySecret }}
             - name: TEST_DB_SSH_PRIVATE_KEY_PATH
               value: "{{ .Values.prefect.devWorker.sshKeyMountPath }}/{{ .Values.prefect.devWorker.sshKeySecretKey }}"
             {{- end }}
-          {{- if .Values.secrets.existingSecret }}
+          {{- $secret := include "unimus-specify.existingSecret" . }}
+          {{- if $secret }}
           envFrom:
             - secretRef:
-                name: {{ .Values.secrets.existingSecret }}
+                name: {{ $secret }}
           {{- end }}
           {{- if .Values.prefect.devWorker.sshKeySecret }}
           volumeMounts:

@@ -98,7 +98,7 @@ The chart now exposes `specify.oauth.providers` in `values.yaml` / `staging.valu
 | `FEIDE_OIDC_CLIENT_ID` | Feide OIDC client id |
 | `FEIDE_OIDC_CLIENT_SECRET` | Feide OIDC client secret |
 
-Non-secret provider settings (title, issuer, scopes) live under `specify.oauth.providers.feide` in Helm values.
+Non-secret provider settings (title, issuer, scopes) live under `specify7.specify.oauth.providers.feide` in the umbrella Helm values.
 
 ### Rollout checklist (do not skip steps)
 
@@ -111,11 +111,11 @@ Non-secret provider settings (title, issuer, scopes) live under `specify.oauth.p
    kubectl patch secret specify-secret -n <namespace> --type merge -p \
      '{"stringData":{"FEIDE_OIDC_CLIENT_ID":"<from-portal>","FEIDE_OIDC_CLIENT_SECRET":"<from-portal>"}}'
    ```
-3. **Helm upgrade** — staging values already have `specify.oauth.providers.feide.enabled: true`:
+3. **Helm upgrade** — staging values already have `specify7.specify.oauth.providers.feide.enabled: true`:
    ```bash
-   cd migration/charts/specify7
-   helm dependency build
-   helm upgrade staging . -f staging.values.yaml -n <namespace>
+   cd migration
+   helm dependency build charts/unimus-specify
+   helm upgrade staging ./charts/unimus-specify -f charts/unimus-specify/staging.values.yaml -n <namespace>
    ```
 4. **Verify** — visit `/accounts/login/` and confirm the Feide button appears; test with a Feide test user and an invite link for account linking.
 

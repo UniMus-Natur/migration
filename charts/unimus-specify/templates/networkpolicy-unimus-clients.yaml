@@ -1,0 +1,100 @@
+{{/*
+Additional NetworkPolicies so Prefect / harness can reach MariaDB and the asset server.
+These are separate resources (Kubernetes ORs ingress across policies).
+*/}}
+{{- $s7 := .Values.specify7 | default dict }}
+{{- $np := $s7.networkPolicy | default dict }}
+{{- if $np.enabled }}
+{{- if or (and .Values.prefect.enabled .Values.prefect.devWorker.enabled) .Values.migrationHarness.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-mariadb-unimus-clients
+  labels:
+    {{- include "unimus-specify.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: primary
+      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+      app.kubernetes.io/name: mariadb
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- if and .Values.prefect.enabled .Values.prefect.devWorker.enabled }}
+        - podSelector:
+            matchLabels:
+              {{- include "unimus-specify.selectorLabels" . | nindent 14 }}
+              component: prefect-dev-worker
+        {{- end }}
+        {{- if .Values.migrationHarness.enabled }}
+        - podSelector:
+            matchLabels:
+              {{- include "unimus-specify.selectorLabels" . | nindent 14 }}
+              component: migration-harness
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: 3306
+{{- end }}
+{{- if and .Values.prefect.enabled .Values.prefect.devWorker.enabled (not (eq ($s7.assetServer).enabled false)) }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "unimus-specify.specify7Fullname" . }}-asset-server-prefect
+  labels:
+    {{- include "unimus-specify.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: specify7
+      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+      component: asset-server
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "unimus-specify.selectorLabels" . | nindent 14 }}
+              component: prefect-dev-worker
+      ports:
+        - protocol: TCP
+          port: 8080
+{{- end }}
+{{- if .Values.migrationHarness.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "unimus-specify.specify7Fullname" . }}-migration-harness-web
+  labels:
+    {{- include "unimus-specify.labels" . | nindent 4 }}
+    component: migration-harness
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "unimus-specify.selectorLabels" . | nindent 6 }}
+      component: migration-harness
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- if $np.allowAllNamespaces }}
+        - namespaceSelector: {}
+        {{- else if $np.allowedNamespaceNames }}
+        {{- range $np.allowedNamespaceNames }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . | quote }}
+        {{- end }}
+        {{- else }}
+        - podSelector: {}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.migrationHarness.service.port }}
+{{- end }}
+{{- end }}

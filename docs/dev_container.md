@@ -50,7 +50,7 @@ For a fast in-cluster loop, use the Prefect `devWorker` (process type), which ru
 
 3.  **Upgrade/Install**:
     ```bash
-    helm upgrade --install staging ./charts/specify7 --values ./charts/specify7/values.yaml
+    helm upgrade --install staging ./charts/unimus-specify --values ./charts/unimus-specify/values.yaml
     ```
 
 ## 3. Accessing the Runtime

@@ -24,9 +24,9 @@ SHORT_HASH=$(git rev-parse --short HEAD)
 echo "📏 Version: $NEW_VERSION"
 echo "#️⃣  Commit:  $SHORT_HASH"
 
-CHART_FILE="charts/specify7/Chart.yaml"
-VALUES_FILE="charts/specify7/values.yaml"
-STAGING_VALUES_FILE="charts/specify7/staging.values.yaml"
+CHART_FILE="charts/unimus-specify/Chart.yaml"
+VALUES_FILE="charts/unimus-specify/values.yaml"
+STAGING_VALUES_FILE="charts/unimus-specify/staging.values.yaml"
 
 if [ "$BRANCH" == "main" ]; then
     echo "🌿 Branch is main. Handling release..."
@@ -75,9 +75,10 @@ else
         
         # Using a temporary python snippet might be easier given the strict args I wrote? 
         # Or just use sed for this simple case
+        # Only bump the migration image tag under prefect.devWorker.image
         case "$(uname -s)" in
-            Darwin) sed -i '' -E "s/(\s+tag:\s*)\"[^\"]+\"/\1\"$SHORT_HASH\"/" "$STAGING_VALUES_FILE" ;;
-            *)      sed -i -E "s/(\s+tag:\s*)\"[^\"]+\"/\1\"$SHORT_HASH\"/" "$STAGING_VALUES_FILE" ;;
+            Darwin) sed -i '' -E "/repository:[[:space:]]*ghcr\.io\/unimus-natur\/migration/{n;s/(tag:[[:space:]]*)\"[^\"]+\"/\1\"$SHORT_HASH\"/;}" "$STAGING_VALUES_FILE" ;;
+            *)      sed -i -E "/repository:[[:space:]]*ghcr\.io\/unimus-natur\/migration/{n;s/(tag:[[:space:]]*)\"[^\"]+\"/\1\"$SHORT_HASH\"/;}" "$STAGING_VALUES_FILE" ;;
         esac
     fi
     # Use branch for build context

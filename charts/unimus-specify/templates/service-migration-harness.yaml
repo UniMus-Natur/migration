@@ -2,9 +2,9 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "specify7.fullname" . }}-migration-harness
+  name: {{ include "unimus-specify.specify7Fullname" . }}-migration-harness
   labels:
-    {{- include "specify7.labels" . | nindent 4 }}
+    {{- include "unimus-specify.labels" . | nindent 4 }}
     component: migration-harness
 spec:
   type: ClusterIP
@@ -14,6 +14,6 @@ spec:
       protocol: TCP
       name: http
   selector:
-    {{- include "specify7.selectorLabels" . | nindent 4 }}
+    {{- include "unimus-specify.selectorLabels" . | nindent 4 }}
     component: migration-harness
 {{- end }}

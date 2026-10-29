@@ -9,7 +9,7 @@ If viewing on GitHub Pages, visit the [Documentation Site](https://unimus-natur.
 
 ## Repository Structure
 
-- `charts/`: Kubernetes Helm charts (including `specify7`).
+- `charts/`: Kubernetes Helm charts (`unimus-specify` umbrella; generic Specify chart lives in [specify7-helm](https://github.com/UniMus-Natur/specify7-helm)).
 - `config/`: Configuration files (local settings).
 - `docs/`: Knowledge base source files (Markdown).
 - `flows/`: Prefect flows for migration logic.
@@ -44,18 +44,13 @@ It supports:
 
 ## Kubernetes Deployment
 
-A custom Helm chart is provided in `charts/specify7` to deploy a staging environment.
-
-**Features**:
--   Official Specify 7 images (no custom builds).
--   Split architecture: Backend (Gunicorn) + Static Server (Nginx).
--   Shared Assets via `ReadWriteMany` PVC.
--   Integrated MariaDB (Bitnami) for self-contained staging.
+Staging is deployed with the **`charts/unimus-specify`** umbrella chart (Specify7 subchart from [specify7-helm](https://github.com/UniMus-Natur/specify7-helm), plus Prefect and migration harness).
 
 **Quick Start**:
 
 ```bash
-helm install staging ./charts/specify7
+helm dependency build charts/unimus-specify
+helm upgrade --install staging ./charts/unimus-specify -f charts/unimus-specify/staging.values.yaml
 ```
 
 ## Versioning & Release

@@ -6,23 +6,21 @@ nav_order: 4
 
 # Kubernetes Deployment
 
-We use a custom Helm chart to deploy the staging environment on the NIRD Kubernetes cluster.
+Staging is deployed with the **`charts/unimus-specify`** umbrella chart:
+
+- **Specify7 stack** comes from the public [specify7-helm](https://github.com/UniMus-Natur/specify7-helm) chart (subchart dependency).
+- **Prefect** (server + `prefect-dev-worker`) and **migration harness** are UniMus templates in this repo.
+
+Specify values nest under `specify7:` in the umbrella values / `staging.values.yaml`.
 
 ## Architecture
 
-The deployment splits the monolithic stack into cloud-native components:
-
-1.  **Specify Backend (`backend`)**: Runs the Django application (Gunicorn).
-    -   Uses an **InitContainer** to copy static assets (`.js`, `.css`) from the official image to a Shared PVC.
-    -   Mounts configuration from a Kubernetes Secret.
-2.  **Static Server (`static`)**: A lightweight Nginx service.
-    -   Mounts the Shared PVC to serve the assets extracted by the backend.
-    -   Handles path rewrites (e.g., `/static/config/` -> generated settings).
-3.  **Worker (`worker`)**: Runs the Celery worker for asynchronous tasks.
-4.  **Ingress**: Routes traffic:
-    -   `/static/*` -> Static Server
-    -   `/*` -> Specify Backend
-5.  **MariaDB**: A dedicated MariaDB instance running as a sub-chart dependency (Bitnami).
+1.  **Specify Backend (`backend`)**: Django (Gunicorn); initContainer copies static assets to a shared PVC.
+2.  **Static Server (`static`)**: Nginx serving the shared PVC.
+3.  **Worker (`worker`)**: Celery.
+4.  **Ingress**: `/static/*` → static; asset-server paths; `/*` → backend. Harness path is a separate Ingress from the umbrella when enabled.
+5.  **MariaDB / Redis**: Bitnami subcharts of `specify7`.
+6.  **Prefect**: in-cluster API + long-lived `dev-process` worker (migration image).
 
 ## Prerequisites
 
@@ -31,35 +29,37 @@ The deployment splits the monolithic stack into cloud-native components:
 - Ingress Controller
 - Helm 3.x
 - **Bitnami Repo**: `helm repo add bitnami https://charts.bitnami.com/bitnami`
+- Local clone of `specify7-helm` next to `migration` (meta workspace / `file://` dependency), or switch the umbrella `Chart.yaml` dependency to the published OCI chart.
 
 ## Quick Start
 
 ### 1. Build Dependencies
-The chart depends on the `bitnami/mariadb` chart. You must build this dependency first.
 
 ```bash
-helm dependency build charts/specify7
+helm dependency build charts/unimus-specify
 ```
 
 ### 2. Configure Credentials
-Edit `charts/specify7/values.yaml` to set your passwords and secrets.
+
+Use a gitignored overlay (move any existing `charts/specify7/staging.values.yaml` to `charts/unimus-specify/staging.values.yaml` and nest Specify keys under `specify7:`).
 
 ### 3. Deploy
+
 ```bash
-helm install staging ./charts/specify7 \
-  --set ingress.enabled=true \
-  --set ingress.hosts[0].host=specify.yourdomain.com
+helm upgrade --install staging ./charts/unimus-specify \
+  -f charts/unimus-specify/staging.values.yaml
 ```
 
 ## Configuration
 
+Specify settings are under `specify7.*` (see [specify7-helm values](https://github.com/UniMus-Natur/specify7-helm/blob/main/charts/specify7/values.yaml)). UniMus additions:
+
 | Setting | Description | Default |
 | :--- | :--- | :--- |
-| `persistence.storageClass` | **Critical**: Must support RWX | `""` (defaultSC) |
-| `mariadb.enabled` | Enable the bundled MariaDB | `true` |
-| `specify.database` | Database connection (auto-configured if mariadb enabled) | `mariadb` |
-| `specify.secretKey` | Django Secret Key | `change-me...` |
-| `reportRunner.fontsJar` | Jasper font-extension jar for labels/reports | `enabled: false` |
+| `prefect.enabled` | Deploy Prefect server / worker | `true` |
+| `prefect.devWorker.image` | Migration image for the process worker | `ghcr.io/unimus-natur/migration` |
+| `migrationHarness.enabled` | Compare UI | `false` |
+| `secrets.existingSecret` | Env secret for Prefect / harness (also set `specify7.secrets.existingSecret`) | `""` |
 
 ## Report fonts
 
@@ -85,10 +85,10 @@ The jar in `fonts/report-fonts.jar` is ~7.6MiB, so it **cannot** be stored in a 
    ```
 
    Staging values expect `ghcr.io/unimus-natur/report-fonts:latest`.
-3. Enable `reportRunner.fontsJar` (already on in `staging.values.yaml`) and upgrade:
+3. Enable `specify7.reportRunner.fontsJar` (already on in `staging.values.yaml`) and upgrade:
 
    ```bash
-   helm upgrade staging ./charts/specify7 -f charts/specify7/staging.values.yaml
+   helm upgrade staging ./charts/unimus-specify -f charts/unimus-specify/staging.values.yaml
    ```
 
 Make the GHCR package visible to the cluster the same way as `migration` / `migration-harness` (`ghcr-secret` plus package visibility).
