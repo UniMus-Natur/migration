@@ -1,12 +1,12 @@
 """Map MUSIT ``KOORDINATE_PLACE`` / ``DERIVED_COORDINATES`` rows to Specify locality fields.
 
-Layout (v8)
+Layout (v9)
 -----------
 - ``latitude1`` / ``longitude1`` — WGS decimal degrees only
 - ``lat1text`` / ``long1text`` — text mirror of those WGS values (LatLonUI)
 - ``latLongType`` — ``Point`` when WGS is present (O-V has no real rectangles)
-- ``text3`` — MGRS / grid verbatim string
-- ``text5`` — UTM as GeoJSON (clean contract for future Specify UTM support)
+- ``text3`` — MGRS / grid verbatim string (square letters and digits; no zone)
+- ``LocalityDetail`` — UTM easting/northing/zone/datum, and ``mgrsZone`` (zone + band)
 - ``text4`` — full migration audit JSON
 - ``yesNo1`` / ``yesNo2`` / ``yesNo3`` — Ca coordinate / Coordinate added later / Ca altitude
 
@@ -22,7 +22,9 @@ from typing import Any
 COORD_CONFLICT_THRESHOLD_DEG = 0.01
 LAT1TEXT_MAX_LEN = 50
 REMARKS_JSON_MAX_LEN = 4000
-MAPPING_VERSION = "musit-coordinates-v8"
+MAPPING_VERSION = "musit-coordinates-v9"
+MGRS_ZONE_MAX_LEN = 4
+UTM_DATUM_MAX_LEN = 32
 _KNOWN_GEODETIC_DATUMS = frozenset({"WGS84", "ED50", "ETRS89", "EUREF89", "OSGB36", "NAD83", "NAD27"})
 # Norwegian/MGRS-ish grids: "ML 796,697", "CS 163,372", "NM 71,56", "MK 793-797,676-680"
 _MGRS_LIKE = re.compile(
@@ -154,86 +156,144 @@ def _format_wgs_text(value: float) -> str:
     return text[:LAT1TEXT_MAX_LEN]
 
 
-def _utm_zone_int(coord: dict[str, Any]) -> int | None:
-    for key in ("zone", "dc_zone"):
-        raw = coord.get(key)
-        if raw is None:
-            continue
-        try:
-            zone = int(float(raw))
-        except (TypeError, ValueError):
-            continue
-        if 1 <= zone <= 60:
+def _zone_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        zone = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    if 1 <= zone <= 60:
+        return zone
+    return None
+
+
+def _first_zone(coord: dict[str, Any], keys: tuple[str, ...]) -> int | None:
+    for key in keys:
+        zone = _zone_int(coord.get(key))
+        if zone is not None:
             return zone
     return None
 
 
-def _utm_band(coord: dict[str, Any]) -> str | None:
-    for key in ("belt", "dc_band"):
-        text = non_empty_text(coord.get(key))
-        if text:
-            return text[:8]
+def _band_letter(value: Any) -> str | None:
+    """Return one MGRS latitude-band letter from a MUSIT belt/band value."""
+    text = non_empty_text(value)
+    if text is None:
+        return None
+    raw = text.strip().upper()
+    if len(raw) == 1 and raw not in "IO" and "C" <= raw <= "X":
+        return raw
+    if len(raw) <= 4 and raw[-1].isalpha() and raw[:-1].isdigit():
+        letter = raw[-1]
+        if letter not in "IO" and "C" <= letter <= "X":
+            return letter
     return None
 
 
-def _epsg_for_utm_zone(zone: int | None, band: str | None) -> str | None:
-    if zone is None:
+def _first_band_letter(coord: dict[str, Any], keys: tuple[str, ...]) -> str | None:
+    for key in keys:
+        letter = _band_letter(coord.get(key))
+        if letter:
+            return letter
+    return None
+
+
+def _first_datum(coord: dict[str, Any], keys: tuple[str, ...]) -> str | None:
+    for key in keys:
+        norm, _raw = normalize_musit_datum(coord.get(key))
+        if norm:
+            return norm[:UTM_DATUM_MAX_LEN]
+    return None
+
+
+def _utm_metre(value: Any) -> float | int | None:
+    """Easting/northing rounded to ``LocalityDetail`` decimal(19,2)."""
+    num = _format_axis_number(value)
+    if isinstance(num, float):
+        return round(num, 2)
+    return num
+
+
+def mgrs_zone_designator(zone: int | None, band: str | None) -> str | None:
+    """Grid zone designator shared by UTM and MGRS, e.g. ``32V``. Fits ``mgrsZone`` (varchar 4)."""
+    if zone is None or not band:
         return None
-    # Latitude bands C–M are southern hemisphere in MGRS; N–X northern.
-    southern = bool(band and band[:1].upper() < "N")
-    base = 32700 if southern else 32600
-    return f"EPSG:{base + zone}"
-
-
-def pick_utm_axes(coord: dict[str, Any]) -> tuple[float | int | None, float | int | None, str | None]:
-    """Return easting, northing, and source label from the best available UTM pair."""
-    for source, x_key, y_key in (
-        ("kp", "utm_x", "utm_y"),
-        ("dc", "dc_utm_x", "dc_utm_y"),
-        ("kp_utm33", "utm33_x", "utm33_y"),
-        ("dc_utm33", "dc_utm33_x", "dc_utm33_y"),
-    ):
-        x = _format_axis_number(coord.get(x_key))
-        y = _format_axis_number(coord.get(y_key))
-        if x is not None and y is not None:
-            return x, y, source
-    return None, None, None
-
-
-def build_utm_geojson(coord: dict[str, Any]) -> dict[str, Any] | None:
-    """Clean GeoJSON Feature for ``Locality.text5`` (Point; optional high corner in properties)."""
-    x, y, source = pick_utm_axes(coord)
-    if x is None or y is None or source is None:
+    text = f"{int(zone)}{band}"
+    if len(text) > MGRS_ZONE_MAX_LEN:
         return None
+    return text
 
-    zone = _utm_zone_int(coord)
-    band = _utm_band(coord)
-    props: dict[str, Any] = {
-        "source": source,
-        "crs": _epsg_for_utm_zone(zone, band),
-        "zone": zone,
-        "band": band,
-    }
 
-    x_h = _format_axis_number(coord.get("utm_x_h"))
-    y_h = _format_axis_number(coord.get("utm_y_h"))
-    if x_h is not None and y_h is not None and (x_h != x or y_h != y):
-        props["high"] = [x_h, y_h]
+def _detail_fields(
+    easting: float | int | None,
+    northing: float | int | None,
+    zone: int | None,
+    band: str | None,
+    datum: str | None,
+) -> dict[str, Any] | None:
+    out: dict[str, Any] = {}
+    if easting is not None and northing is not None:
+        out["utmeasting"] = easting
+        out["utmnorthing"] = northing
+    if zone is not None:
+        out["utmzone"] = zone
+    designator = mgrs_zone_designator(zone, band)
+    if designator:
+        out["mgrszone"] = designator
+    if datum:
+        out["utmdatum"] = datum
+    return out or None
 
-    # Prefer dedicated UTM33 axes in properties when present alongside primary.
-    u33_x = _format_axis_number(coord.get("utm33_x") or coord.get("dc_utm33_x"))
-    u33_y = _format_axis_number(coord.get("utm33_y") or coord.get("dc_utm33_y"))
-    if u33_x is not None and u33_y is not None and source not in {"kp_utm33", "dc_utm33"}:
-        props["utm33"] = [u33_x, u33_y]
 
-    # Drop null property values for a compact payload.
-    props = {k: v for k, v in props.items() if v is not None}
+# Native UTM first, then derived UTM, then UTM33 metres (zone forced to 33).
+_UTM_DETAIL_CANDIDATES: tuple[tuple[str, str, tuple[str, ...], tuple[str, ...], tuple[str, ...], int | None], ...] = (
+    ("utm_x", "utm_y", ("zone", "dc_zone"), ("belt", "dc_band"), ("datum", "dc_datum"), None),
+    ("dc_utm_x", "dc_utm_y", ("dc_zone", "zone"), ("dc_band", "belt"), ("dc_datum", "datum"), None),
+    ("utm33_x", "utm33_y", (), ("belt", "dc_band"), ("datum", "dc_datum"), 33),
+    ("dc_utm33_x", "dc_utm33_y", (), ("dc_band", "belt"), ("dc_datum", "datum"), 33),
+)
 
-    return {
-        "type": "Feature",
-        "geometry": {"type": "Point", "coordinates": [x, y]},
-        "properties": props,
-    }
+
+def locality_detail_kwargs_from_musit_koordinate(coord: dict[str, Any]) -> dict[str, Any] | None:
+    """Typed UTM / MGRS-zone fields for Specify ``LocalityDetail``.
+
+    ``mgrsZone`` is the grid zone designator (zone number + latitude band), shared
+    with the verbatim grid in ``Locality.text3``. A UTM33 fallback does not reuse
+    a band that belongs to a different zone.
+    """
+    native_zone = _first_zone(coord, ("zone", "dc_zone"))
+    for x_key, y_key, zone_keys, band_keys, datum_keys, forced_zone in _UTM_DETAIL_CANDIDATES:
+        easting = _utm_metre(coord.get(x_key))
+        northing = _utm_metre(coord.get(y_key))
+        if easting is None or northing is None:
+            continue
+        zone = forced_zone if forced_zone is not None else _first_zone(coord, zone_keys)
+        band = _first_band_letter(coord, band_keys)
+        if forced_zone == 33 and native_zone != 33:
+            band = None
+        return _detail_fields(easting, northing, zone, band, _first_datum(coord, datum_keys))
+
+    return _detail_fields(
+        None,
+        None,
+        native_zone,
+        _first_band_letter(coord, ("belt", "dc_band")),
+        None,
+    )
+
+
+def ensure_locality_detail(locality_id: int, coord: dict[str, Any]) -> bool:
+    """Insert ``LocalityDetail`` when this locality has UTM/zone data and no detail row yet."""
+    fields = locality_detail_kwargs_from_musit_koordinate(coord)
+    if not fields:
+        return False
+    from specifyweb.specify.models import LocalityDetail
+
+    if LocalityDetail.objects.filter(locality_id=locality_id).exists():
+        return False
+    LocalityDetail(locality_id=locality_id, **fields).save()
+    return True
 
 
 def apply_verbatim_coordinate_fields(out: dict[str, Any], verbatim: str) -> None:
@@ -447,10 +507,6 @@ def locality_spatial_kwargs_from_musit_koordinate(
     mgrs = mgrs_verbatim_from_coord(coord)
     if mgrs:
         out["text3"] = mgrs
-
-    utm_geojson = build_utm_geojson(coord)
-    if utm_geojson:
-        out["text5"] = json.dumps(utm_geojson, ensure_ascii=False, separators=(",", ":"), default=str)
 
     verbatim = verbatim_coordinate_string(coord)
     verbatim_non_mgrs: str | None = None

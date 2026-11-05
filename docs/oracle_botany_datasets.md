@@ -624,7 +624,7 @@ Suggested archival key: `MUSIT_BOTANIKK_FELLES:OBJECT_ID:<id>`.
 | `KOORDINATE_PLACE.LATITUDE_L`, `LONGITUDE_L` | `Locality.latitude1`, `longitude1` (fallback) | Keep | Used when derived WGS missing. |
 | `DERIVED_COORDINATES.LATITUDE` / `LONGITUDE` (WGS) | `Locality.latitude1`, `longitude1` (preferred) | Keep | Primary decimal degrees. |
 | `KOORDINATE_PLACE.DATUM` | `Locality.datum` | Keep | Needed for interpretation/transforms. |
-| `KOORDINATE_PLACE` / derived UTM fields | `Locality.text5` (UTM GeoJSON) | Keep | Clean GeoJSON Feature; audit also in `text4`. |
+| `KOORDINATE_PLACE` / derived UTM fields | `LocalityDetail` (`utmEasting`, `utmNorthing`, `utmZone`, `utmDatum`, `mgrsZone`) | Keep | Zone and band share `mgrsZone` (e.g. `32V`). Audit also in `text4`. |
 | `KOORDINATE_PLACE.CA_UTM`, `UTM_SENERE`, `CA_ALTITUDE` | `Locality.yesNo1`, `yesNo2`, `yesNo3` | Keep | Ca coordinate / Coordinate added later / Ca altitude. |
 | `DERIVED_COORDINATES.*` (full row) | `Locality.text4` audit JSON | Keep | QA and back-calculation. |
 | `PLACE_BIO_GEOGRAFISK_REGION` + `MUSIT_NATHIST_FELLES.BIO_GEOGRAFISK_REGION` | `Locality.text2` | Keep | Norwegian biogeographic zone picklist. |
@@ -836,7 +836,7 @@ The same private host also supports `filename=<OPPRINNELIG_FILNAVN>` for named d
 | Event shell | **`EVENT`**: `EVENT_ID`, `EVENTNAME`, `EVENT_TYPE`, `TIMESPAN_ID` | Link via **`EVENT_MUSEUM_OBJECT`** to `OBJECT_ID`. |
 | Field event | **`COLLECTING_EVENT`**: `COLLECTIONTYPE_ID`, `LEGNAME_ORIG`, `AGG_PERSONNAMES` | Collector aggregation + “plant collecting” type (see [migration_strategy](migration_strategy.md) for intended `COLLECTIONTYPE_ID` meaning). |
 | Place | **`PLACE`**: `PLACE_ID`, `PLACE_NAME_AGG` | Locality string; drill via **`PLACE_*`** junction tables to **`ADMINISTRATIVE_PLACE`**, **`INDEXED_LOCALITY`**, **`STORING_PLACE`**, **`ECOLOGY_PLACE`**, etc. |
-| Coordinates | **`KOORDINATE_PLACE`**: lat/long, UTM/MGRS, datum, precision, sources, verbatim strings | Mapped onto Specify `Locality` as documented in [MUSIT coordinate migration](musit_coordinate_migration.md) (WGS → lat/lon1, MGRS → `text3`, UTM → GeoJSON `text5`). DiGIR views flatten many DwC geo columns for vascular exports. |
+| Coordinates | **`KOORDINATE_PLACE`**: lat/long, UTM/MGRS, datum, precision, sources, verbatim strings | Mapped onto Specify `Locality` / `LocalityDetail` as documented in [MUSIT coordinate migration](musit_coordinate_migration.md) (WGS → lat/lon1, MGRS grid → `text3`, UTM and zone/band → `LocalityDetail`). DiGIR views flatten many DwC geo columns for vascular exports. |
 | DwC extras on export | **`V_DC_*`**: locality, country, county, elevation, depth, `ORIGINAL_KOORDINAT_STRENG`, `KOORDINATKILDE`, `BIOGEOREGION`, `DATASETNAME`, … | Good for parity with IPT; cross-check against normalized **`PLACE`** / **`KOORDINATE_PLACE`** when you need authoritative MUSIT values. |
 
 ### 4. Taxonomy and determinations (Specify `Determination` / `Taxon`)

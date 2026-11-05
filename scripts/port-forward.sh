@@ -19,8 +19,10 @@
 #   db         shorthand for mariadb + oracle
 #   all        everything (default)
 #
-# Requires: kubectl. Oracle DB hosts are only reachable from the cluster; this script starts socat in
-# the Prefect dev-worker pod (migration image), then port-forwards those pod ports to localhost.
+# Requires: kubectl. Every kubectl call uses --context=nird (the NIRD cluster); the shell's
+# current context is ignored. Oracle DB hosts are only reachable from the cluster; this script
+# starts socat in the Prefect dev-worker pod (migration image), then port-forwards those pod
+# ports to localhost.
 #
 # Optional env:
 #   PF_ORACLE_PROXY_POD         pod name (default: first pod with label component=prefect-dev-worker)
@@ -55,6 +57,11 @@ fi
 # (so pf_stop still kills the first batch). Unset until first use or after pf_stop clears it.
 [[ -z ${_PF_PIDS+x} ]] && _PF_PIDS=()
 
+# Staging lives on the NIRD cluster. Do not follow the shell's current kube context.
+_pf_kubectl() {
+    command kubectl --context=nird "$@"
+}
+
 # Return 0 if something is listening on 127.0.0.1:port (IPv4).
 _pf_tcp_port_listening() {
     local port="${1:?}"
@@ -72,7 +79,7 @@ _pf_forward_mariadb() {
         return
     fi
     echo "  MariaDB        svc/specify7-mariadb        → localhost:3306"
-    kubectl port-forward svc/specify7-mariadb 3306:3306 >/dev/null 2>&1 &
+    _pf_kubectl port-forward svc/specify7-mariadb 3306:3306 >/dev/null 2>&1 &
     _PF_PIDS+=($!)
 }
 
@@ -82,7 +89,7 @@ _pf_forward_prefect() {
         return
     fi
     echo "  Prefect        svc/specify7-prefect-server  → localhost:4200"
-    kubectl port-forward svc/specify7-prefect-server 4200:4200 >/dev/null 2>&1 &
+    _pf_kubectl port-forward svc/specify7-prefect-server 4200:4200 >/dev/null 2>&1 &
     _PF_PIDS+=($!)
 }
 
@@ -92,7 +99,7 @@ _pf_forward_backend() {
         return
     fi
     echo "  Specify7 API   svc/specify7-backend         → localhost:8000"
-    kubectl port-forward svc/specify7-backend 8000:8000 >/dev/null 2>&1 &
+    _pf_kubectl port-forward svc/specify7-backend 8000:8000 >/dev/null 2>&1 &
     _PF_PIDS+=($!)
 }
 
@@ -101,14 +108,14 @@ _pf_forward_oracle() {
     ct="${PF_ORACLE_PROXY_CONTAINER:-dev-worker}"
     pod="${PF_ORACLE_PROXY_POD:-}"
     if [[ -z "$pod" ]]; then
-        pod=$(kubectl get pods -l component=prefect-dev-worker -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+        pod=$(_pf_kubectl get pods -l component=prefect-dev-worker -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
     fi
     if [[ -z "$pod" ]]; then
         echo "  ⚠ Oracle: no proxy pod (label component=prefect-dev-worker)."
         echo "     Enable chart values prefect.devWorker.enabled, or: export PF_ORACLE_PROXY_POD=<pod>"
         return
     fi
-    phase=$(kubectl get pod "$pod" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+    phase=$(_pf_kubectl get pod "$pod" -o jsonpath='{.status.phase}' 2>/dev/null || true)
     if [[ "$phase" != "Running" ]]; then
         echo "  ⚠ Oracle: pod $pod is not Running (status.phase=${phase:-unknown})"
         return
@@ -120,12 +127,12 @@ _pf_forward_oracle() {
     fi
 
     echo "  Oracle PROD+TEST  pod/$pod ($ct) → localhost:1553 / :1554"
-    kubectl exec "$pod" -c "$ct" -- bash -c \
+    _pf_kubectl exec "$pod" -c "$ct" -- bash -c \
         'socat TCP-LISTEN:1553,fork,reuseaddr TCP:dbora-musit-prod03.uio.no:1553 & socat TCP-LISTEN:1554,fork,reuseaddr TCP:dbora-musit-utv03.uio.no:1553 & wait' \
         </dev/null &
     _PF_PIDS+=($!)
     sleep 1
-    kubectl port-forward "pod/$pod" 1553:1553 1554:1554 >/dev/null 2>&1 &
+    _pf_kubectl port-forward "pod/$pod" 1553:1553 1554:1554 >/dev/null 2>&1 &
     _PF_PIDS+=($!)
 }
 

@@ -902,6 +902,7 @@ from flows.lib.musit_coordinate_map import (
     LAT1TEXT_MAX_LEN,
     apply_verbatim_coordinate_fields,
     empty_coordinate_bundle,
+    ensure_locality_detail,
     locality_spatial_kwargs_from_musit_koordinate,
     normalize_musit_datum,
     verbatim_coordinate_string,
@@ -1328,6 +1329,8 @@ def load_localities_for_referenced_places(
                 if existing_lid is not None:
                     stats.localities_skipped += 1
                     try:
+                        if not dry_run:
+                            ensure_locality_detail(existing_lid, coord)
                         upsert_placemap_row(
                             source_owner=owner.upper(),
                             source_kind="place",
@@ -1376,6 +1379,7 @@ def load_localities_for_referenced_places(
                         loc_kwargs["text1"] = verbatim
                     loc = Locality(**loc_kwargs)
                     loc.save()
+                    ensure_locality_detail(int(loc.id), coord)
                     stats.localities_created += 1
                     locality_cache[loc_key] = int(loc.id)
                     upsert_placemap_row(

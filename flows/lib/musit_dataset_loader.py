@@ -1018,6 +1018,7 @@ def _get_or_create_locality(
     from specifyweb.specify.models import Geography, Locality
 
     from flows.lib.migration_oracle_placemap import upsert_placemap_row
+    from flows.lib.musit_coordinate_map import ensure_locality_detail
     from flows.lib.oracle_geography_load import (
         _deepest_geography_for_place,
         _fetch_coordinate_bundle,
@@ -1131,6 +1132,7 @@ def _get_or_create_locality(
         loc = Locality(**loc_kwargs)
         loc.save()
         lid = int(loc.id)
+        ensure_locality_detail(lid, coord)
         locality_cache[cache_key] = lid
         stats.locality_created += 1
 

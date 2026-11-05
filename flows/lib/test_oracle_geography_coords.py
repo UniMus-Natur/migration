@@ -9,8 +9,8 @@ from flows.lib.musit_coordinate_map import (
     MAPPING_VERSION,
     apply_verbatim_coordinate_fields,
     build_coordinate_remarks_payload,
-    build_utm_geojson,
     format_locality_remarks_json,
+    locality_detail_kwargs_from_musit_koordinate,
     locality_spatial_kwargs_from_musit_koordinate,
     normalize_musit_datum,
     verbatim_coordinate_string,
@@ -114,7 +114,7 @@ class MusitCoordinateMapTests(unittest.TestCase):
         self.assertEqual(audit["migration_meta"]["mapping_version"], MAPPING_VERSION)
 
     def test_mgrs_with_derived_utm_and_wgs(self) -> None:
-        """Regression for O-V-2002713: WGS decimals + UTM GeoJSON + MGRS text3."""
+        """Regression for O-V-2002713: WGS decimals + LocalityDetail UTM + MGRS text3."""
         coord = {
             "coordinate_string": "CS 163,372",
             "mgrs_l": "CS 163,372",
@@ -142,30 +142,63 @@ class MusitCoordinateMapTests(unittest.TestCase):
         self.assertEqual(out["long1text"], "-16.8737")
         self.assertEqual(out["latlongtype"], "Point")
         self.assertEqual(out["text3"], "CS 163,372")
+        self.assertNotIn("text5", out)
         self.assertNotIn("lat2text", out)
         self.assertNotIn("latitude2", out)
         self.assertIs(out["yesno2"], True)
-        geo = json.loads(out["text5"])
-        self.assertEqual(geo["type"], "Feature")
-        self.assertEqual(geo["geometry"]["coordinates"], [316350, 3137250])
-        self.assertEqual(geo["properties"]["zone"], 28)
-        self.assertEqual(geo["properties"]["crs"], "EPSG:32628")
-        self.assertEqual(geo["properties"]["source"], "dc")
+        detail = locality_detail_kwargs_from_musit_koordinate(coord)
+        assert detail is not None
+        self.assertEqual(detail["utmeasting"], 316350)
+        self.assertEqual(detail["utmnorthing"], 3137250)
+        self.assertEqual(detail["utmzone"], 28)
+        self.assertEqual(detail["mgrszone"], "28R")
+        self.assertEqual(detail["utmdatum"], "WGS84")
 
-    def test_utm_geojson_includes_high_corner(self) -> None:
-        geo = build_utm_geojson(
+    def test_native_utm_zone_and_band_share_mgrs_zone(self) -> None:
+        coord = {
+            "utm_x": 479519,
+            "utm_y": 6569492,
+            "utm_x_h": 479619,
+            "utm_y_h": 6569592,
+            "zone": 32,
+            "belt": "V",
+            "datum": "ED50",
+            "coordinate_string": "NM 795,695",
+            "coordinate_type_term": "MGRS",
+        }
+        out = locality_spatial_kwargs_from_musit_koordinate(coord)
+        self.assertNotIn("text5", out)
+        self.assertEqual(out["text3"], "NM 795,695")
+        detail = locality_detail_kwargs_from_musit_koordinate(coord)
+        assert detail is not None
+        self.assertEqual(detail["utmzone"], 32)
+        self.assertEqual(detail["mgrszone"], "32V")
+        self.assertEqual(detail["utmeasting"], 479519)
+        self.assertEqual(detail["utmnorthing"], 6569492)
+        self.assertEqual(detail["utmdatum"], "ED50")
+        self.assertNotIn("utm_x_h", detail)
+        audit = json.loads(out["text4"])
+        self.assertEqual(audit["utm"]["kp"]["x_h"], 479619)
+        self.assertEqual(audit["utm"]["kp"]["y_h"], 6569592)
+
+    def test_utm33_fallback_does_not_reuse_another_zones_band(self) -> None:
+        detail = locality_detail_kwargs_from_musit_koordinate(
             {
-                "utm_x": 479519,
-                "utm_y": 6569492,
-                "utm_x_h": 479619,
-                "utm_y_h": 6569592,
+                "utm33_x": 100000,
+                "utm33_y": 6700000,
                 "zone": 32,
                 "belt": "V",
             }
         )
-        assert geo is not None
-        self.assertEqual(geo["geometry"]["coordinates"], [479519, 6569492])
-        self.assertEqual(geo["properties"]["high"], [479619, 6569592])
+        assert detail is not None
+        self.assertEqual(detail["utmzone"], 33)
+        self.assertEqual(detail["utmeasting"], 100000)
+        self.assertNotIn("mgrszone", detail)
+
+    def test_zone_and_band_without_axes_still_fill_mgrs_zone(self) -> None:
+        detail = locality_detail_kwargs_from_musit_koordinate({"zone": 33, "belt": "W"})
+        assert detail is not None
+        self.assertEqual(detail, {"utmzone": 33, "mgrszone": "33W"})
 
     def test_does_not_map_ll_high_to_lat2(self) -> None:
         coord = {

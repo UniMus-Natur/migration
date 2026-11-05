@@ -12,7 +12,7 @@ How vascular-plant specimen coordinates from Oracle MUSIT are written onto Speci
 |--|--|
 | **Mapping code** | `flows/lib/musit_coordinate_map.py` |
 | **Callers** | `musit_dataset_loader.py`, `oracle_geography_load.py` |
-| **Mapping version** | `musit-coordinates-v8` (stored in `Locality.text4` audit JSON) |
+| **Mapping version** | `musit-coordinates-v9` (stored in `Locality.text4` audit JSON) |
 | **UI** | `specify7-forms` — Locality / CollectingEvent / CollectingEventSub forms + botany schema labels |
 
 Policy is **copy-only**: no DMS parsing, no grid→WGS conversion, no reprojection in the ETL. Prefer values already present as decimal degrees or structured UTM/MGRS in MUSIT.
@@ -52,7 +52,7 @@ For Oslo vascular plants (`institutioncode=O`, `collectioncode=V`), PROD analysi
 - Most “high” UTM corners are **MGRS grid-cell extents** (e.g. 100 m / 1 km), not collecting polygons.
 - Migration therefore sets Specify **`latLongType = Point`** whenever WGS decimals exist, and does **not** populate `latitude2` / `longitude2`.
 
-## Specify `Locality` field layout (v8)
+## Specify `Locality` field layout (v9)
 
 | Specify field | Content |
 |---------------|---------|
@@ -64,13 +64,23 @@ For Oslo vascular plants (`institutioncode=O`, `collectioncode=V`), PROD analysi
 | `latLongAccuracy` | MUSIT `PRECISION` (metres) |
 | `text1` | Place-name aggregate (`PLACE.PLACE_NAME_AGG`) — not coordinates |
 | `text2` | Norwegian biogeographic zone (picklist) — not coordinates |
-| `text3` | **Grid ref. (MGRS)** — Norwegian MGRS verbatim (e.g. `CS 163,372`) |
+| `text3` | **Grid ref. (MGRS)** — Norwegian MGRS verbatim (e.g. `CS 163,372`), without zone or band |
 | `text4` | Full migration **audit JSON** (provenance; hidden in UI) |
-| `text5` | **UTM as GeoJSON** `Feature` (clean contract for future Specify UTM UI) |
 | `yesNo1` | Ca coordinate (`CA_UTM`) |
 | `yesNo2` | Coordinate added later (`UTM_SENERE`) |
 | `yesNo3` | Ca altitude (`CA_ALTITUDE`) |
 | `remarks` | Compact notes JSON when needed (conflicts, unmapped datum, non-MGRS verbatim, …) |
+
+UTM and the shared grid zone live on the zero-or-one child **`LocalityDetail`**, not on `Locality` text fields.
+
+| `LocalityDetail` field | Content |
+|------------------------|---------|
+| `utmEasting` / `utmNorthing` | Easting and northing in metres (decimal 19,2). Prefer KP UTM, else derived UTM, else UTM33 |
+| `utmZone` | Zone number 1–60. Forced to `33` when the only axes are UTM33 |
+| `mgrsZone` | Grid zone designator shared with the MGRS string: zone + latitude band, e.g. `32V` (varchar 4) |
+| `utmDatum` | Datum of those UTM axes when recognizable (`WGS84`, `ED50`, `ETRS89`, …) |
+
+`mgrsZone` is omitted for a UTM33 fallback when the native zone is not 33, so a band from another zone is not attached to zone 33. The grid-cell high corner and any parallel UTM33 pair stay in the `text4` audit JSON. A locality that already has a `LocalityDetail` row is left unchanged; a later geography load inserts one only when the row is missing.
 
 Elevation (`minElevation` / `maxElevation` / `verbatimElevation` / …) is mapped separately from altitude columns when present.
 
@@ -89,37 +99,21 @@ Filled from, in order:
 
 Non-MGRS verbatim (e.g. DMS-only strings with no decimal pair) is **not** forced into `text3`; it goes into `remarks.notes.verbatim_coordinate` and remains in `text4`.
 
-### `text5` — UTM GeoJSON
+Zone and band are not prefixed onto `text3`. They are stored once, on `LocalityDetail.mgrsZone`.
 
-Compact GeoJSON **Feature** (Point). Example:
+## `LocalityDetail` — UTM and zone
 
-```json
-{
-  "type": "Feature",
-  "geometry": {
-    "type": "Point",
-    "coordinates": [316350, 3137250]
-  },
-  "properties": {
-    "source": "dc",
-    "crs": "EPSG:32628",
-    "zone": 28,
-    "band": "R",
-    "high": [316450, 3137350]
-  }
-}
-```
+Example for grid `CS 163,372` in zone 28, band R, with derived easting/northing:
 
-| Property | Meaning |
-|----------|---------|
-| `coordinates` | Easting, northing (best available: KP UTM → derived UTM → UTM33) |
-| `source` | `kp`, `dc`, `kp_utm33`, or `dc_utm33` |
-| `crs` | EPSG from zone + band when zone is known |
-| `zone` / `band` | UTM zone and latitude band / belt |
-| `high` | Optional second corner (often MGRS cell extent) |
-| `utm33` | Optional parallel UTM33 axes when primary is not already UTM33 |
+| Field | Value |
+|-------|-------|
+| `mgrsZone` | `28R` |
+| `utmZone` | `28` |
+| `utmEasting` | `316350` |
+| `utmNorthing` | `3137250` |
+| `utmDatum` | `WGS84` |
 
-This is the stable field to read when Specify gains first-class UTM support. Do **not** treat the fat `text4` audit blob as that contract.
+`Locality.text3` stays `CS 163,372`. Projection-parameter columns on `LocalityDetail` (`utmFalseEasting`, `utmScale`, origin latitude/longitude) are left empty; standard UTM is identified by zone and datum.
 
 ### `text4` — audit JSON
 
@@ -129,20 +123,23 @@ Machine-readable dump of MUSIT ids, verbatim strings, KP vs derived stored decim
 
 - Put UTM easting/northing into `lat1text` / `long1text` (those are for WGS text entry).
 - Put MGRS into `lat2text` or split grids across lat/long text fields.
+- Prefix zone and band onto the verbatim grid in `text3`.
+- Store UTM as GeoJSON on `Locality.text5`.
 - Set `latLongType` to MUSIT terms like `MGRS` / `UTM` (Specify expects Point / Line / Rectangle).
 - Map incomplete `latitude_h` / `longitude_h` into Specify’s second point.
 - Convert grids or DMS to WGS during migration.
 
-## UI surfaces (`specify7-forms`)
+## UI surfaces (`specify7-config`)
 
 | Form | Shows |
 |------|--------|
-| **Locality** | Where → Coordinates (LatLonUI, Geo Ref / Google Earth, datum/precision, Grid ref) → Elevation → collapsed GeoCoordDetails → Advanced (UTM GeoJSON, remarks) → Attachments |
-| **LocalitySubForm** | Compact where + coordinates (no elevation / UTM / remarks) |
-| **CollectingEventSub** (on Collection Object) | `latitude1` / `longitude1`, Grid ref. (MGRS), UTM GeoJSON, flags |
+| **Locality** | Where → Coordinates (LatLonUI, Geo Ref / Google Earth, datum/precision, Grid ref, LocalityDetail UTM) → Elevation → collapsed GeoCoordDetails → Advanced (remarks) → Attachments |
+| **LocalitySubForm** | Compact where + coordinates, including zone/band and UTM easting/northing |
+| **LocalityDetail** | Zone and band (`mgrsZone`), UTM zone, easting, northing, datum |
+| **CollectingEventSub** (on Collection Object) | `latitude1` / `longitude1`, Grid ref. (MGRS), zone/band, UTM easting/northing, flags |
 | **CollectingEvent** | Same coordinate fields as the subform |
 
-Schema labels live in `specify7-forms/schema/botany/schema.en.json` (`Locality.text3` = Grid ref. (MGRS), `text5` = UTM (GeoJSON)). Regex validation uses UIFormatter `GridRefMGRS` (`specli formatter`).
+Schema labels live in `specify7-config` (`Locality.text3` = Grid ref. (MGRS), `LocalityDetail.mgrsZone` = Zone and band). Regex validation uses UIFormatter `GridRefMGRS` (`specli formatter`).
 
 **Note:** Specify 7 only collapses relationship subviews (`initialize="collapse=true"`), not same-table field groups. Advanced fields are therefore demoted to a trailing section; GeoCoordDetails is collapsed by default.
 
