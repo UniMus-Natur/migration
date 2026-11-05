@@ -288,11 +288,11 @@ def ensure_locality_detail(locality_id: int, coord: dict[str, Any]) -> bool:
     fields = locality_detail_kwargs_from_musit_koordinate(coord)
     if not fields:
         return False
-    from specifyweb.specify.models import LocalityDetail
+    from specifyweb.specify.models import Localitydetail
 
-    if LocalityDetail.objects.filter(locality_id=locality_id).exists():
+    if Localitydetail.objects.filter(locality_id=locality_id).exists():
         return False
-    LocalityDetail(locality_id=locality_id, **fields).save()
+    Localitydetail(locality_id=locality_id, **fields).save()
     return True
 
 
