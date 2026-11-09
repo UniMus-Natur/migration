@@ -133,10 +133,10 @@ Machine-readable dump of MUSIT ids, verbatim strings, KP vs derived stored decim
 
 | Form | Shows |
 |------|--------|
-| **Locality** | Where → Coordinates (LatLonUI, Geo Ref / Google Earth, datum/precision, Grid ref, LocalityDetail UTM) → Elevation → collapsed GeoCoordDetails → Advanced (remarks) → Attachments |
-| **LocalitySubForm** | Compact where + coordinates, including zone/band and UTM easting/northing |
-| **LocalityDetail** | Zone and band (`mgrsZone`), UTM zone, easting, northing, datum |
-| **CollectingEventSub** (on Collection Object) | `latitude1` / `longitude1`, Grid ref. (MGRS), zone/band, UTM easting/northing, flags |
+| **Locality** | Where → WGS (LatLonUI, datum/precision) → MGRS (Grid ref + Zone and band) → UTM (`LocalityDetail`) → Elevation → collapsed GeoCoordDetails → Advanced → Attachments |
+| **LocalitySubForm** | Same WGS / MGRS / UTM grouping in compact form |
+| **LocalityDetail** | UTM only: zone, datum, easting, northing (MGRS zone/band is next to Grid ref on the parent) |
+| **CollectingEventSub** (on Collection Object) | WGS lat/lon → MGRS Grid ref + Zone and band → UTM subview → flags |
 | **CollectingEvent** | Same coordinate fields as the subform |
 
 Schema labels live in `specify7-config` (`Locality.text3` = Grid ref. (MGRS), `LocalityDetail.mgrsZone` = Zone and band). Regex validation uses UIFormatter `GridRefMGRS` (`specli formatter`).
