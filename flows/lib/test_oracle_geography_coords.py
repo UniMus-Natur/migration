@@ -216,6 +216,19 @@ class MusitCoordinateMapTests(unittest.TestCase):
         assert detail is not None
         self.assertEqual(detail, {"text1": "LK 122,941"})
 
+    def test_map_sheet_goes_to_detail_text2(self) -> None:
+        detail = locality_detail_kwargs_from_musit_koordinate(
+            {"map_sheet": "1115 III", "mgrs_l": "LK 122,941", "coordinate_type_term": "MGRS"}
+        )
+        assert detail is not None
+        self.assertEqual(detail["text1"], "LK 122,941")
+        self.assertEqual(detail["text2"], "1115 III")
+
+    def test_map_sheet_alone_creates_detail_text2(self) -> None:
+        detail = locality_detail_kwargs_from_musit_koordinate({"map_sheet": "1314 IV"})
+        assert detail is not None
+        self.assertEqual(detail, {"text2": "1314 IV"})
+
     def test_does_not_map_ll_high_to_lat2(self) -> None:
         coord = {
             "latitude_l": 17.117,
@@ -247,14 +260,31 @@ class MusitCoordinateMapTests(unittest.TestCase):
 
     def test_format_locality_remarks_json_is_valid(self) -> None:
         payload = build_coordinate_remarks_payload(
-            {"map_sheet": "1234", "zone": 32, "belt": "V"},
+            {"zone": 32, "belt": "V"},
             kp_datum_unmapped="32",
         )
         assert payload is not None
         text = format_locality_remarks_json(payload)
         parsed = json.loads(text)
-        self.assertIn("map_sheet", parsed["notes"])
+        self.assertNotIn("map_sheet", parsed["notes"])
         self.assertIn("utm_zone", parsed["notes"])
+
+    def test_map_sheet_not_dumped_into_remarks(self) -> None:
+        payload = build_coordinate_remarks_payload({"map_sheet": "1234"})
+        self.assertIsNone(payload)
+        out = locality_spatial_kwargs_from_musit_koordinate(
+            {
+                "latitude_l": 59.0,
+                "longitude_l": 10.0,
+                "map_sheet": "1234",
+                "datum": "WGS84",
+                "koordinate_place_id": 8,
+                "coordinate_type_term": "UNKNOWN",
+            }
+        )
+        self.assertNotIn("remarks", out)
+        audit = json.loads(out["text4"])
+        self.assertEqual(audit["verbatim"]["map_sheet"], "1234")
 
     def test_ca_utm_and_coord_added_later_map_to_yesno(self) -> None:
         coord = {

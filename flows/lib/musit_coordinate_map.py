@@ -1,12 +1,12 @@
 """Map MUSIT ``KOORDINATE_PLACE`` / ``DERIVED_COORDINATES`` rows to Specify locality fields.
 
-Layout (v10)
+Layout (v11)
 ------------
 - ``latitude1`` / ``longitude1`` — WGS decimal degrees only
 - ``lat1text`` / ``long1text`` — text mirror of those WGS values (LatLonUI)
 - ``latLongType`` — ``Point`` when WGS is present (O-V has no real rectangles)
 - ``LocalityDetail`` — shared ``utmZone``, ``mgrsZone`` (band), ``text1`` (MGRS grid
-  square + digits), UTM easting/northing/datum
+  square + digits), ``text2`` (map sheet / kartblad), UTM easting/northing/datum
 - ``text4`` — full migration audit JSON
 - ``yesNo1`` / ``yesNo2`` / ``yesNo3`` — Ca coordinate / Coordinate added later / Ca altitude
 
@@ -22,9 +22,10 @@ from typing import Any
 COORD_CONFLICT_THRESHOLD_DEG = 0.01
 LAT1TEXT_MAX_LEN = 50
 REMARKS_JSON_MAX_LEN = 4000
-MAPPING_VERSION = "musit-coordinates-v10"
+MAPPING_VERSION = "musit-coordinates-v11"
 MGRS_ZONE_MAX_LEN = 4
 UTM_DATUM_MAX_LEN = 32
+MAP_SHEET_MAX_LEN = 64
 _KNOWN_GEODETIC_DATUMS = frozenset({"WGS84", "ED50", "ETRS89", "EUREF89", "OSGB36", "NAD83", "NAD27"})
 # Norwegian/MGRS-ish grids: "ML 796,697", "CS 163,372", "NM 71,56", "MK 793-797,676-680"
 _MGRS_LIKE = re.compile(
@@ -229,6 +230,14 @@ def mgrs_band_letter(band: str | None) -> str | None:
     return letter
 
 
+def map_sheet_from_coord(coord: dict[str, Any]) -> str | None:
+    """MUSIT ``KOORDINATE_PLACE.MAP_SHEET`` → ``LocalityDetail.text2``."""
+    text = non_empty_text(coord.get("map_sheet"))
+    if not text:
+        return None
+    return text[:MAP_SHEET_MAX_LEN]
+
+
 def _detail_fields(
     easting: float | int | None,
     northing: float | int | None,
@@ -237,6 +246,7 @@ def _detail_fields(
     datum: str | None,
     *,
     grid_ref: str | None = None,
+    map_sheet: str | None = None,
 ) -> dict[str, Any] | None:
     out: dict[str, Any] = {}
     if easting is not None and northing is not None:
@@ -251,6 +261,8 @@ def _detail_fields(
         out["utmdatum"] = datum
     if grid_ref:
         out["text1"] = grid_ref
+    if map_sheet:
+        out["text2"] = map_sheet
     return out or None
 
 
@@ -267,10 +279,11 @@ def locality_detail_kwargs_from_musit_koordinate(coord: dict[str, Any]) -> dict[
     """Typed UTM / MGRS fields for Specify ``LocalityDetail``.
 
     Zone number → ``utmZone``; latitude band → ``mgrsZone`` (letter only);
-    MGRS grid square + digits → ``text1``.
+    MGRS grid square + digits → ``text1``; map sheet / kartblad → ``text2``.
     A UTM33 fallback does not reuse a band that belongs to a different zone.
     """
     grid_ref = mgrs_verbatim_from_coord(coord)
+    map_sheet = map_sheet_from_coord(coord)
     native_zone = _first_zone(coord, ("zone", "dc_zone"))
     for x_key, y_key, zone_keys, band_keys, datum_keys, forced_zone in _UTM_DETAIL_CANDIDATES:
         easting = _utm_metre(coord.get(x_key))
@@ -288,6 +301,7 @@ def locality_detail_kwargs_from_musit_koordinate(coord: dict[str, Any]) -> dict[
             band,
             _first_datum(coord, datum_keys),
             grid_ref=grid_ref,
+            map_sheet=map_sheet,
         )
 
     return _detail_fields(
@@ -297,6 +311,7 @@ def locality_detail_kwargs_from_musit_koordinate(coord: dict[str, Any]) -> dict[
         _first_band_letter(coord, ("belt", "dc_band")),
         None,
         grid_ref=grid_ref,
+        map_sheet=map_sheet,
     )
 
 
@@ -352,6 +367,7 @@ def build_coordinate_audit_json(
             "coordinate_string_actual": non_empty_text(coord.get("coordinate_string_actual")),
             "mgrs_l": non_empty_text(coord.get("mgrs_l")),
             "mgrs_h": non_empty_text(coord.get("mgrs_h")),
+            "map_sheet": non_empty_text(coord.get("map_sheet")),
         },
         "stored": {
             "kp_lat": kp_lat,
@@ -434,9 +450,7 @@ def build_coordinate_remarks_payload(
     if utm_zone:
         notes["utm_zone"] = utm_zone
 
-    map_sheet = non_empty_text(coord.get("map_sheet"))
-    if map_sheet:
-        notes["map_sheet"] = map_sheet[:40]
+    # map_sheet → LocalityDetail.text2 (not remarks)
 
     if conflict:
         notes["coord_conflict"] = conflict
@@ -456,7 +470,6 @@ def build_coordinate_remarks_payload(
 def format_locality_remarks_json(payload: dict[str, Any]) -> str:
     """Serialize remarks payload to compact JSON, staying within Specify field length."""
     drop_order = (
-        "map_sheet",
         "utm_zone",
         "kp_datum_unmapped",
         "verbatim_coordinate",

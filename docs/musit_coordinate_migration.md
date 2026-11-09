@@ -71,13 +71,14 @@ For Oslo vascular plants (`institutioncode=O`, `collectioncode=V`), PROD analysi
 | `yesNo3` | Ca altitude (`CA_ALTITUDE`) |
 | `remarks` | Compact notes JSON when needed (conflicts, unmapped datum, non-MGRS verbatim, …) |
 
-MGRS grid, shared zone/band, and UTM live on the zero-or-one child **`LocalityDetail`**.
+MGRS grid, shared zone/band, map sheet, and UTM live on the zero-or-one child **`LocalityDetail`**.
 
 | `LocalityDetail` field | Content |
 |------------------------|---------|
 | `utmZone` | Zone number 1–60 (**shared by MGRS and UTM**). Forced to `33` when the only axes are UTM33 |
 | `mgrsZone` | MGRS latitude **band letter only**, e.g. `V` |
 | `text1` | **Grid ref.** — Norwegian MGRS verbatim (e.g. `CS 163,372`), without zone or band |
+| `text2` | **Map sheet** — MUSIT `KOORDINATE_PLACE.MAP_SHEET` (kartblad), e.g. `1115 III` |
 | `utmEasting` / `utmNorthing` | Easting and northing in metres (decimal 19,2). Prefer KP UTM, else derived UTM, else UTM33 |
 | `utmDatum` | Datum of those UTM axes when recognizable (`WGS84`, `ED50`, `ETRS89`, …) |
 
@@ -111,6 +112,7 @@ Example for grid `CS 163,372` in zone 28, band R, with derived easting/northing:
 | `utmZone` | `28` |
 | `mgrsZone` | `R` |
 | `text1` | `CS 163,372` |
+| `text2` | *(map sheet when present)* |
 | `utmEasting` | `316350` |
 | `utmNorthing` | `3137250` |
 | `utmDatum` | `WGS84` |
@@ -137,10 +139,10 @@ Machine-readable dump of MUSIT ids, verbatim strings, KP vs derived stored decim
 |------|--------|
 | **Locality** | Where → WGS → **MGRS / UTM** (`LocalityDetail` subform) → Elevation → … |
 | **LocalitySubForm** | Same grouping in compact form |
-| **LocalityDetail** | Zone (MGRS & UTM) + Band → Grid ref. → UTM easting/northing/datum |
+| **LocalityDetail** | Zone (MGRS & UTM) + Band → Grid ref. → Map sheet → UTM easting/northing/datum |
 | **CollectingEvent** / **CollectingEventSub** | Same via embedded Locality |
 
-Schema labels live in `specify7-config`. String UIFormatters: `GridRefMGRS` (`LocalityDetail.text1`), `MGRSBand`, `UTMDatum`. Numeric fields (`utmZone`, easting, northing) have no string formatter.
+Schema labels live in `specify7-config`. String UIFormatters: `GridRefMGRS` (`LocalityDetail.text1`), `MGRSBand`. `utmDatum` uses the `LocalityDatum` picklist. Numeric fields (`utmZone`, easting, northing) have no string formatter.
 
 **Note:** Specify 7 only collapses relationship subviews (`initialize="collapse=true"`), not same-table field groups. Advanced fields are therefore demoted to a trailing section; GeoCoordDetails is collapsed by default.
 
