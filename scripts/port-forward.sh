@@ -80,21 +80,54 @@ _pf_tcp_port_listening() {
     return $?
 }
 
+# Run kubectl with a hard process timeout. Needed because nird-toolkit-auth-helper
+# can block forever on OIDC UserInfo / Feide browser login (:49999) — kubectl's own
+# --request-timeout only applies after credentials are obtained.
+_pf_kubectl_timeout() {
+    local secs="${1:?}"
+    shift
+    local pid i
+    _pf_kubectl "$@" &
+    pid=$!
+    for ((i = 0; i < secs * 2; i++)); do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            wait "$pid"
+            return $?
+        fi
+        sleep 0.5
+    done
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    return 124
+}
+
 # Serial preflight: one kubectl call so nird-toolkit-auth-helper / API auth settle
 # before we start long-lived port-forwards. Retries briefly for transient Unauthorized.
 _pf_warm_auth() {
-    local attempt err
+    local attempt err rc
     err="$(mktemp -t pf-auth.XXXXXX)"
-    for attempt in 1 2 3 4 5; do
-        if _pf_kubectl auth can-i get pods >/dev/null 2>"$err"; then
+    echo "  Warming NIRD auth (serial; avoids parallel Unauthorized)..."
+    for attempt in 1 2 3; do
+        _pf_kubectl_timeout 15 auth can-i get pods >/dev/null 2>"$err"
+        rc=$?
+        if [[ $rc -eq 0 ]]; then
             rm -f "$err"
             return 0
         fi
-        sleep "$attempt"
+        if [[ $rc -eq 124 ]]; then
+            echo "  … attempt $attempt timed out (auth helper hung); retrying"
+        else
+            echo "  … attempt $attempt failed; retrying"
+        fi
+        sleep 1
     done
-    echo "  ✗ NIRD kubectl auth failed (nird-toolkit-auth-helper / API Unauthorized)."
-    echo "     Re-login if needed, then retry. Last error:"
-    sed 's/^/     /' "$err" >&2 || true
+    echo "  ✗ NIRD kubectl auth failed (nird-toolkit-auth-helper / API)."
+    echo "     Run interactively first:  kubectl --context=nird get pods"
+    echo "     (complete Feide login if a browser opens), then re-source this script."
+    if [[ -s "$err" ]]; then
+        echo "     Last error:"
+        sed 's/^/     /' "$err" >&2 || true
+    fi
     rm -f "$err"
     return 1
 }
@@ -120,8 +153,9 @@ _pf_start_forward() {
     _PF_PIDS+=("$pid")
     _PF_LOGS+=("$log")
 
+    # Up to ~15s: each kubectl re-invokes nird-toolkit-auth-helper (UserInfo).
     ok=false
-    for i in 1 2 3 4 5 6 7 8 9 10; do
+    for i in $(seq 1 30); do
         if ! kill -0 "$pid" 2>/dev/null; then
             break
         fi
