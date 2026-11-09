@@ -668,9 +668,10 @@ Suggested archival key: `MUSIT_BOTANIKK_FELLES:OBJECT_ID:<id>`.
 
 | Oracle table.column | Specify target | Keep / drop | Notes |
 |---|---|---|---|
-| `NOTE.NOTE_TEXT`, `NOTE.LONG_NOTE` | `CollectionObject.remarks` / note attachments | Keep | Do not collapse to one field without raw retention. |
-| `MUSEUM_OBJECT_NOTE` links (`OBJECT_ID`, `NOTE_ID`, `TYPE_ID`) | object-level remarks/citations | Keep | Preserve note typing via `TYPES`. |
-| `EVENT_NOTE` links (`EVENT_ID`, `NOTE_ID`, `NOTE_TYPE_ID`) | event/determination remarks | Keep | Keep role/type semantics. |
+| `NOTE.NOTE_TEXT` via `MUSEUM_OBJECT_NOTE` | `CollectionObject.remarks` (Adm note) | Keep | Object-linked notes only; not mixed with Reg/Corr audit. |
+| `NOTE.NOTE_TEXT` via `EVENT_NOTE` on collecting event | `CollectingEvent.remarks` (Collectors note) | Keep | Collecting-event notes only. |
+| `NOTE.NOTE_TEXT` via `EVENT_NOTE` on classification event | `Determination.remarks` | Keep | Determination notes (see `musit_determination_remarks`). |
+| `OBJECT_ATTRIBUTES` Reg/Corr/Approved users+dates | `CollectionObject.text8` (Administrative) | Keep | Audit trail only; never written into Adm note. |
 | `REFERENCE_DOCUMENT.DOCUMENT_*` | `ReferenceWork` / attachment | Keep | Includes blob/text/reference pointers. |
 | `DOCUMENT_OBJECT`, `EVENT_DOCUMENT` link tables | attach docs to object/event | Keep | Needed to reconstruct context attachments. |
 | `USD_FELLES.MEDIAGRUPPE_ENHET.*` | attachment grouping metadata | Keep | Key bridge from object to binary files. |

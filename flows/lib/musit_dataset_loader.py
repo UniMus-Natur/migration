@@ -27,6 +27,9 @@ Design constraints
   ``reservedtext3``).
 * MUSIT ``OBJECT_ATTRIBUTES.UUID`` → ``CollectionObject.reservedText`` (labelled
   UUID in forms). Not ``uniqueIdentifier`` — many O-V objects share the same UUID.
+* Notes split: object notes → ``CollectionObject.remarks`` (Adm note); collecting-event
+  notes → ``CollectingEvent.remarks`` (Collectors note); Reg/Corr/Approved audit →
+  ``CollectionObject.text8`` only (never mixed into Adm note).
 * Each specimen is wrapped in ``transaction.atomic`` so partial failures roll back
   cleanly without leaving orphan records.
 * Idempotent / resumable: before each object is migrated, the loader checks
@@ -2115,11 +2118,10 @@ def _write_one_object(
         if habitat_text:
             ce_kwargs["text1"] = _trunc(habitat_text, 65535)
 
-        ce_remarks_parts = []
+        # Collectors note (MUSIT NOTE linked to the collecting event) → CE.remarks.
+        # Keep this field note-only; do not mix in unresolved collector fallbacks.
         if event_notes:
-            ce_remarks_parts.append(f"Notes: {event_notes}")
-        if ce_remarks_parts:
-            ce_kwargs["remarks"] = _trunc("; ".join(ce_remarks_parts), 4000)
+            ce_kwargs["remarks"] = _trunc(event_notes, 4000)
 
         if dry_run:
             stats.ce_created += 1
@@ -2163,30 +2165,15 @@ def _write_one_object(
                 legnr_for_actor=legnr_for_actor,
             )
         if collectors_created == 0 and collector_str:
-            fallback_remarks = ce_kwargs.get("remarks") or ""
-            collector_remark = f"Collector: {collector_str}"
-            ce.remarks = _trunc(
-                "; ".join(p for p in (fallback_remarks, collector_remark) if p),
-                4000,
-            )
-            ce.save(update_fields=["remarks"])
+            # Keep Collectors note clean; archive unresolved aggregate for remigration QA.
+            json_body["unresolved_collectors"] = collector_str
+            json_payload = json.dumps(json_body, ensure_ascii=False, default=str)
 
         # 4. CollectionObject
-        # Build remarks from notes and audit info
-        co_remarks_parts = []
+        # Adm note (MUSIT NOTE linked to the object) → CO.remarks only.
+        # Registration audit stays in readonly text8 (below), not mixed into Adm note.
         object_notes = obj_row.get("object_notes")
-        if object_notes:
-            co_remarks_parts.append(f"Notes: {object_notes}")
-
-        audit_parts = []
-        if obj_row.get("reg_user"):
-            audit_parts.append(f"Reg: {obj_row.get('reg_user')}")
-        if obj_row.get("korr_user"):
-            audit_parts.append(f"Korr: {obj_row.get('korr_user')}")
-        if obj_row.get("approve_user"):
-            audit_parts.append(f"Approve: {obj_row.get('approve_user')}")
-        if audit_parts:
-            co_remarks_parts.append(f"Audit: {', '.join(audit_parts)}")
+        adm_note = _trunc(object_notes, 4000) if object_notes else None
 
         musit_uuid = _trunc(obj_row.get("uuid"), 128)
 
@@ -2219,7 +2206,7 @@ def _write_one_object(
             collectingevent=ce,
             collection=collection,
             collectionmemberid=int(collection.id),
-            remarks=_trunc("; ".join(co_remarks_parts), 4000) if co_remarks_parts else None,
+            remarks=adm_note,
             text1=_trunc(obj_row.get("object_state"), 255),  # Object origin/state
             text2=_trunc(obj_row.get("project_name"), 255),  # Project
             text3=json_payload,
