@@ -1,12 +1,12 @@
 """Map MUSIT ``KOORDINATE_PLACE`` / ``DERIVED_COORDINATES`` rows to Specify locality fields.
 
-Layout (v9)
------------
+Layout (v10)
+------------
 - ``latitude1`` / ``longitude1`` — WGS decimal degrees only
 - ``lat1text`` / ``long1text`` — text mirror of those WGS values (LatLonUI)
 - ``latLongType`` — ``Point`` when WGS is present (O-V has no real rectangles)
-- ``text3`` — MGRS / grid verbatim string (square letters and digits; no zone)
-- ``LocalityDetail`` — UTM easting/northing/zone/datum, and ``mgrsZone`` (latitude band only)
+- ``LocalityDetail`` — shared ``utmZone``, ``mgrsZone`` (band), ``text1`` (MGRS grid
+  square + digits), UTM easting/northing/datum
 - ``text4`` — full migration audit JSON
 - ``yesNo1`` / ``yesNo2`` / ``yesNo3`` — Ca coordinate / Coordinate added later / Ca altitude
 
@@ -22,7 +22,7 @@ from typing import Any
 COORD_CONFLICT_THRESHOLD_DEG = 0.01
 LAT1TEXT_MAX_LEN = 50
 REMARKS_JSON_MAX_LEN = 4000
-MAPPING_VERSION = "musit-coordinates-v9"
+MAPPING_VERSION = "musit-coordinates-v10"
 MGRS_ZONE_MAX_LEN = 4
 UTM_DATUM_MAX_LEN = 32
 _KNOWN_GEODETIC_DATUMS = frozenset({"WGS84", "ED50", "ETRS89", "EUREF89", "OSGB36", "NAD83", "NAD27"})
@@ -127,7 +127,7 @@ def looks_like_mgrs_or_grid(text: str) -> bool:
 
 
 def mgrs_verbatim_from_coord(coord: dict[str, Any]) -> str | None:
-    """Return MGRS/grid text for ``Locality.text3``, or None."""
+    """Return MGRS/grid text for ``LocalityDetail.text1``, or None."""
     for key in ("mgrs_l", "mgrs_h"):
         text = non_empty_text(coord.get(key))
         if text:
@@ -235,6 +235,8 @@ def _detail_fields(
     zone: int | None,
     band: str | None,
     datum: str | None,
+    *,
+    grid_ref: str | None = None,
 ) -> dict[str, Any] | None:
     out: dict[str, Any] = {}
     if easting is not None and northing is not None:
@@ -247,6 +249,8 @@ def _detail_fields(
         out["mgrszone"] = band_letter
     if datum:
         out["utmdatum"] = datum
+    if grid_ref:
+        out["text1"] = grid_ref
     return out or None
 
 
@@ -260,11 +264,13 @@ _UTM_DETAIL_CANDIDATES: tuple[tuple[str, str, tuple[str, ...], tuple[str, ...], 
 
 
 def locality_detail_kwargs_from_musit_koordinate(coord: dict[str, Any]) -> dict[str, Any] | None:
-    """Typed UTM / MGRS-zone fields for Specify ``LocalityDetail``.
+    """Typed UTM / MGRS fields for Specify ``LocalityDetail``.
 
-    Zone number → ``utmZone``; latitude band → ``mgrsZone`` (letter only).
+    Zone number → ``utmZone``; latitude band → ``mgrsZone`` (letter only);
+    MGRS grid square + digits → ``text1``.
     A UTM33 fallback does not reuse a band that belongs to a different zone.
     """
+    grid_ref = mgrs_verbatim_from_coord(coord)
     native_zone = _first_zone(coord, ("zone", "dc_zone"))
     for x_key, y_key, zone_keys, band_keys, datum_keys, forced_zone in _UTM_DETAIL_CANDIDATES:
         easting = _utm_metre(coord.get(x_key))
@@ -275,7 +281,14 @@ def locality_detail_kwargs_from_musit_koordinate(coord: dict[str, Any]) -> dict[
         band = _first_band_letter(coord, band_keys)
         if forced_zone == 33 and native_zone != 33:
             band = None
-        return _detail_fields(easting, northing, zone, band, _first_datum(coord, datum_keys))
+        return _detail_fields(
+            easting,
+            northing,
+            zone,
+            band,
+            _first_datum(coord, datum_keys),
+            grid_ref=grid_ref,
+        )
 
     return _detail_fields(
         None,
@@ -283,6 +296,7 @@ def locality_detail_kwargs_from_musit_koordinate(coord: dict[str, Any]) -> dict[
         native_zone,
         _first_band_letter(coord, ("belt", "dc_band")),
         None,
+        grid_ref=grid_ref,
     )
 
 
@@ -300,8 +314,12 @@ def ensure_locality_detail(locality_id: int, coord: dict[str, Any]) -> bool:
 
 
 def apply_verbatim_coordinate_fields(out: dict[str, Any], verbatim: str) -> None:
-    """Backward-compatible helper: store verbatim coordinate text on ``text3``."""
-    out["text3"] = verbatim
+    """Store MGRS/grid verbatim on ``LocalityDetail.text1`` (via detail kwargs path).
+
+    Kept for unit tests that exercise the verbatim classifier; production mapping
+    uses ``locality_detail_kwargs_from_musit_koordinate`` → ``text1``.
+    """
+    out["text1"] = verbatim
 
 
 def _json_number_or_none(value: Any) -> float | int | None:
@@ -507,9 +525,8 @@ def locality_spatial_kwargs_from_musit_koordinate(
     # Do not map latitude_h/longitude_h or utm_*_h into lat2/lon2 — O-V has no
     # complete WGS rectangles; UTM high corners are MGRS cell extents.
 
+    # MGRS grid square lives on LocalityDetail.text1 (see locality_detail_kwargs_*).
     mgrs = mgrs_verbatim_from_coord(coord)
-    if mgrs:
-        out["text3"] = mgrs
 
     verbatim = verbatim_coordinate_string(coord)
     verbatim_non_mgrs: str | None = None

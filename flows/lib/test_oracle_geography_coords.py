@@ -18,10 +18,10 @@ from flows.lib.musit_coordinate_map import (
 
 
 class MusitCoordinateMapTests(unittest.TestCase):
-    def test_verbatim_mgrs_goes_to_text3(self) -> None:
+    def test_verbatim_mgrs_goes_to_text1(self) -> None:
         out: dict = {}
         apply_verbatim_coordinate_fields(out, "NM 71,56")
-        self.assertEqual(out["text3"], "NM 71,56")
+        self.assertEqual(out["text1"], "NM 71,56")
         self.assertNotIn("lat1text", out)
 
     def test_primary_decimal_prefers_derived_over_kp(self) -> None:
@@ -43,8 +43,11 @@ class MusitCoordinateMapTests(unittest.TestCase):
         self.assertEqual(out["lat1text"], "58.3511")
         self.assertEqual(out["long1text"], "8.6506")
         self.assertEqual(out["latlongtype"], "Point")
-        self.assertEqual(out["text3"], "MK 793-797,676-680")
+        self.assertNotIn("text3", out)
         self.assertNotIn("latitude2", out)
+        detail = locality_detail_kwargs_from_musit_koordinate(coord)
+        assert detail is not None
+        self.assertEqual(detail["text1"], "MK 793-797,676-680")
         remarks = json.loads(out["remarks"])
         self.assertEqual(remarks["migration_meta"]["kind"], "musit-coordinate-notes")
         self.assertEqual(remarks["notes"]["coord_conflict"]["kp"], [59.27, 8.59])
@@ -67,7 +70,10 @@ class MusitCoordinateMapTests(unittest.TestCase):
         out = locality_spatial_kwargs_from_musit_koordinate(coord)
         self.assertEqual(out["latitude1"], 61.0865)
         self.assertEqual(out["longitude1"], 9.7030)
-        self.assertEqual(out["text3"], "NN 35,50")
+        self.assertNotIn("text3", out)
+        detail = locality_detail_kwargs_from_musit_koordinate(coord)
+        assert detail is not None
+        self.assertEqual(detail["text1"], "NN 35,50")
         audit = json.loads(out["text4"])
         self.assertEqual(audit["stored"]["primary_source"], "kp")
 
@@ -84,6 +90,7 @@ class MusitCoordinateMapTests(unittest.TestCase):
         self.assertNotIn("latitude1", out)
         self.assertNotIn("longitude1", out)
         self.assertNotIn("text3", out)
+        self.assertIsNone(locality_detail_kwargs_from_musit_koordinate(coord))
         remarks = json.loads(out["remarks"])
         self.assertEqual(remarks["notes"]["verbatim_coordinate"], "59°48.185'N 10°44.478'E")
 
@@ -114,7 +121,7 @@ class MusitCoordinateMapTests(unittest.TestCase):
         self.assertEqual(audit["migration_meta"]["mapping_version"], MAPPING_VERSION)
 
     def test_mgrs_with_derived_utm_and_wgs(self) -> None:
-        """Regression for O-V-2002713: WGS decimals + LocalityDetail UTM + MGRS text3."""
+        """Regression for O-V-2002713: WGS decimals + LocalityDetail UTM + MGRS grid."""
         coord = {
             "coordinate_string": "CS 163,372",
             "mgrs_l": "CS 163,372",
@@ -141,13 +148,14 @@ class MusitCoordinateMapTests(unittest.TestCase):
         self.assertEqual(out["lat1text"], "28.3486")
         self.assertEqual(out["long1text"], "-16.8737")
         self.assertEqual(out["latlongtype"], "Point")
-        self.assertEqual(out["text3"], "CS 163,372")
+        self.assertNotIn("text3", out)
         self.assertNotIn("text5", out)
         self.assertNotIn("lat2text", out)
         self.assertNotIn("latitude2", out)
         self.assertIs(out["yesno2"], True)
         detail = locality_detail_kwargs_from_musit_koordinate(coord)
         assert detail is not None
+        self.assertEqual(detail["text1"], "CS 163,372")
         self.assertEqual(detail["utmeasting"], 316350)
         self.assertEqual(detail["utmnorthing"], 3137250)
         self.assertEqual(detail["utmzone"], 28)
@@ -168,9 +176,10 @@ class MusitCoordinateMapTests(unittest.TestCase):
         }
         out = locality_spatial_kwargs_from_musit_koordinate(coord)
         self.assertNotIn("text5", out)
-        self.assertEqual(out["text3"], "NM 795,695")
+        self.assertNotIn("text3", out)
         detail = locality_detail_kwargs_from_musit_koordinate(coord)
         assert detail is not None
+        self.assertEqual(detail["text1"], "NM 795,695")
         self.assertEqual(detail["utmzone"], 32)
         self.assertEqual(detail["mgrszone"], "V")
         self.assertEqual(detail["utmeasting"], 479519)
@@ -199,6 +208,13 @@ class MusitCoordinateMapTests(unittest.TestCase):
         detail = locality_detail_kwargs_from_musit_koordinate({"zone": 33, "belt": "W"})
         assert detail is not None
         self.assertEqual(detail, {"utmzone": 33, "mgrszone": "W"})
+
+    def test_mgrs_grid_alone_creates_detail_text1(self) -> None:
+        detail = locality_detail_kwargs_from_musit_koordinate(
+            {"mgrs_l": "LK 122,941", "coordinate_type_term": "MGRS"}
+        )
+        assert detail is not None
+        self.assertEqual(detail, {"text1": "LK 122,941"})
 
     def test_does_not_map_ll_high_to_lat2(self) -> None:
         coord = {
