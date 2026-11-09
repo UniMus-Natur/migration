@@ -6,7 +6,7 @@ Layout (v9)
 - ``lat1text`` / ``long1text`` — text mirror of those WGS values (LatLonUI)
 - ``latLongType`` — ``Point`` when WGS is present (O-V has no real rectangles)
 - ``text3`` — MGRS / grid verbatim string (square letters and digits; no zone)
-- ``LocalityDetail`` — UTM easting/northing/zone/datum, and ``mgrsZone`` (zone + band)
+- ``LocalityDetail`` — UTM easting/northing/zone/datum, and ``mgrsZone`` (latitude band only)
 - ``text4`` — full migration audit JSON
 - ``yesNo1`` / ``yesNo2`` / ``yesNo3`` — Ca coordinate / Coordinate added later / Ca altitude
 
@@ -215,14 +215,18 @@ def _utm_metre(value: Any) -> float | int | None:
     return num
 
 
-def mgrs_zone_designator(zone: int | None, band: str | None) -> str | None:
-    """Grid zone designator shared by UTM and MGRS, e.g. ``32V``. Fits ``mgrsZone`` (varchar 4)."""
-    if zone is None or not band:
+def mgrs_band_letter(band: str | None) -> str | None:
+    """Latitude band for ``LocalityDetail.mgrsZone`` (letter only, e.g. ``V``).
+
+    Zone number is stored separately on ``utmZone`` so the form can show
+    ``32`` + ``V`` without a combined ``32V`` field.
+    """
+    letter = _band_letter(band)
+    if not letter:
         return None
-    text = f"{int(zone)}{band}"
-    if len(text) > MGRS_ZONE_MAX_LEN:
+    if len(letter) > MGRS_ZONE_MAX_LEN:
         return None
-    return text
+    return letter
 
 
 def _detail_fields(
@@ -238,9 +242,9 @@ def _detail_fields(
         out["utmnorthing"] = northing
     if zone is not None:
         out["utmzone"] = zone
-    designator = mgrs_zone_designator(zone, band)
-    if designator:
-        out["mgrszone"] = designator
+    band_letter = mgrs_band_letter(band)
+    if band_letter:
+        out["mgrszone"] = band_letter
     if datum:
         out["utmdatum"] = datum
     return out or None
@@ -258,9 +262,8 @@ _UTM_DETAIL_CANDIDATES: tuple[tuple[str, str, tuple[str, ...], tuple[str, ...], 
 def locality_detail_kwargs_from_musit_koordinate(coord: dict[str, Any]) -> dict[str, Any] | None:
     """Typed UTM / MGRS-zone fields for Specify ``LocalityDetail``.
 
-    ``mgrsZone`` is the grid zone designator (zone number + latitude band), shared
-    with the verbatim grid in ``Locality.text3``. A UTM33 fallback does not reuse
-    a band that belongs to a different zone.
+    Zone number → ``utmZone``; latitude band → ``mgrsZone`` (letter only).
+    A UTM33 fallback does not reuse a band that belongs to a different zone.
     """
     native_zone = _first_zone(coord, ("zone", "dc_zone"))
     for x_key, y_key, zone_keys, band_keys, datum_keys, forced_zone in _UTM_DETAIL_CANDIDATES:

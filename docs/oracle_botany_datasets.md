@@ -624,7 +624,7 @@ Suggested archival key: `MUSIT_BOTANIKK_FELLES:OBJECT_ID:<id>`.
 | `KOORDINATE_PLACE.LATITUDE_L`, `LONGITUDE_L` | `Locality.latitude1`, `longitude1` (fallback) | Keep | Used when derived WGS missing. |
 | `DERIVED_COORDINATES.LATITUDE` / `LONGITUDE` (WGS) | `Locality.latitude1`, `longitude1` (preferred) | Keep | Primary decimal degrees. |
 | `KOORDINATE_PLACE.DATUM` | `Locality.datum` | Keep | Needed for interpretation/transforms. |
-| `KOORDINATE_PLACE` / derived UTM fields | `LocalityDetail` (`utmEasting`, `utmNorthing`, `utmZone`, `utmDatum`, `mgrsZone`) | Keep | Zone and band share `mgrsZone` (e.g. `32V`). Audit also in `text4`. |
+| `KOORDINATE_PLACE` / derived UTM fields | `LocalityDetail` (`utmEasting`, `utmNorthing`, `utmZone`, `utmDatum`, `mgrsZone`) | Keep | Zone → `utmZone`; band letter → `mgrsZone`. Audit also in `text4`. |
 | `KOORDINATE_PLACE.CA_UTM`, `UTM_SENERE`, `CA_ALTITUDE` | `Locality.yesNo1`, `yesNo2`, `yesNo3` | Keep | Ca coordinate / Coordinate added later / Ca altitude. |
 | `DERIVED_COORDINATES.*` (full row) | `Locality.text4` audit JSON | Keep | QA and back-calculation. |
 | `PLACE_BIO_GEOGRAFISK_REGION` + `MUSIT_NATHIST_FELLES.BIO_GEOGRAFISK_REGION` | `Locality.text2` | Keep | Norwegian biogeographic zone picklist. |

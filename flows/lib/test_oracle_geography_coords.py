@@ -151,10 +151,10 @@ class MusitCoordinateMapTests(unittest.TestCase):
         self.assertEqual(detail["utmeasting"], 316350)
         self.assertEqual(detail["utmnorthing"], 3137250)
         self.assertEqual(detail["utmzone"], 28)
-        self.assertEqual(detail["mgrszone"], "28R")
+        self.assertEqual(detail["mgrszone"], "R")
         self.assertEqual(detail["utmdatum"], "WGS84")
 
-    def test_native_utm_zone_and_band_share_mgrs_zone(self) -> None:
+    def test_native_utm_zone_and_band_split_across_fields(self) -> None:
         coord = {
             "utm_x": 479519,
             "utm_y": 6569492,
@@ -172,7 +172,7 @@ class MusitCoordinateMapTests(unittest.TestCase):
         detail = locality_detail_kwargs_from_musit_koordinate(coord)
         assert detail is not None
         self.assertEqual(detail["utmzone"], 32)
-        self.assertEqual(detail["mgrszone"], "32V")
+        self.assertEqual(detail["mgrszone"], "V")
         self.assertEqual(detail["utmeasting"], 479519)
         self.assertEqual(detail["utmnorthing"], 6569492)
         self.assertEqual(detail["utmdatum"], "ED50")
@@ -195,10 +195,10 @@ class MusitCoordinateMapTests(unittest.TestCase):
         self.assertEqual(detail["utmeasting"], 100000)
         self.assertNotIn("mgrszone", detail)
 
-    def test_zone_and_band_without_axes_still_fill_mgrs_zone(self) -> None:
+    def test_zone_and_band_without_axes_still_fill_fields(self) -> None:
         detail = locality_detail_kwargs_from_musit_koordinate({"zone": 33, "belt": "W"})
         assert detail is not None
-        self.assertEqual(detail, {"utmzone": 33, "mgrszone": "33W"})
+        self.assertEqual(detail, {"utmzone": 33, "mgrszone": "W"})
 
     def test_does_not_map_ll_high_to_lat2(self) -> None:
         coord = {

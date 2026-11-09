@@ -77,10 +77,10 @@ UTM and the shared grid zone live on the zero-or-one child **`LocalityDetail`**,
 |------------------------|---------|
 | `utmEasting` / `utmNorthing` | Easting and northing in metres (decimal 19,2). Prefer KP UTM, else derived UTM, else UTM33 |
 | `utmZone` | Zone number 1–60. Forced to `33` when the only axes are UTM33 |
-| `mgrsZone` | Grid zone designator shared with the MGRS string: zone + latitude band, e.g. `32V` (varchar 4) |
+| `mgrsZone` | MGRS latitude **band letter only**, e.g. `V` (zone number is on `utmZone`) |
 | `utmDatum` | Datum of those UTM axes when recognizable (`WGS84`, `ED50`, `ETRS89`, …) |
 
-`mgrsZone` is omitted for a UTM33 fallback when the native zone is not 33, so a band from another zone is not attached to zone 33. The grid-cell high corner and any parallel UTM33 pair stay in the `text4` audit JSON. A locality that already has a `LocalityDetail` row is left unchanged; a later geography load inserts one only when the row is missing.
+`mgrsZone` (band) is omitted for a UTM33 fallback when the native zone is not 33, so a band from another zone is not attached to zone 33. The grid-cell high corner and any parallel UTM33 pair stay in the `text4` audit JSON. A locality that already has a `LocalityDetail` row is left unchanged; a later geography load inserts one only when the row is missing.
 
 Elevation (`minElevation` / `maxElevation` / `verbatimElevation` / …) is mapped separately from altitude columns when present.
 
@@ -99,7 +99,7 @@ Filled from, in order:
 
 Non-MGRS verbatim (e.g. DMS-only strings with no decimal pair) is **not** forced into `text3`; it goes into `remarks.notes.verbatim_coordinate` and remains in `text4`.
 
-Zone and band are not prefixed onto `text3`. They are stored once, on `LocalityDetail.mgrsZone`.
+Zone and band are not prefixed onto `text3`. Zone → `LocalityDetail.utmZone`; band → `LocalityDetail.mgrsZone`.
 
 ## `LocalityDetail` — UTM and zone
 
@@ -107,8 +107,8 @@ Example for grid `CS 163,372` in zone 28, band R, with derived easting/northing:
 
 | Field | Value |
 |-------|-------|
-| `mgrsZone` | `28R` |
 | `utmZone` | `28` |
+| `mgrsZone` | `R` |
 | `utmEasting` | `316350` |
 | `utmNorthing` | `3137250` |
 | `utmDatum` | `WGS84` |
@@ -133,10 +133,12 @@ Machine-readable dump of MUSIT ids, verbatim strings, KP vs derived stored decim
 
 | Form | Shows |
 |------|--------|
-| **Locality** | Where → WGS (LatLonUI, datum/precision) → MGRS (Grid ref + Zone and band) → UTM (`LocalityDetail`) → Elevation → collapsed GeoCoordDetails → Advanced → Attachments |
-| **LocalitySubForm** | Same WGS / MGRS / UTM grouping in compact form |
-| **LocalityDetail** | UTM only: zone, datum, easting, northing (MGRS zone/band is next to Grid ref on the parent) |
-| **CollectingEventSub** (on Collection Object) | WGS lat/lon → MGRS Grid ref + Zone and band → UTM subview → flags |
+| **Locality** | Where → WGS → MGRS Grid ref → `LocalityDetail` (Zone + Band + UTM) → Elevation → … |
+| **LocalitySubForm** | Same grouping in compact form |
+| **LocalityDetail** | Zone (`utmZone`) + Band (`mgrsZone`) + UTM datum/easting/northing |
+| **CollectingEventSub** (on Collection Object) | WGS → MGRS Grid ref → `LocalityDetail` → flags |
+
+Schema labels / UIFormatters: `GridRefMGRS`, `UTMZone`, `MGRSBand`, `UTMDatum`, `UTMEasting`, `UTMNorthing`.
 | **CollectingEvent** | Same coordinate fields as the subform |
 
 Schema labels live in `specify7-config` (`Locality.text3` = Grid ref. (MGRS), `LocalityDetail.mgrsZone` = Zone and band). Regex validation uses UIFormatter `GridRefMGRS` (`specli formatter`).
