@@ -25,6 +25,10 @@ from flows.lib.migration_report_s3 import (
     migration_report_s3_key,
 )
 from flows.lib.migration_report_upload import upload_migration_report_json_task
+from flows.lib.musit_agent_names import (
+    choose_agent_name_parts,
+    preferred_person_name_id_sql,
+)
 from flows.lib.musit_agents_common import (
     ALLOWED_MUSIT_AGENT_SCHEMAS,
     musit_actor_remarks_marker,
@@ -87,6 +91,8 @@ class MusitActorRow:
 class MusitAgentMigrationResult:
     agents_created: int = 0
     agents_skipped: int = 0
+    agents_updated: int = 0
+    agents_unchanged: int = 0
     errors: list[str] = field(default_factory=list)
     schemas_processed: list[str] = field(default_factory=list)
 
@@ -111,7 +117,9 @@ class MusitAgentRunOutcome:
 def _sql_for_schema(schema: str) -> str:
     if schema not in _ALLOWED_SCHEMAS:
         raise ValueError(f"Unsupported MUSIT schema: {schema}")
-    # One row per ACTOR: prefer VALID_PERSON_NAME_ID, else lexicographically smallest PERSON_NAME_ID.
+    # One row per ACTOR: fullest PERSON_NAME spelling (not VALID_PERSON_NAME_ID /
+    # abbreviations — see issue #74). ACTORNAME may still win in Python.
+    pref = preferred_person_name_id_sql(schema)
     return f"""
         SELECT
             a.ACTOR_ID,
@@ -128,12 +136,7 @@ def _sql_for_schema(schema: str) -> str:
             pn.TITLE
         FROM {schema}.ACTOR a
         LEFT JOIN {schema}.PERSON_NAME pn
-          ON pn.PERSON_NAME_ID = NVL(
-            a.VALID_PERSON_NAME_ID,
-            (SELECT MIN(pn2.PERSON_NAME_ID)
-             FROM {schema}.PERSON_NAME pn2
-             WHERE pn2.ACTOR_ID = a.ACTOR_ID)
-          )
+          ON pn.PERSON_NAME_ID = {pref}
         ORDER BY a.ACTOR_ID
     """
 
@@ -157,11 +160,41 @@ def _row_from_raw(schema: str, cols: list[str], raw: tuple) -> MusitActorRow:
     )
 
 
+def _desired_name_fields(row: MusitActorRow, agent_type: int) -> dict[str, str | None]:
+    parts = choose_agent_name_parts(
+        person_given_name=row.person_given_name,
+        person_surname=row.person_surname,
+        person_middle_name=row.person_middle_name,
+        title=row.title,
+        actorname=row.actorname,
+        agent_type=agent_type,
+    )
+    return {
+        "firstname": parts.firstname,
+        "lastname": parts.lastname,
+        "middleinitial": parts.middleinitial,
+        "title": parts.title,
+    }
+
+
+def _name_field_updates(agent, desired: dict[str, str | None]) -> dict[str, str | None]:
+    """Return Agent name columns that differ from ``desired``."""
+    changed: dict[str, str | None] = {}
+    for field, want in desired.items():
+        have = getattr(agent, field, None)
+        have_n = (str(have).strip() if have is not None else "") or None
+        want_n = (str(want).strip() if want is not None else "") or None
+        if have_n != want_n:
+            changed[field] = want
+    return changed
+
+
 def _process_one_musit_actor_row(
     row: MusitActorRow,
     *,
     division,
     dry_run: bool,
+    update_existing_names: bool,
     logger,
     result: MusitAgentMigrationResult,
     processed_count: int,
@@ -169,22 +202,53 @@ def _process_one_musit_actor_row(
     from specifyweb.specify.models import Agent
 
     marker = _remarks_marker(row.schema, row.actor_id)
+    agent_type = musit_actor_type_to_specify_agent_type(row.actor_type)
+    desired_names = _desired_name_fields(row, agent_type)
+    first = desired_names["firstname"]
+    last = desired_names["lastname"]
+    middle = desired_names["middleinitial"]
+    title = desired_names["title"]
+
     existing = Agent.objects.filter(remarks=marker).first()
     if existing is not None:
-        result.agents_skipped += 1
+        if not update_existing_names:
+            result.agents_skipped += 1
+            return
+        changes = _name_field_updates(existing, desired_names)
+        if not changes:
+            result.agents_unchanged += 1
+            return
+        if dry_run:
+            logger.debug(
+                f"[DRY RUN] Would update Agent schema={row.schema} ACTOR_ID={row.actor_id} "
+                f"fields={changes}"
+            )
+            result.agents_updated += 1
+            return
+        try:
+            for field, value in changes.items():
+                setattr(existing, field, value)
+            existing.timestampmodified = datetime.now(timezone.utc)
+            existing.save(update_fields=[*changes.keys(), "timestampmodified"])
+            result.agents_updated += 1
+            if processed_count % _PROGRESS_LOG_EVERY == 0:
+                logger.info(
+                    f"Live progress: {processed_count} actors processed "
+                    f"(created {result.agents_created}, updated {result.agents_updated}, "
+                    f"unchanged {result.agents_unchanged}, skipped {result.agents_skipped})"
+                )
+        except Exception as exc:
+            msg = f"Error updating {row.schema}.ACTOR_ID={row.actor_id}: {exc}"
+            logger.error(msg)
+            if len(result.errors) < _MAX_ERROR_LINES:
+                result.errors.append(msg)
+            elif len(result.errors) == _MAX_ERROR_LINES:
+                result.errors.append(
+                    f"... further errors omitted (cap {_MAX_ERROR_LINES}); see worker logs"
+                )
         return
 
-    agent_type = musit_actor_type_to_specify_agent_type(row.actor_type)
-    first = _trunc(row.person_given_name, 50)
-    last = _trunc(row.person_surname, 256)
-    if agent_type == 1 and not (first or last):
-        last = _trunc(row.actorname, 256) or "(unknown)"
-    if agent_type == 0 and not last:
-        last = _trunc(row.actorname, 256) or "(organization)"
-
     email = _trunc(row.email_address, 50)
-    title = _trunc(row.title, 50)
-    middle = _trunc(row.person_middle_name, 50)
 
     remarks_parts = [marker]
     if row.institution:
@@ -232,7 +296,8 @@ def _process_one_musit_actor_row(
         if processed_count % _PROGRESS_LOG_EVERY == 0:
             logger.info(
                 f"Live progress: {processed_count} actors processed "
-                f"(created {result.agents_created}, skipped {result.agents_skipped})"
+                f"(created {result.agents_created}, updated {result.agents_updated}, "
+                f"skipped {result.agents_skipped})"
             )
     except Exception as exc:
         msg = f"Error migrating {row.schema}.ACTOR_ID={row.actor_id}: {exc}"
@@ -250,6 +315,7 @@ def extract_and_load_musit_agents_task(
     oracle_env: str,
     schemas: list[str],
     dry_run: bool = True,
+    update_existing_names: bool = False,
 ) -> MusitAgentRunOutcome:
     """Extract ACTOR rows from Oracle and load into Specify in one task.
 
@@ -293,6 +359,7 @@ def extract_and_load_musit_agents_task(
                         row,
                         division=division,
                         dry_run=dry_run,
+                        update_existing_names=update_existing_names,
                         logger=logger,
                         result=result,
                         processed_count=total,
@@ -310,7 +377,8 @@ def extract_and_load_musit_agents_task(
 
     logger.info(
         f"MUSIT agent extract+load task done: total_oracle_rows={total}, "
-        f"agents_created={result.agents_created}, skipped={result.agents_skipped}, "
+        f"agents_created={result.agents_created}, updated={result.agents_updated}, "
+        f"unchanged={result.agents_unchanged}, skipped={result.agents_skipped}, "
         f"errors={len(result.errors)}"
     )
 
@@ -343,6 +411,8 @@ def _musit_agent_report_dict(
         "oracle_actor_type_counts": outcome.oracle_actor_type_counts,
         "agents_created": r.agents_created,
         "agents_skipped": r.agents_skipped,
+        "agents_updated": r.agents_updated,
+        "agents_unchanged": r.agents_unchanged,
         "agents_linked": 0,
         "schemas_processed": r.schemas_processed,
         "errors": r.errors,
@@ -360,6 +430,7 @@ def migrate_musit_agents_flow(
     oracle_env: str = "PROD",
     dry_run: bool = True,
     musit_schemas: list[str] | None = None,
+    update_existing_names: bool = False,
 ) -> dict:
     """Migrate MUSIT ACTOR rows to Specify ``Agent`` (no logins).
 
@@ -368,6 +439,10 @@ def migrate_musit_agents_flow(
         dry_run: When True, log only; no ``Agent`` rows are written.
         musit_schemas: Subset of ``MUSIT_BOTANIKK_FELLES`` and/or ``MUSIT_ZOOLOGI_ENTOMOLOGI``.
             Defaults to both when omitted (``None``).
+        update_existing_names: When True, existing Agents (matched by remarks marker)
+            get ``firstname``/``lastname``/``middleinitial``/``title`` refreshed from
+            the fullest MUSIT name — use this to fix abbreviated display names in
+            staging without recreating Agents or remigrating specimens.
     """
     logger = get_run_logger()
     if musit_schemas is None:
@@ -382,21 +457,28 @@ def migrate_musit_agents_flow(
 
     logger.info(
         f"Starting MUSIT agent migration (oracle_env={oracle_env}, dry_run={dry_run}, "
-        f"schemas={musit_schemas})"
+        f"update_existing_names={update_existing_names}, schemas={musit_schemas})"
     )
 
     setup_django()
 
-    outcome = extract_and_load_musit_agents_task(oracle_env, list(musit_schemas), dry_run)
+    outcome = extract_and_load_musit_agents_task(
+        oracle_env,
+        list(musit_schemas),
+        dry_run,
+        update_existing_names,
+    )
     result = outcome.result
 
     logger.info(
         f"MUSIT agent migration complete: created={result.agents_created}, "
+        f"updated={result.agents_updated}, unchanged={result.agents_unchanged}, "
         f"skipped={result.agents_skipped}, errors={len(result.errors)}"
     )
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     report = _musit_agent_report_dict(ts, oracle_env, dry_run, musit_schemas, outcome)
+    report["update_existing_names"] = update_existing_names
     s3_key = migration_report_s3_key(REPORT_CATEGORY_MUSIT_COLLECTION_AGENTS, ts)
     uploaded = upload_migration_report_json_task(report, s3_key)
     for uri in uploaded:
@@ -404,6 +486,8 @@ def migrate_musit_agents_flow(
 
     return {
         "agents_created": result.agents_created,
+        "agents_updated": result.agents_updated,
+        "agents_unchanged": result.agents_unchanged,
         "agents_skipped": result.agents_skipped,
         "oracle_actors_extracted": outcome.oracle_actors_extracted,
         "errors": result.errors,

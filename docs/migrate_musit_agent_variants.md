@@ -10,7 +10,7 @@ Fill-in flow for synonymic / alternate **`PERSON_NAME`** rows that were **not** 
 
 ## Why a separate flow
 
-Phase 1.1 (`migrate_musit_agents`) already created one Specify **`Agent`** per MUSIT **`ACTOR`**, using only the preferred name (`VALID_PERSON_NAME_ID`, else `MIN(PERSON_NAME_ID)`). Remigrating agents from scratch would be wasteful and risk churn on linked collectors/determiners.
+Phase 1.1 (`migrate_musit_agents`) already created one Specify **`Agent`** per MUSIT **`ACTOR`**, using the fullest ``PERSON_NAME`` / ``ACTORNAME`` spelling. Remigrating agents from scratch would be wasteful and risk churn on linked collectors/determiners.
 
 This flow (**Phase 1.1b**) only creates **`AgentVariant`** rows on those existing agents so alternate spellings are not lost.
 
@@ -25,8 +25,7 @@ This flow (**Phase 1.1b**) only creates **`AgentVariant`** rows on those existin
 
 For each schema, every **`PERSON_NAME`** whose `PERSON_NAME_ID` is **not** the preferred/fallback name already on the Agent:
 
-- Prefer exclusion of `ACTOR.VALID_PERSON_NAME_ID`
-- Else exclude `MIN(PERSON_NAME_ID)` for that actor (same rule as the agents flow)
+- Exclude the same fullest ``PERSON_NAME_ID`` the agents flow uses for the Agent primary name
 
 Schemas (whitelist): `MUSIT_BOTANIKK_FELLES`, `MUSIT_ZOOLOGI_ENTOMOLOGI`.
 

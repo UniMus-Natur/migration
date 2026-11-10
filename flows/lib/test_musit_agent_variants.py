@@ -74,7 +74,8 @@ class RemarksMarkerTests(unittest.TestCase):
 class SqlAlternateTests(unittest.TestCase):
     def test_excludes_preferred_person_name(self) -> None:
         sql = sql_alternate_person_names("MUSIT_BOTANIKK_FELLES")
-        self.assertIn("VALID_PERSON_NAME_ID", sql)
+        self.assertIn("LENGTH", sql)
+        self.assertNotIn("VALID_PERSON_NAME_ID", sql)
         self.assertIn("PERSON_NAME_ID <>", sql)
         self.assertIn("MUSIT_BOTANIKK_FELLES.PERSON_NAME", sql)
 

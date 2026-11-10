@@ -9,11 +9,23 @@ from __future__ import annotations
 
 from typing import Any
 
+from flows.lib.musit_agent_names import preferred_person_name_id_sql
+
 # Specify default picklist: Variant=0, Vernacular=1, Author=2, Author Abbrev.=3, Label Name=4
 AGENT_VARIANT_VARTYPE_VARIANT = 0
 
 # AgentVariant.name max length in Specify
 _AGENT_VARIANT_NAME_MAX = 255
+
+# Re-export for callers/tests that imported from this module.
+__all__ = [
+    "AGENT_VARIANT_VARTYPE_VARIANT",
+    "format_person_name_variant",
+    "preferred_person_name_id_sql",
+    "sql_alternate_person_names",
+    "should_skip_variant_name",
+    "variant_row_from_oracle",
+]
 
 
 def format_person_name_variant(
@@ -44,17 +56,6 @@ def format_person_name_variant(
     if len(name) > max_len:
         name = name[:max_len]
     return name or None
-
-
-def preferred_person_name_id_sql(schema: str) -> str:
-    """SQL expression: preferred ``PERSON_NAME_ID`` for an ``ACTOR`` alias ``a``."""
-    sch = schema.strip().upper()
-    return f"""NVL(
-            a.VALID_PERSON_NAME_ID,
-            (SELECT MIN(pn2.PERSON_NAME_ID)
-               FROM {sch}.PERSON_NAME pn2
-              WHERE pn2.ACTOR_ID = a.ACTOR_ID)
-          )"""
 
 
 def sql_alternate_person_names(schema: str) -> str:

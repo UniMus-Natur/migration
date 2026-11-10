@@ -35,8 +35,12 @@ Oracle returns on the order of **hundreds of thousands** of `ACTOR` rows. The fl
 
 For each selected schema, the flow reads **`ACTOR`** and joins **`PERSON_NAME`**:
 
-- Prefer **`ACTOR.VALID_PERSON_NAME_ID`** when set.
-- Otherwise use the **minimum `PERSON_NAME_ID`** for that `ACTOR_ID` (deterministic fallback when there is no valid flag).
+- Prefer the **fullest** ``PERSON_NAME`` for that actor (longest surname+given+middle).
+  ``VALID_PERSON_NAME_ID`` is **not** used for the Agent primary name — it often
+  points at an abbreviated orthography (issue #74).
+- If ``ACTORNAME`` (e.g. ``Blytt, Mathias N.``) is fuller than that person-name
+  row, the Agent name is taken from ``ACTORNAME`` instead.
+- Abbreviated spellings remain available as **AgentVariant** via the variants flow.
 
 Allowed schema names (whitelist inside the flow):
 
@@ -53,14 +57,17 @@ Specify **`Agent`** via Django ORM:
 - **`specifyuser`:** always **null** here (these are not login rows).
 - **Idempotency:** `remarks` is set to a fixed marker  
   `MUSIT-migration: ACTOR; schema=<SCHEMA>; ACTOR_ID=<id>`  
-  An existing `Agent` with the **same `remarks`** is **skipped** on re-run.
+  An existing `Agent` with the **same `remarks`** is **skipped** on re-run
+  **unless** `update_existing_names=true` (then only name fields are patched in place —
+  no new Agents, no specimen remigration).
 
 ### Parameters
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
 | `oracle_env` | `PROD` | Oracle env prefix for credentials (`ORACLE_<ENV>_…`). |
-| `dry_run` | `true` | If `true`, only logs intended creates; no inserts. |
+| `dry_run` | `true` | If `true`, only logs intended creates/updates; no writes. |
+| `update_existing_names` | `false` | If `true`, refresh `firstname`/`lastname`/`middleinitial`/`title` on existing Agents (staging fix for abbreviated names). |
 | `musit_schemas` | both schemas | JSON list of schema names to include (subset of the two allowed values). |
 
 ### Report artifact

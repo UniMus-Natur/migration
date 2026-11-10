@@ -73,6 +73,7 @@ deployments:
     parameters:
       oracle_env: "PROD"
       dry_run: true
+      update_existing_names: false
       musit_schemas:
         - MUSIT_BOTANIKK_FELLES
         - MUSIT_ZOOLOGI_ENTOMOLOGI
