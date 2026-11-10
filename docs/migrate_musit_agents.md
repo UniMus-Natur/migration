@@ -35,11 +35,12 @@ Oracle returns on the order of **hundreds of thousands** of `ACTOR` rows. The fl
 
 For each selected schema, the flow reads **`ACTOR`** and joins **`PERSON_NAME`**:
 
-- Prefer the **fullest** ``PERSON_NAME`` for that actor (longest surname+given+middle).
-  ``VALID_PERSON_NAME_ID`` is **not** used for the Agent primary name — it often
+- Prefer **``ACTORNAME``** for the Agent primary name (MUSIT's display string,
+  e.g. ``Blytt, Mathias N.``). ``VALID_PERSON_NAME_ID`` is **not** used — it often
   points at an abbreviated orthography (issue #74).
-- If ``ACTORNAME`` (e.g. ``Blytt, Mathias N.``) is fuller than that person-name
-  row, the Agent name is taken from ``ACTORNAME`` instead.
+- Fall back to a ``PERSON_NAME`` row only when ``ACTORNAME`` is empty/unusable
+  (matching ``ACTORNAME`` when present, else the fullest spelling). ``title``
+  still comes from that joined ``PERSON_NAME``.
 - Abbreviated spellings remain available as **AgentVariant** via the variants flow.
 
 Allowed schema names (whitelist inside the flow):
@@ -52,7 +53,7 @@ Allowed schema names (whitelist inside the flow):
 Specify **`Agent`** via Django ORM:
 
 - **`agenttype`:** MUSIT `ACTOR_TYPE` **0 (person)** → Specify **1 (Person)**; MUSIT **1 (organisation)** or **2 (group)** → Specify **0 (Organization)**.
-- **Names:** `PERSON_GIVEN_NAME` / `PERSON_SURNAME` (truncated to Specify column limits). If a person has no name parts, **`ACTORNAME`** is used as last name. Organisations use **`ACTORNAME`** as last name when surname is empty.
+- **Names:** Parsed from **`ACTORNAME`** when present; otherwise `PERSON_GIVEN_NAME` / `PERSON_SURNAME` / middle (truncated to Specify column limits). Organisations use **`ACTORNAME`** as last name when surname is empty.
 - **Other fields:** email, title, middle name, birth/death dates, division (first `Division` in the DB, same pattern as `migrate_users`).
 - **`specifyuser`:** always **null** here (these are not login rows).
 - **Idempotency:** `remarks` is set to a fixed marker  

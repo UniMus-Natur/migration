@@ -117,8 +117,8 @@ class MusitAgentRunOutcome:
 def _sql_for_schema(schema: str) -> str:
     if schema not in _ALLOWED_SCHEMAS:
         raise ValueError(f"Unsupported MUSIT schema: {schema}")
-    # One row per ACTOR: fullest PERSON_NAME spelling (not VALID_PERSON_NAME_ID /
-    # abbreviations — see issue #74). ACTORNAME may still win in Python.
+    # One row per ACTOR: PERSON_NAME matching ACTORNAME (else fullest) for title /
+    # fallback parts. Agent primary name prefers ACTORNAME in Python (issue #74).
     pref = preferred_person_name_id_sql(schema)
     return f"""
         SELECT

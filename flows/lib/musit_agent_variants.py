@@ -9,7 +9,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from flows.lib.musit_agent_names import preferred_person_name_id_sql
+from flows.lib.musit_agent_names import (
+    formatted_person_name_sql,
+    fullest_person_name_id_sql,
+    preferred_person_name_id_sql,
+)
 
 # Specify default picklist: Variant=0, Vernacular=1, Author=2, Author Abbrev.=3, Label Name=4
 AGENT_VARIANT_VARTYPE_VARIANT = 0
@@ -59,9 +63,17 @@ def format_person_name_variant(
 
 
 def sql_alternate_person_names(schema: str) -> str:
-    """All ``PERSON_NAME`` rows that are *not* the preferred/fallback name on Agent."""
+    """All ``PERSON_NAME`` rows that are *not* the Agent primary display name.
+
+    Agent primary comes from ``ACTORNAME`` when present, so:
+
+    - Exclude ``PERSON_NAME`` rows whose formatted spelling matches ``ACTORNAME``.
+    - When ``ACTORNAME`` is empty, exclude the fullest ``PERSON_NAME`` (Agent fallback).
+    - Keep abbreviated ``VALID_PERSON_NAME`` rows as variants when Agent used ``ACTORNAME``.
+    """
     sch = schema.strip().upper()
-    pref = preferred_person_name_id_sql(sch)
+    fmt = formatted_person_name_sql("pn")
+    fullest = fullest_person_name_id_sql(sch, "a")
     return f"""
         SELECT
             a.ACTOR_ID,
@@ -72,7 +84,16 @@ def sql_alternate_person_names(schema: str) -> str:
         FROM {sch}.PERSON_NAME pn
         JOIN {sch}.ACTOR a
           ON a.ACTOR_ID = pn.ACTOR_ID
-        WHERE pn.PERSON_NAME_ID <> {pref}
+        WHERE (
+            a.ACTORNAME IS NULL
+            OR LENGTH(TRIM(a.ACTORNAME)) = 0
+            OR {fmt} IS NULL
+            OR UPPER({fmt}) <> UPPER(TRIM(a.ACTORNAME))
+          )
+          AND (
+            (a.ACTORNAME IS NOT NULL AND LENGTH(TRIM(a.ACTORNAME)) > 0)
+            OR pn.PERSON_NAME_ID <> {fullest}
+          )
         ORDER BY a.ACTOR_ID, pn.PERSON_NAME_ID
     """
 
