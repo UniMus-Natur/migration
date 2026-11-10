@@ -241,9 +241,11 @@ def build_typification_co_field_updates(
         if agent1 is not None:
             updates["agent1"] = agent1
     if len(designator_actor_ids) > 1:
+        # Second designator uses inventorizedBy — CatalogerID is reserved for
+        # MUSIT REG_USER (issue #66).
         agent2 = resolve_agent(schema, designator_actor_ids[1], agent_cache=agent_cache)
         if agent2 is not None:
-            updates["cataloger"] = agent2
+            updates["inventorizedby"] = agent2
 
     if specimen_text:
         updates["ocr"] = specimen_text

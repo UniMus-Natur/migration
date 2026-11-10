@@ -68,7 +68,8 @@ class MusitTypificationTests(unittest.TestCase):
         self.assertEqual(updates["integer2"], 1998)
         self.assertEqual(updates["reservedtext3"], "Designated here.")
         self.assertIs(updates["agent1"], agent1)
-        self.assertIs(updates["cataloger"], agent2)
+        self.assertIs(updates["inventorizedby"], agent2)
+        self.assertNotIn("cataloger", updates)
         self.assertEqual(updates["ocr"], "Specimen ref")
         self.assertEqual(updates["embargoreason"], "Taxon ref")
 

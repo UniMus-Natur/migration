@@ -573,7 +573,7 @@ Suggested archival key: `MUSIT_BOTANIKK_FELLES:OBJECT_ID:<id>`.
 | `OBJECT_ATTRIBUTES.OBJECT_STATE` | `CollectionObject.text*` / custom status field | Keep | Keep raw value; can drive QA review. |
 | `OBJECT_ATTRIBUTES.REG_DATE` | `CollectionObject.timestampcreated` override or custom date field | Keep | Preserve as source registration timestamp. |
 | `OBJECT_ATTRIBUTES.APPROVED_DATE` | custom migrated date field | Keep | Useful for publication timeline / QA. |
-| `OBJECT_ATTRIBUTES.LAST_MODIFIED` / users (`REG_USER`, `KORR_USER`, `APPROVE_USER`) | migration provenance fields | Keep | Prefer raw archive + optional text fields. |
+| `OBJECT_ATTRIBUTES.LAST_MODIFIED` / users (`REG_USER`, `KORR_USER`, `APPROVE_USER`) | `REG_USER` → `CollectionObject.cataloger` (SpecifyUser-linked Agent); others stay in `text8` audit | Keep | Cataloger requires prior `migrate_users`. |
 | `OBJECT_ATTRIBUTES.DATASET` | `CollectionObject.projectnumber` or remarks/custom field | Keep | Sparse in botany but important in zoology. |
 | `OBJECT_ATTRIBUTES.PROJECT_NAME` | `CollectionObject.projectnumber` / remarks/custom field | Keep | High-value grouping context. |
 | `OBJECT_ATTRIBUTES.DUBLETTES`, `SAME_SHEET_AS`, `EX_HERB`, `VOUCHER`, `ARTSOBS_NR`, `ANALYSIS_REQUEST` | `CollectionObject.remarks`/custom fields | Keep | High historical/curatorial value; do not discard. |

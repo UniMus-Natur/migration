@@ -23,8 +23,10 @@ Design constraints
   ``urn:oracle:musit:document:{id}``); specimen/taxon literature is archived on
   ``CollectionObject.text3`` and promoted to ``ocr`` / ``embargoreason``.
 * Typification metadata (type status, designators, year, note) is stored on
-  ``CollectionObject`` (``restrictions``, ``agent1``, ``cataloger``, ``integer2``,
+  ``CollectionObject`` (``restrictions``, ``agent1``, ``inventorizedby``, ``integer2``,
   ``reservedtext3``).
+* MUSIT ``OBJECT_ATTRIBUTES.REG_USER`` → ``CollectionObject.cataloger`` (SpecifyUser /
+  Agent from ``migrate_users``), with ``REG_DATE`` → ``catalogedDate``.
 * MUSIT ``OBJECT_ATTRIBUTES.UUID`` → ``CollectionObject.reservedText`` (labelled
   UUID in forms). Not ``uniqueIdentifier`` — many O-V objects share the same UUID.
 * Notes split: object notes → ``CollectionObject.remarks`` (Adm note); collecting-event
@@ -50,6 +52,10 @@ from typing import Any
 
 from django.db import close_old_connections, transaction
 
+from flows.lib.musit_cataloger import (
+    load_cataloger_agent_cache as _load_cataloger_agent_cache,
+    resolve_cataloger_agent as _resolve_cataloger_agent,
+)
 from flows.lib.musit_field_number_map import (
     coerce_musit_identifier_num,
     legnr_by_actor,
@@ -1897,6 +1903,7 @@ def _write_one_object(
     skip_media: bool = False,
     literature_by_object: dict[int, dict[str, list[dict[str, Any]]]] | None = None,
     typification_meta_by_object: dict[int, dict[str, Any]] | None = None,
+    cataloger_cache: dict[str, int] | None = None,
 ) -> None:
     """Write one CollectionObject + CollectingEvent + Determination(s) for ``object_id``.
 
@@ -2235,6 +2242,11 @@ def _write_one_object(
         if approved_date is not None:
             co.date1 = approved_date
             co.date1precision = 1
+
+        # MUSIT REG_USER → Cataloger (SpecifyUser-linked Agent from migrate_users).
+        cataloger = _resolve_cataloger_agent(reg_user, cataloger_cache)
+        if cataloger is not None:
+            co.cataloger = cataloger
 
         _apply_typification_co_field_updates(co, typification_co_updates)
 
@@ -2692,15 +2704,18 @@ def load_musit_dataset(
     ensure_placemap_table(dry_run=dry_run)
 
     agent_cache: dict[int, int] = {}
+    cataloger_cache: dict[str, int] = {}
     if not dry_run:
         _log("info", "load_musit_dataset | loading Agent cache for schema=%s …",
              config.oracle_schema.upper())
         t_agents = time.monotonic()
         agent_cache = _load_musit_agent_cache(config.oracle_schema)
+        cataloger_cache = _load_cataloger_agent_cache()
         _log(
             "info",
-            "load_musit_dataset | Agent cache ready: %s actors in %.1fs",
+            "load_musit_dataset | Agent cache ready: %s actors, %s cataloger logins in %.1fs",
             len(agent_cache),
+            len(cataloger_cache),
             time.monotonic() - t_agents,
         )
 
@@ -2804,6 +2819,7 @@ def load_musit_dataset(
                 skip_media=skip_media,
                 literature_by_object=literature_by_object,
                 typification_meta_by_object=typification_meta_by_object,
+                cataloger_cache=cataloger_cache,
             )
 
             total_processed += 1
