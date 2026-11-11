@@ -10,6 +10,13 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
 
+from flows.lib.musit_agents_common import (
+    build_musit_actor_remarks,
+    extract_institution_from_remarks,
+    extract_oracle_note_from_remarks,
+    parse_actor_marker,
+)
+
 # Specify date precision: 1=day, 2=month, 3=year (common convention).
 DATE_PRECISION_DAY = 1
 DATE_PRECISION_MONTH = 2
@@ -213,6 +220,8 @@ class AgentDetailsPatch:
 def build_agent_details_patch(
     row: dict[str, Any],
     *,
+    schema: str,
+    actor_id: int,
     agent_email: str | None,
     agent_url: str | None,
     agent_dob: date | None,
@@ -226,7 +235,12 @@ def build_agent_details_patch(
     has_address: bool,
     existing_identifier_keys: set[tuple[str, str]],
 ) -> AgentDetailsPatch:
-    """Build idempotent updates: only fill empty Agent fields / missing related rows."""
+    """Build idempotent updates: only fill empty Agent fields / missing related rows.
+
+    ``schema`` / ``actor_id`` are required so remarks always keep the full
+    ``MUSIT-migration: ACTOR; schema=…; ACTOR_ID=…`` marker when appending
+    ``oracle_note=`` (earlier code dropped those parts).
+    """
     patch = AgentDetailsPatch()
     fields: dict[str, Any] = {}
 
@@ -281,18 +295,31 @@ def build_agent_details_patch(
     note = trunc(row.get("note"), 65000)
     remarks = agent_remarks or ""
     if note:
-        # Preserve migration marker; replace/append full oracle_note= payload.
-        if remarks.upper().startswith("MUSIT-MIGRATION:"):
-            first = remarks.split(";", 1)[0].strip()
-            extras: list[str] = [first]
-            if institution:
-                extras.append(f"institution={trunc(institution, 500)}")
-            extras.append(f"oracle_note={note}")
-            new_remarks = "; ".join(extras)
+        # Always rebuild from schema+ACTOR_ID so the idempotency marker cannot
+        # be stripped (regression: keeping only "MUSIT-migration: ACTOR").
+        inst = institution or extract_institution_from_remarks(remarks)
+        new_remarks = build_musit_actor_remarks(
+            schema,
+            actor_id,
+            institution=trunc(inst, 500) if inst else None,
+            oracle_note=note,
+        )
+        if new_remarks != remarks:
+            patch.remarks = new_remarks
+    else:
+        # Even without a note, repair mangled markers when we know schema/id.
+        parsed = parse_actor_marker(remarks)
+        if parsed is None and remarks.upper().startswith("MUSIT-MIGRATION:"):
+            inst = institution or extract_institution_from_remarks(remarks)
+            old_note = extract_oracle_note_from_remarks(remarks)
+            new_remarks = build_musit_actor_remarks(
+                schema,
+                actor_id,
+                institution=trunc(inst, 500) if inst else None,
+                oracle_note=old_note,
+            )
             if new_remarks != remarks:
                 patch.remarks = new_remarks
-        elif "oracle_note=" not in remarks:
-            patch.remarks = (remarks + "; " if remarks else "") + f"oracle_note={note}"
 
     patch.agent_fields = fields
 

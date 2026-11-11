@@ -58,9 +58,11 @@ Specify **`Agent`** via Django ORM:
 - **`specifyuser`:** always **null** here (these are not login rows).
 - **Idempotency:** `remarks` is set to a fixed marker  
   `MUSIT-migration: ACTOR; schema=<SCHEMA>; ACTOR_ID=<id>`  
-  An existing `Agent` with the **same `remarks`** is **skipped** on re-run
+  An existing `Agent` whose remarks **start with** that marker (exact, or with
+  trailing ``institution`` / ``oracle_note`` extras) is **skipped** on re-run
   **unless** `update_existing_names=true` (then only name fields are patched in place —
-  no new Agents, no specimen remigration).
+  no new Agents, no specimen remigration). Orphans that lost ``schema``/``ACTOR_ID``
+  are handled by [**Cleanup MUSIT agent duplicates**](cleanup_musit_agent_duplicates.md).
 
 ### Parameters
 

@@ -31,6 +31,7 @@ from flows.lib.musit_agent_names import (
 )
 from flows.lib.musit_agents_common import (
     ALLOWED_MUSIT_AGENT_SCHEMAS,
+    find_agents_for_musit_actor,
     musit_actor_remarks_marker,
 )
 from flows.lib.oracle_connectivity import (
@@ -209,43 +210,57 @@ def _process_one_musit_actor_row(
     middle = desired_names["middleinitial"]
     title = desired_names["title"]
 
-    existing = Agent.objects.filter(remarks=marker).first()
-    if existing is not None:
+    # Match marker exactly or with trailing extras (institution / oracle_note).
+    # Does not match oracle_note-only orphans — those need the cleanup flow.
+    existing_agents = find_agents_for_musit_actor(row.schema, row.actor_id)
+    if existing_agents:
         if not update_existing_names:
             result.agents_skipped += 1
             return
-        changes = _name_field_updates(existing, desired_names)
-        if not changes:
+        any_changed = False
+        for existing in existing_agents:
+            changes = _name_field_updates(existing, desired_names)
+            if not changes:
+                continue
+            any_changed = True
+            if dry_run:
+                logger.debug(
+                    f"[DRY RUN] Would update Agent id={existing.id} "
+                    f"schema={row.schema} ACTOR_ID={row.actor_id} fields={changes}"
+                )
+                continue
+            try:
+                for field, value in changes.items():
+                    setattr(existing, field, value)
+                existing.timestampmodified = datetime.now(timezone.utc)
+                existing.save(update_fields=[*changes.keys(), "timestampmodified"])
+            except Exception as exc:
+                msg = (
+                    f"Error updating {row.schema}.ACTOR_ID={row.actor_id} "
+                    f"(agent_id={existing.id}): {exc}"
+                )
+                logger.error(msg)
+                if len(result.errors) < _MAX_ERROR_LINES:
+                    result.errors.append(msg)
+                elif len(result.errors) == _MAX_ERROR_LINES:
+                    result.errors.append(
+                        f"... further errors omitted (cap {_MAX_ERROR_LINES}); "
+                        "see worker logs"
+                    )
+        if any_changed:
+            result.agents_updated += 1
+        else:
             result.agents_unchanged += 1
-            return
-        if dry_run:
-            logger.debug(
-                f"[DRY RUN] Would update Agent schema={row.schema} ACTOR_ID={row.actor_id} "
-                f"fields={changes}"
+        if (
+            not dry_run
+            and any_changed
+            and processed_count % _PROGRESS_LOG_EVERY == 0
+        ):
+            logger.info(
+                f"Live progress: {processed_count} actors processed "
+                f"(created {result.agents_created}, updated {result.agents_updated}, "
+                f"unchanged {result.agents_unchanged}, skipped {result.agents_skipped})"
             )
-            result.agents_updated += 1
-            return
-        try:
-            for field, value in changes.items():
-                setattr(existing, field, value)
-            existing.timestampmodified = datetime.now(timezone.utc)
-            existing.save(update_fields=[*changes.keys(), "timestampmodified"])
-            result.agents_updated += 1
-            if processed_count % _PROGRESS_LOG_EVERY == 0:
-                logger.info(
-                    f"Live progress: {processed_count} actors processed "
-                    f"(created {result.agents_created}, updated {result.agents_updated}, "
-                    f"unchanged {result.agents_unchanged}, skipped {result.agents_skipped})"
-                )
-        except Exception as exc:
-            msg = f"Error updating {row.schema}.ACTOR_ID={row.actor_id}: {exc}"
-            logger.error(msg)
-            if len(result.errors) < _MAX_ERROR_LINES:
-                result.errors.append(msg)
-            elif len(result.errors) == _MAX_ERROR_LINES:
-                result.errors.append(
-                    f"... further errors omitted (cap {_MAX_ERROR_LINES}); see worker logs"
-                )
         return
 
     email = _trunc(row.email_address, 50)
@@ -439,10 +454,12 @@ def migrate_musit_agents_flow(
         dry_run: When True, log only; no ``Agent`` rows are written.
         musit_schemas: Subset of ``MUSIT_BOTANIKK_FELLES`` and/or ``MUSIT_ZOOLOGI_ENTOMOLOGI``.
             Defaults to both when omitted (``None``).
-        update_existing_names: When True, existing Agents (matched by remarks marker)
-            get ``firstname``/``lastname``/``middleinitial``/``title`` refreshed from
-            the fullest MUSIT name — use this to fix abbreviated display names in
-            staging without recreating Agents or remigrating specimens.
+        update_existing_names: When True, existing Agents (matched by remarks marker,
+            including trailing ``institution`` / ``oracle_note`` extras) get
+            ``firstname``/``lastname``/``middleinitial``/``title`` refreshed from
+            ``ACTORNAME`` (else ``PERSON_NAME``) — use this to fix abbreviated
+            display names in staging without recreating Agents or remigrating
+            specimens.
     """
     logger = get_run_logger()
     if musit_schemas is None:

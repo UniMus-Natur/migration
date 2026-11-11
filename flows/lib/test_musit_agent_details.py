@@ -58,6 +58,8 @@ class UrlNoteIdentifierTests(unittest.TestCase):
 class PatchTests(unittest.TestCase):
     def _empty_agent(self) -> dict:
         return dict(
+            schema="MUSIT_BOTANIKK_FELLES",
+            actor_id=47891,
             agent_email=None,
             agent_url=None,
             agent_dob=None,
@@ -117,6 +119,8 @@ class PatchTests(unittest.TestCase):
         }
         patch = build_agent_details_patch(
             row,
+            schema="MUSIT_BOTANIKK_FELLES",
+            actor_id=1,
             agent_email="already@x.com",
             agent_url="http://kept",
             agent_dob=date(1800, 1, 1),
@@ -126,7 +130,7 @@ class PatchTests(unittest.TestCase):
             agent_text3="kept gender",
             agent_text4="kept inst",
             agent_text5="kept url note",
-            agent_remarks="MUSIT-migration: ACTOR; schema=X; ACTOR_ID=1; oracle_note=hello",
+            agent_remarks="MUSIT-migration: ACTOR; schema=MUSIT_BOTANIKK_FELLES; ACTOR_ID=1; oracle_note=hello",
             has_address=True,
             existing_identifier_keys={("Wikidata", "Q1")},
         )

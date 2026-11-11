@@ -175,6 +175,8 @@ def extract_and_load_musit_agent_details_task(
                         existing_ids = _existing_identifier_keys(agent_id)
                         patch = build_agent_details_patch(
                             row,
+                            schema=schema,
+                            actor_id=int(row["actor_id"]),
                             agent_email=agent.email,
                             agent_url=agent.url,
                             agent_dob=coerce_date(agent.dateofbirth),
