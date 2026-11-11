@@ -94,6 +94,13 @@ prefect deployment run "Migrate MUSIT Actors/migrate-musit-agents-dev"
 
 See [MUSIT collection agents migration](migrate_musit_agents.md) for parameters and scope.
 
+Import actors, detail fields, and name variants in **one** run (preferred after a clean agent wipe; default is dry run):
+
+```bash
+prefect deployment run "Migrate MUSIT Actors Full/migrate-musit-agents-full-dev" \
+  -p dry_run=false
+```
+
 Optional: fill **`AgentVariant`** from alternate MUSIT **`PERSON_NAME`** rows (Phase 1.1b; requires agents already migrated; default is dry run):
 
 ```bash

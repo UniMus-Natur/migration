@@ -21,6 +21,17 @@ The same person may appear in **both** `ACTOR` and `BRUKARAR`. Specify also uses
 
 Strategic background and table lists: [**Oracle Schema Overview — Persons, Agents & Users**](oracle_schema_overview.md#persons-agents--users). Phased order: [**Migration Strategy — Step 1.1 vs 1.4**](migration_strategy.md#step-11--agents).
 
+## One-pass import
+
+`migrate_musit_agents_full_flow` (**Migrate MUSIT Actors Full**, deployment `migrate-musit-agents-full-dev`) creates each Agent together with detail fields and alternate name variants from a single Oracle read. Use this after wiping MUSIT agents. Actors that already have a remarks marker are skipped, and each actor is committed in one transaction.
+
+```bash
+prefect deployment run "Migrate MUSIT Actors Full/migrate-musit-agents-full-dev" \
+  -p dry_run=false
+```
+
+The three separate flows below remain for fill-in on an existing agent set.
+
 ## Flow: `migrate_musit_agents_flow`
 
 - **Module:** `flows/migrate_musit_agents.py`
