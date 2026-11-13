@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from typing import Any
 
 _TYPES_LABEL_COLUMN_PRIORITY = (
+    # MUSIT ``TYPES`` stores the label in ``TYPETERM`` (Fylke, Gammelt fylke, …).
+    "TYPETERM",
     "TYPE_NAME",
     "TYPENAME",
     "TYPELABEL",

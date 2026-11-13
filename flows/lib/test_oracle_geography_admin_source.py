@@ -12,6 +12,7 @@ from flows.lib.oracle_geography_admin import (
     oracle_row_is_world_or_planet_shell,
     oracle_type_name_to_rank_item_name,
     should_alias_geography_to_parent,
+    types_label_column_name,
 )
 
 
@@ -46,6 +47,16 @@ def _assign_norwegian_ranks(chain: list[tuple[str, str]]) -> list[str | None]:
 
 
 class OracleGeographyAdminSourceTests(unittest.TestCase):
+    def test_types_label_column_is_typeterm(self) -> None:
+        class FakeCursor:
+            def execute(self, sql: str, params: dict | None = None) -> None:
+                return None
+
+            def fetchall(self) -> list[tuple[str]]:
+                return [("TYPE_ID",), ("TYPETERM",), ("TYPE_ID_BROADER",)]
+
+        self.assertEqual(types_label_column_name(FakeCursor(), "MUSIT_BOTANIKK_FELLES"), "TYPETERM")
+
     def test_hierarchical_admin_relation(self) -> None:
         self.assertEqual(
             hierarchical_admin_relation("MUSIT_BOTANIKK_FELLES"),

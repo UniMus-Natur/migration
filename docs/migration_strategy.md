@@ -167,7 +167,7 @@ Specify's default US geography ranks are renamed to a **land-admin core ladder**
 
 Optional (on demand): Ocean (150), Sea (180), Gammelt fylke (320), Region (350), Sub region (370).
 
-Ranks in the full name use separator `", "` (avoids concatenations like `TønsbergSem`). A child that repeats its parent's name (untyped kommune repeats, or `Gammel kommune Tønsberg` under `Kommune Tønsberg`) is aliased onto the parent so a nested historical unit such as Sem can occupy the Gammel kommune rank.
+The type label is `TYPES.TYPETERM`. Ranks in the full name use separator `", "` (avoids concatenations like `TønsbergSem`). A child that repeats its parent's name (untyped kommune repeats, or `Gammel kommune Tønsberg` under `Kommune Tønsberg`) is aliased onto the parent so a nested historical unit such as Sem can occupy the Gammel kommune rank. A second `Gammel kommune` under that (Vatne under Haram under Ålesund) cannot share the rank, so it is stored as Sted.
 
 Existing geography nodes keep their current `rankid` until a **geography purge + reload**; renaming ranks only changes labels. Implementation: `ensure_norwegian_geography_ranks` in [`oracle_geography_load.py`](../flows/lib/oracle_geography_load.py), type map in [`oracle_geography_admin.py`](../flows/lib/oracle_geography_admin.py).
 
