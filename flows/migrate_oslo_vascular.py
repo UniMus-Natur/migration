@@ -66,9 +66,25 @@ OSLO_VASCULAR_CONFIG = MusitDatasetConfig(
     dataset_label="oslo-vascular-v1",
 )
 
+# Same MUSIT view and joins as Oslo. Filter is institution TRH / collection V
+# (NTNU University Museum, Trondheim). Specify collection TRH-V / NTNU-karplanter
+# shares the Karplanter Moser discipline, so taxon and geography trees are reused.
+NTNU_VASCULAR_CONFIG = MusitDatasetConfig(
+    oracle_schema="MUSIT_BOTANIKK_FELLES",
+    institutioncode="TRH",
+    collectioncode="V",
+    specify_collection_code="TRH-V",
+    specify_discipline_name="Karplanter Moser",
+    dataset_label="ntnu-vascular-v1",
+)
+
+REPORT_CATEGORY_NTNU_VASCULAR = "ntnu-vascular-specimens"
+
 
 def _build_report(
     *,
+    config: MusitDatasetConfig,
+    flow_name: str,
     ts: str,
     oracle_env: str,
     dry_run: bool,
@@ -80,7 +96,7 @@ def _build_report(
 ) -> dict[str, Any]:
     return {
         "report_version": 1,
-        "flow": "migrate_oslo_vascular",
+        "flow": flow_name,
         "migration_phase": "2.1",
         "generated_at_utc": ts,
         "oracle_env": oracle_env,
@@ -90,12 +106,12 @@ def _build_report(
         "only_catalog": only_catalog,
         "only_object_id": only_object_id,
         "dataset": {
-            "oracle_schema": OSLO_VASCULAR_CONFIG.oracle_schema,
-            "institutioncode": OSLO_VASCULAR_CONFIG.institutioncode,
-            "collectioncode": OSLO_VASCULAR_CONFIG.collectioncode,
-            "specify_collection_code": OSLO_VASCULAR_CONFIG.specify_collection_code,
-            "specify_discipline_name": OSLO_VASCULAR_CONFIG.specify_discipline_name,
-            "dataset_label": OSLO_VASCULAR_CONFIG.dataset_label,
+            "oracle_schema": config.oracle_schema,
+            "institutioncode": config.institutioncode,
+            "collectioncode": config.collectioncode,
+            "specify_collection_code": config.specify_collection_code,
+            "specify_discipline_name": config.specify_discipline_name,
+            "dataset_label": config.dataset_label,
         },
         "stats": {
             "co_created": stats.co_created,
@@ -122,23 +138,32 @@ def _build_report(
     }
 
 
-@task(retries=0, retry_delay_seconds=10)
-def migrate_oslo_vascular_task(
+def _load_vascular_dataset(
+    config: MusitDatasetConfig,
+    *,
     oracle_env: str,
     dry_run: bool,
     limit: int | None,
     run_ts: str,
-    skip_media: bool = False,
-    only_catalog: str | None = None,
-    only_object_id: int | None = None,
+    skip_media: bool,
+    only_catalog: str | None,
+    only_object_id: int | None,
 ) -> DatasetLoadStats:
-    """Extract Oracle MUSIT objects and load into Specify (single combined task)."""
+    """Extract one MUSIT vascular slice and load it into its Specify collection."""
     setup_django()
     logger = get_run_logger()
     logger.info(
-        "migrate_oslo_vascular_task | oracle_env=%s dry_run=%s limit=%s skip_media=%s"
-        " only_catalog=%s only_object_id=%s",
-        oracle_env, dry_run, limit, skip_media, only_catalog, only_object_id,
+        "load_vascular_dataset | %s/%s -> %s | oracle_env=%s dry_run=%s limit=%s "
+        "skip_media=%s only_catalog=%s only_object_id=%s",
+        config.institutioncode,
+        config.collectioncode,
+        config.specify_collection_code,
+        oracle_env,
+        dry_run,
+        limit,
+        skip_media,
+        only_catalog,
+        only_object_id,
     )
 
     config_obj = get_oracle_config_from_env(oracle_env)
@@ -146,7 +171,7 @@ def migrate_oslo_vascular_task(
     try:
         with connection.cursor() as cursor:
             stats = load_musit_dataset(
-                OSLO_VASCULAR_CONFIG,
+                config,
                 oracle_cursor=cursor,
                 dry_run=dry_run,
                 limit=limit,
@@ -159,8 +184,9 @@ def migrate_oslo_vascular_task(
         connection.close()
 
     logger.info(
-        "migrate_oslo_vascular_task done | co_created=%s co_skipped=%s ce=%s"
+        "load_vascular_dataset done | collection=%s co_created=%s co_skipped=%s ce=%s"
         " loc_new=%s det=%s taxon_ok=%s agent_ok=%s att_ok=%s att_fail=%s err=%s elapsed=%.1fs%s",
+        config.specify_collection_code,
         stats.co_created,
         stats.co_skipped,
         stats.ce_created,
@@ -176,6 +202,52 @@ def migrate_oslo_vascular_task(
         if stats.estimate_total_s else "",
     )
     return stats
+
+
+@task(retries=0, retry_delay_seconds=10)
+def migrate_oslo_vascular_task(
+    oracle_env: str,
+    dry_run: bool,
+    limit: int | None,
+    run_ts: str,
+    skip_media: bool = False,
+    only_catalog: str | None = None,
+    only_object_id: int | None = None,
+) -> DatasetLoadStats:
+    """Extract Oslo vascular objects and load them into Specify collection O-V."""
+    return _load_vascular_dataset(
+        OSLO_VASCULAR_CONFIG,
+        oracle_env=oracle_env,
+        dry_run=dry_run,
+        limit=limit,
+        run_ts=run_ts,
+        skip_media=skip_media,
+        only_catalog=only_catalog,
+        only_object_id=only_object_id,
+    )
+
+
+@task(retries=0, retry_delay_seconds=10)
+def migrate_ntnu_vascular_task(
+    oracle_env: str,
+    dry_run: bool,
+    limit: int | None,
+    run_ts: str,
+    skip_media: bool = False,
+    only_catalog: str | None = None,
+    only_object_id: int | None = None,
+) -> DatasetLoadStats:
+    """Extract NTNU vascular objects and load them into Specify collection TRH-V."""
+    return _load_vascular_dataset(
+        NTNU_VASCULAR_CONFIG,
+        oracle_env=oracle_env,
+        dry_run=dry_run,
+        limit=limit,
+        run_ts=run_ts,
+        skip_media=skip_media,
+        only_catalog=only_catalog,
+        only_object_id=only_object_id,
+    )
 
 
 @flow(
@@ -208,12 +280,83 @@ def migrate_oslo_vascular_flow(
         only_catalog: Migrate one specimen by catalog number (e.g. ``O-V-398038``).
         only_object_id: Migrate one specimen by Oracle ``OBJECT_ID``.
     """
+    return _run_vascular_flow(
+        config=OSLO_VASCULAR_CONFIG,
+        flow_name="migrate_oslo_vascular",
+        report_category=REPORT_CATEGORY_OSLO_VASCULAR,
+        task=migrate_oslo_vascular_task,
+        oracle_env=oracle_env,
+        dry_run=dry_run,
+        purge_before_run=purge_before_run,
+        limit=limit,
+        skip_media=skip_media,
+        only_catalog=only_catalog,
+        only_object_id=only_object_id,
+    )
+
+
+@flow(
+    name="Migrate NTNU Vascular Plants",
+    description=(
+        "Phase 2: Migrate NTNU vascular herbarium (institutioncode=TRH, collectioncode=V) "
+        "from MUSIT_BOTANIKK_FELLES into Specify 7 collection TRH-V (NTNU-karplanter). "
+        "Same loader as Oslo vascular. Set limit=100 for a timed test run."
+    ),
+)
+def migrate_ntnu_vascular_flow(
+    oracle_env: str = "PROD",
+    dry_run: bool = True,
+    purge_before_run: bool = False,
+    limit: int | None = None,
+    skip_media: bool = True,
+    only_catalog: str | None = None,
+    only_object_id: int | None = None,
+) -> dict[str, Any]:
+    """Migrate NTNU (Trondheim) vascular plants to Specify collection TRH-V."""
+    return _run_vascular_flow(
+        config=NTNU_VASCULAR_CONFIG,
+        flow_name="migrate_ntnu_vascular",
+        report_category=REPORT_CATEGORY_NTNU_VASCULAR,
+        task=migrate_ntnu_vascular_task,
+        oracle_env=oracle_env,
+        dry_run=dry_run,
+        purge_before_run=purge_before_run,
+        limit=limit,
+        skip_media=skip_media,
+        only_catalog=only_catalog,
+        only_object_id=only_object_id,
+    )
+
+
+def _run_vascular_flow(
+    *,
+    config: MusitDatasetConfig,
+    flow_name: str,
+    report_category: str,
+    task: Any,
+    oracle_env: str,
+    dry_run: bool,
+    purge_before_run: bool,
+    limit: int | None,
+    skip_media: bool,
+    only_catalog: str | None,
+    only_object_id: int | None,
+) -> dict[str, Any]:
     logger = get_run_logger()
     logger.info(
-        "migrate_oslo_vascular_flow | oracle_env=%s dry_run=%s purge_before_run=%s "
+        "%s | %s/%s -> %s | oracle_env=%s dry_run=%s purge_before_run=%s "
         "limit=%s skip_media=%s only_catalog=%s only_object_id=%s",
-        oracle_env, dry_run, purge_before_run, limit, skip_media,
-        only_catalog, only_object_id,
+        flow_name,
+        config.institutioncode,
+        config.collectioncode,
+        config.specify_collection_code,
+        oracle_env,
+        dry_run,
+        purge_before_run,
+        limit,
+        skip_media,
+        only_catalog,
+        only_object_id,
     )
 
     setup_django()
@@ -223,11 +366,12 @@ def migrate_oslo_vascular_flow(
     purge_result: dict[str, Any] | None = None
     if purge_before_run and not dry_run:
         logger.warning(
-            "purge_before_run=true: deleting previous O-V dataset records before migration "
-            "(CollectionObject/CollectingEvent/Locality + objectmap/placemap rows)."
+            "purge_before_run=true: deleting previous %s records before migration "
+            "(CollectionObject/CollectingEvent/Locality + objectmap/placemap rows).",
+            config.specify_collection_code,
         )
         purge_result = _purge_dataset(
-            collection_code=OSLO_VASCULAR_CONFIG.specify_collection_code,
+            collection_code=config.specify_collection_code,
             dry_run=False,
             clear_objectmap_rows=True,
             clear_placemap_rows=True,
@@ -235,7 +379,7 @@ def migrate_oslo_vascular_flow(
         )
         logger.info("purge_before_run result: %s", purge_result)
 
-    stats = migrate_oslo_vascular_task(
+    stats = task(
         oracle_env,
         dry_run,
         limit,
@@ -246,6 +390,8 @@ def migrate_oslo_vascular_flow(
     )
 
     report = _build_report(
+        config=config,
+        flow_name=flow_name,
         ts=ts,
         oracle_env=oracle_env,
         dry_run=dry_run,
@@ -257,7 +403,7 @@ def migrate_oslo_vascular_flow(
     )
     if purge_result is not None:
         report["purge_before_run_result"] = purge_result
-    s3_key = migration_report_s3_key(REPORT_CATEGORY_OSLO_VASCULAR, ts)
+    s3_key = migration_report_s3_key(report_category, ts)
     uploaded = upload_migration_report_json_task(report, s3_key)
     for uri in uploaded:
         logger.info("Uploaded report: %s", uri)
