@@ -80,6 +80,34 @@ NTNU_VASCULAR_CONFIG = MusitDatasetConfig(
 
 REPORT_CATEGORY_NTNU_VASCULAR = "ntnu-vascular-specimens"
 
+# Bergen vascular is one MUSIT collection (BG / S). Nordic and global are catalog
+# number series, not separate source collections. Numbers at or above this bound
+# are the global herbarium; lower numbers (and a null number) are Nordic.
+BERGEN_GLOBAL_IDENTIFIER_NUM = 2_000_000
+
+BERGEN_NORDIC_CONFIG = MusitDatasetConfig(
+    oracle_schema="MUSIT_BOTANIKK_FELLES",
+    institutioncode="BG",
+    collectioncode="S",
+    specify_collection_code="BG-S",
+    specify_discipline_name="Karplanter Moser",
+    dataset_label="bergen-nordic-v1",
+    identifier_num_below=BERGEN_GLOBAL_IDENTIFIER_NUM,
+)
+
+BERGEN_GLOBAL_CONFIG = MusitDatasetConfig(
+    oracle_schema="MUSIT_BOTANIKK_FELLES",
+    institutioncode="BG",
+    collectioncode="S",
+    specify_collection_code="BG-G",
+    specify_discipline_name="Karplanter Moser",
+    dataset_label="bergen-global-v1",
+    identifier_num_at_least=BERGEN_GLOBAL_IDENTIFIER_NUM,
+)
+
+REPORT_CATEGORY_BERGEN_NORDIC = "bergen-nordic-specimens"
+REPORT_CATEGORY_BERGEN_GLOBAL = "bergen-global-specimens"
+
 
 def _build_report(
     *,
@@ -228,6 +256,52 @@ def migrate_oslo_vascular_task(
 
 
 @task(retries=0, retry_delay_seconds=10)
+def migrate_bergen_nordic_task(
+    oracle_env: str,
+    dry_run: bool,
+    limit: int | None,
+    run_ts: str,
+    skip_media: bool = False,
+    only_catalog: str | None = None,
+    only_object_id: int | None = None,
+) -> DatasetLoadStats:
+    """Extract Bergen Nordic vascular objects (catalog number below 2000000)."""
+    return _load_vascular_dataset(
+        BERGEN_NORDIC_CONFIG,
+        oracle_env=oracle_env,
+        dry_run=dry_run,
+        limit=limit,
+        run_ts=run_ts,
+        skip_media=skip_media,
+        only_catalog=only_catalog,
+        only_object_id=only_object_id,
+    )
+
+
+@task(retries=0, retry_delay_seconds=10)
+def migrate_bergen_global_task(
+    oracle_env: str,
+    dry_run: bool,
+    limit: int | None,
+    run_ts: str,
+    skip_media: bool = False,
+    only_catalog: str | None = None,
+    only_object_id: int | None = None,
+) -> DatasetLoadStats:
+    """Extract Bergen global vascular objects (catalog number at or above 2000000)."""
+    return _load_vascular_dataset(
+        BERGEN_GLOBAL_CONFIG,
+        oracle_env=oracle_env,
+        dry_run=dry_run,
+        limit=limit,
+        run_ts=run_ts,
+        skip_media=skip_media,
+        only_catalog=only_catalog,
+        only_object_id=only_object_id,
+    )
+
+
+@task(retries=0, retry_delay_seconds=10)
 def migrate_ntnu_vascular_task(
     oracle_env: str,
     dry_run: bool,
@@ -285,6 +359,72 @@ def migrate_oslo_vascular_flow(
         flow_name="migrate_oslo_vascular",
         report_category=REPORT_CATEGORY_OSLO_VASCULAR,
         task=migrate_oslo_vascular_task,
+        oracle_env=oracle_env,
+        dry_run=dry_run,
+        purge_before_run=purge_before_run,
+        limit=limit,
+        skip_media=skip_media,
+        only_catalog=only_catalog,
+        only_object_id=only_object_id,
+    )
+
+
+@flow(
+    name="Migrate Bergen Nordic Vascular Plants",
+    description=(
+        "Phase 2: Migrate Bergen Nordic vascular herbarium (BG/S catalog numbers "
+        "below 2000000) from MUSIT_BOTANIKK_FELLES into Specify collection BG-S. "
+        "Same loader as Oslo vascular."
+    ),
+)
+def migrate_bergen_nordic_flow(
+    oracle_env: str = "PROD",
+    dry_run: bool = True,
+    purge_before_run: bool = False,
+    limit: int | None = None,
+    skip_media: bool = True,
+    only_catalog: str | None = None,
+    only_object_id: int | None = None,
+) -> dict[str, Any]:
+    """Migrate Bergen Nordic vascular plants (BG-S numbers below 2000000) to BG-S."""
+    return _run_vascular_flow(
+        config=BERGEN_NORDIC_CONFIG,
+        flow_name="migrate_bergen_nordic",
+        report_category=REPORT_CATEGORY_BERGEN_NORDIC,
+        task=migrate_bergen_nordic_task,
+        oracle_env=oracle_env,
+        dry_run=dry_run,
+        purge_before_run=purge_before_run,
+        limit=limit,
+        skip_media=skip_media,
+        only_catalog=only_catalog,
+        only_object_id=only_object_id,
+    )
+
+
+@flow(
+    name="Migrate Bergen Global Vascular Plants",
+    description=(
+        "Phase 2: Migrate Bergen global vascular herbarium (BG/S catalog numbers "
+        "at or above 2000000) from MUSIT_BOTANIKK_FELLES into Specify collection BG-G. "
+        "Same loader as Oslo vascular."
+    ),
+)
+def migrate_bergen_global_flow(
+    oracle_env: str = "PROD",
+    dry_run: bool = True,
+    purge_before_run: bool = False,
+    limit: int | None = None,
+    skip_media: bool = True,
+    only_catalog: str | None = None,
+    only_object_id: int | None = None,
+) -> dict[str, Any]:
+    """Migrate Bergen global vascular plants (BG-S numbers from 2000000) to BG-G."""
+    return _run_vascular_flow(
+        config=BERGEN_GLOBAL_CONFIG,
+        flow_name="migrate_bergen_global",
+        report_category=REPORT_CATEGORY_BERGEN_GLOBAL,
+        task=migrate_bergen_global_task,
         oracle_env=oracle_env,
         dry_run=dry_run,
         purge_before_run=purge_before_run,

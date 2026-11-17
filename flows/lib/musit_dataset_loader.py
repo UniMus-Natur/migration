@@ -127,6 +127,11 @@ class MusitDatasetConfig:
     specify_collection_code: str # e.g. "O-V"
     specify_discipline_name: str # e.g. "Karplanter Moser"
     dataset_label: str           # e.g. "oslo-vascular-v1" (written into JSON payload)
+    # Optional catalog-number series on ``MUSEUM_OBJECT.IDENTIFIER_NUM``.
+    # ``identifier_num_below`` keeps NULL numbers (unnumbered stubs).
+    # ``identifier_num_at_least`` requires a number at or above the bound.
+    identifier_num_at_least: int | None = None
+    identifier_num_below: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -162,17 +167,6 @@ class DatasetLoadStats:
 # ---------------------------------------------------------------------------
 # Oracle SQL
 # ---------------------------------------------------------------------------
-
-# Phase 1 — page OBJECT_IDs in stable sorted order (keyset pagination over Oracle).
-_PAGE_SQL = """
-    SELECT voa.object_id
-      FROM {schema}.v_object_attributes voa
-     WHERE voa.institutioncode = :icode
-       AND voa.collectioncode  = :ccode
-       AND voa.object_id > :after_id
-     ORDER BY voa.object_id
-     FETCH NEXT :batch ROWS ONLY
-"""
 
 # Phase 2 — one query per page: full multi-join envelope.
 # Rows are grouped in Python by object_id.  Because of the LEFT JOINs a single
@@ -2542,6 +2536,17 @@ def _write_one_object(
 # ---------------------------------------------------------------------------
 
 
+def _identifier_num_filter_sql(config: MusitDatasetConfig) -> tuple[str, str, dict[str, int]]:
+    """Return ``(join_sql, where_sql, binds)`` for an optional catalog-number series."""
+    from flows.lib.musit_identifier_series import identifier_num_filter_sql
+
+    return identifier_num_filter_sql(
+        oracle_schema=config.oracle_schema,
+        identifier_num_at_least=config.identifier_num_at_least,
+        identifier_num_below=config.identifier_num_below,
+    )
+
+
 def _fetch_page_object_ids(
     oracle_cursor: Any,
     config: MusitDatasetConfig,
@@ -2550,7 +2555,18 @@ def _fetch_page_object_ids(
     batch: int,
 ) -> list[int]:
     """Fetch the next page of OBJECT_IDs strictly after ``after_id`` (keyset pagination)."""
-    sql = _PAGE_SQL.format(schema=config.oracle_schema)
+    join_sql, where_sql, extra = _identifier_num_filter_sql(config)
+    sql = f"""
+    SELECT voa.object_id
+      FROM {config.oracle_schema}.v_object_attributes voa
+      {join_sql}
+     WHERE voa.institutioncode = :icode
+       AND voa.collectioncode  = :ccode
+       AND voa.object_id > :after_id
+       {where_sql}
+     ORDER BY voa.object_id
+     FETCH NEXT :batch ROWS ONLY
+    """
     oracle_cursor.execute(
         sql,
         {
@@ -2558,6 +2574,7 @@ def _fetch_page_object_ids(
             "ccode": config.collectioncode,
             "after_id": after_id,
             "batch": batch,
+            **extra,
         },
     )
     return [int(row[0]) for row in oracle_cursor.fetchall()]
@@ -2579,15 +2596,57 @@ def _fetch_specimen_rows(
 
 
 def _count_total_objects(oracle_cursor: Any, config: MusitDatasetConfig) -> int:
+    join_sql, where_sql, extra = _identifier_num_filter_sql(config)
     sql = f"""
     SELECT COUNT(*)
-      FROM {config.oracle_schema}.v_object_attributes
-     WHERE institutioncode = :icode
-       AND collectioncode  = :ccode
+      FROM {config.oracle_schema}.v_object_attributes voa
+      {join_sql}
+     WHERE voa.institutioncode = :icode
+       AND voa.collectioncode  = :ccode
+       {where_sql}
     """
-    oracle_cursor.execute(sql, {"icode": config.institutioncode, "ccode": config.collectioncode})
+    oracle_cursor.execute(
+        sql,
+        {"icode": config.institutioncode, "ccode": config.collectioncode, **extra},
+    )
     row = oracle_cursor.fetchone()
     return int(row[0]) if row else 0
+
+
+def _assert_objects_in_identifier_series(
+    oracle_cursor: Any,
+    config: MusitDatasetConfig,
+    object_ids: list[int],
+) -> None:
+    """Reject a single-record run whose catalog number is outside this dataset's series."""
+    if config.identifier_num_at_least is None and config.identifier_num_below is None:
+        return
+    schema = config.oracle_schema
+    for oid in object_ids:
+        oracle_cursor.execute(
+            f"SELECT identifier_num FROM {schema}.museum_object WHERE object_id = :oid",
+            {"oid": int(oid)},
+        )
+        row = oracle_cursor.fetchone()
+        num = None if row is None or row[0] is None else int(row[0])
+        if config.identifier_num_at_least is not None and (
+            num is None or num < int(config.identifier_num_at_least)
+        ):
+            raise RuntimeError(
+                f"object_id={oid} identifier_num={num} is below "
+                f"{config.identifier_num_at_least} for collection "
+                f"{config.specify_collection_code}"
+            )
+        if (
+            config.identifier_num_below is not None
+            and num is not None
+            and num >= int(config.identifier_num_below)
+        ):
+            raise RuntimeError(
+                f"object_id={oid} identifier_num={num} is not below "
+                f"{config.identifier_num_below} for collection "
+                f"{config.specify_collection_code}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -2680,6 +2739,7 @@ def load_musit_dataset(
             catalog_number=only_catalog,
             object_id=only_object_id,
         )
+        _assert_objects_in_identifier_series(oracle_cursor, config, pinned_object_ids)
 
     _log(
         "info",
