@@ -108,6 +108,39 @@ BERGEN_GLOBAL_CONFIG = MusitDatasetConfig(
 REPORT_CATEGORY_BERGEN_NORDIC = "bergen-nordic-specimens"
 REPORT_CATEGORY_BERGEN_GLOBAL = "bergen-global-specimens"
 
+# Tromsø, Agder (herbarium code KMN) and Stavanger are each one MUSIT collection.
+# None of them has a 2_000_000 catalog-number series.
+TROMSO_VASCULAR_CONFIG = MusitDatasetConfig(
+    oracle_schema="MUSIT_BOTANIKK_FELLES",
+    institutioncode="TROM",
+    collectioncode="V",
+    specify_collection_code="TROM-V",
+    specify_discipline_name="Karplanter Moser",
+    dataset_label="tromso-vascular-v1",
+)
+
+AGDER_VASCULAR_CONFIG = MusitDatasetConfig(
+    oracle_schema="MUSIT_BOTANIKK_FELLES",
+    institutioncode="KMN",
+    collectioncode="V",
+    specify_collection_code="KMN-V",
+    specify_discipline_name="Karplanter Moser",
+    dataset_label="agder-vascular-v1",
+)
+
+STAVANGER_VASCULAR_CONFIG = MusitDatasetConfig(
+    oracle_schema="MUSIT_BOTANIKK_FELLES",
+    institutioncode="SVG",
+    collectioncode="V",
+    specify_collection_code="SVG-V",
+    specify_discipline_name="Karplanter Moser",
+    dataset_label="stavanger-vascular-v1",
+)
+
+REPORT_CATEGORY_TROMSO_VASCULAR = "tromso-vascular-specimens"
+REPORT_CATEGORY_AGDER_VASCULAR = "agder-vascular-specimens"
+REPORT_CATEGORY_STAVANGER_VASCULAR = "stavanger-vascular-specimens"
+
 
 def _build_report(
     *,
@@ -302,6 +335,75 @@ def migrate_bergen_global_task(
 
 
 @task(retries=0, retry_delay_seconds=10)
+def migrate_tromso_vascular_task(
+    oracle_env: str,
+    dry_run: bool,
+    limit: int | None,
+    run_ts: str,
+    skip_media: bool = False,
+    only_catalog: str | None = None,
+    only_object_id: int | None = None,
+) -> DatasetLoadStats:
+    """Extract Tromsø vascular objects (institution TROM, collection V)."""
+    return _load_vascular_dataset(
+        TROMSO_VASCULAR_CONFIG,
+        oracle_env=oracle_env,
+        dry_run=dry_run,
+        limit=limit,
+        run_ts=run_ts,
+        skip_media=skip_media,
+        only_catalog=only_catalog,
+        only_object_id=only_object_id,
+    )
+
+
+@task(retries=0, retry_delay_seconds=10)
+def migrate_agder_vascular_task(
+    oracle_env: str,
+    dry_run: bool,
+    limit: int | None,
+    run_ts: str,
+    skip_media: bool = False,
+    only_catalog: str | None = None,
+    only_object_id: int | None = None,
+) -> DatasetLoadStats:
+    """Extract Agder vascular objects (institution KMN, collection V)."""
+    return _load_vascular_dataset(
+        AGDER_VASCULAR_CONFIG,
+        oracle_env=oracle_env,
+        dry_run=dry_run,
+        limit=limit,
+        run_ts=run_ts,
+        skip_media=skip_media,
+        only_catalog=only_catalog,
+        only_object_id=only_object_id,
+    )
+
+
+@task(retries=0, retry_delay_seconds=10)
+def migrate_stavanger_vascular_task(
+    oracle_env: str,
+    dry_run: bool,
+    limit: int | None,
+    run_ts: str,
+    skip_media: bool = False,
+    only_catalog: str | None = None,
+    only_object_id: int | None = None,
+) -> DatasetLoadStats:
+    """Extract Stavanger vascular objects (institution SVG, collection V)."""
+    return _load_vascular_dataset(
+        STAVANGER_VASCULAR_CONFIG,
+        oracle_env=oracle_env,
+        dry_run=dry_run,
+        limit=limit,
+        run_ts=run_ts,
+        skip_media=skip_media,
+        only_catalog=only_catalog,
+        only_object_id=only_object_id,
+    )
+
+
+@task(retries=0, retry_delay_seconds=10)
 def migrate_ntnu_vascular_task(
     oracle_env: str,
     dry_run: bool,
@@ -425,6 +527,102 @@ def migrate_bergen_global_flow(
         flow_name="migrate_bergen_global",
         report_category=REPORT_CATEGORY_BERGEN_GLOBAL,
         task=migrate_bergen_global_task,
+        oracle_env=oracle_env,
+        dry_run=dry_run,
+        purge_before_run=purge_before_run,
+        limit=limit,
+        skip_media=skip_media,
+        only_catalog=only_catalog,
+        only_object_id=only_object_id,
+    )
+
+
+@flow(
+    name="Migrate Tromso Vascular Plants",
+    description=(
+        "Phase 2: Migrate Tromsø vascular herbarium (institutioncode=TROM, collectioncode=V) "
+        "from MUSIT_BOTANIKK_FELLES into Specify collection TROM-V. Same loader as Oslo vascular."
+    ),
+)
+def migrate_tromso_vascular_flow(
+    oracle_env: str = "PROD",
+    dry_run: bool = True,
+    purge_before_run: bool = False,
+    limit: int | None = None,
+    skip_media: bool = True,
+    only_catalog: str | None = None,
+    only_object_id: int | None = None,
+) -> dict[str, Any]:
+    """Migrate Tromsø vascular plants to Specify collection TROM-V."""
+    return _run_vascular_flow(
+        config=TROMSO_VASCULAR_CONFIG,
+        flow_name="migrate_tromso_vascular",
+        report_category=REPORT_CATEGORY_TROMSO_VASCULAR,
+        task=migrate_tromso_vascular_task,
+        oracle_env=oracle_env,
+        dry_run=dry_run,
+        purge_before_run=purge_before_run,
+        limit=limit,
+        skip_media=skip_media,
+        only_catalog=only_catalog,
+        only_object_id=only_object_id,
+    )
+
+
+@flow(
+    name="Migrate Agder Vascular Plants",
+    description=(
+        "Phase 2: Migrate Agder vascular herbarium (institutioncode=KMN, collectioncode=V) "
+        "from MUSIT_BOTANIKK_FELLES into Specify collection KMN-V. Same loader as Oslo vascular."
+    ),
+)
+def migrate_agder_vascular_flow(
+    oracle_env: str = "PROD",
+    dry_run: bool = True,
+    purge_before_run: bool = False,
+    limit: int | None = None,
+    skip_media: bool = True,
+    only_catalog: str | None = None,
+    only_object_id: int | None = None,
+) -> dict[str, Any]:
+    """Migrate Agder (KMN) vascular plants to Specify collection KMN-V."""
+    return _run_vascular_flow(
+        config=AGDER_VASCULAR_CONFIG,
+        flow_name="migrate_agder_vascular",
+        report_category=REPORT_CATEGORY_AGDER_VASCULAR,
+        task=migrate_agder_vascular_task,
+        oracle_env=oracle_env,
+        dry_run=dry_run,
+        purge_before_run=purge_before_run,
+        limit=limit,
+        skip_media=skip_media,
+        only_catalog=only_catalog,
+        only_object_id=only_object_id,
+    )
+
+
+@flow(
+    name="Migrate Stavanger Vascular Plants",
+    description=(
+        "Phase 2: Migrate Stavanger vascular herbarium (institutioncode=SVG, collectioncode=V) "
+        "from MUSIT_BOTANIKK_FELLES into Specify collection SVG-V. Same loader as Oslo vascular."
+    ),
+)
+def migrate_stavanger_vascular_flow(
+    oracle_env: str = "PROD",
+    dry_run: bool = True,
+    purge_before_run: bool = False,
+    limit: int | None = None,
+    skip_media: bool = True,
+    only_catalog: str | None = None,
+    only_object_id: int | None = None,
+) -> dict[str, Any]:
+    """Migrate Stavanger vascular plants to Specify collection SVG-V."""
+    return _run_vascular_flow(
+        config=STAVANGER_VASCULAR_CONFIG,
+        flow_name="migrate_stavanger_vascular",
+        report_category=REPORT_CATEGORY_STAVANGER_VASCULAR,
+        task=migrate_stavanger_vascular_task,
         oracle_env=oracle_env,
         dry_run=dry_run,
         purge_before_run=purge_before_run,

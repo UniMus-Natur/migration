@@ -24,6 +24,9 @@ divisions:
           - { code: TRH-V, name: NTNU-karplanter, catalognumberformatname: NTNU-karplanter }
           - { code: BG-S, name: BG-S, catalognumberformatname: BG-S }
           - { code: BG-G, name: BG-G, catalognumberformatname: BG-G }
+          - { code: TROM-V, name: TROM-V, catalognumberformatname: TROM-V }
+          - { code: KMN-V, name: KMN-V, catalognumberformatname: KMN-V }
+          - { code: SVG-V, name: SVG-V, catalognumberformatname: SVG-V }
       - name: Alger
         type: botany
       - name: Lav Sopp

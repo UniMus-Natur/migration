@@ -321,6 +321,57 @@ deployments:
       name: dev-process
       work_queue_name: default
 
+  - name: migrate-tromso-vascular-dev
+    version: 1.0.0
+    tags: ["specify", "specimens", "botany", "migration", "dev"]
+    description: "Phase 2: Migrate Tromsø vascular herbarium (TROM/V) into Specify collection TROM-V. Same loader as Oslo."
+    entrypoint: flows/migrate_oslo_vascular.py:migrate_tromso_vascular_flow
+    parameters:
+      oracle_env: "PROD"
+      dry_run: true
+      purge_before_run: false
+      limit: null
+      skip_media: true
+      only_catalog: null
+      only_object_id: null
+    work_pool:
+      name: dev-process
+      work_queue_name: default
+
+  - name: migrate-agder-vascular-dev
+    version: 1.0.0
+    tags: ["specify", "specimens", "botany", "migration", "dev"]
+    description: "Phase 2: Migrate Agder vascular herbarium (KMN/V) into Specify collection KMN-V. Same loader as Oslo."
+    entrypoint: flows/migrate_oslo_vascular.py:migrate_agder_vascular_flow
+    parameters:
+      oracle_env: "PROD"
+      dry_run: true
+      purge_before_run: false
+      limit: null
+      skip_media: true
+      only_catalog: null
+      only_object_id: null
+    work_pool:
+      name: dev-process
+      work_queue_name: default
+
+  - name: migrate-stavanger-vascular-dev
+    version: 1.0.0
+    tags: ["specify", "specimens", "botany", "migration", "dev"]
+    description: "Phase 2: Migrate Stavanger vascular herbarium (SVG/V) into Specify collection SVG-V. Same loader as Oslo."
+    entrypoint: flows/migrate_oslo_vascular.py:migrate_stavanger_vascular_flow
+    parameters:
+      oracle_env: "PROD"
+      dry_run: true
+      purge_before_run: false
+      limit: null
+      skip_media: true
+      only_catalog: null
+      only_object_id: null
+    work_pool:
+      name: dev-process
+      work_queue_name: default
+
   - name: purge-oslo-vascular-dataset-dev
     version: 1.0.0
     tags: ["specify", "specimens", "botany", "purge", "maintenance", "dev"]
