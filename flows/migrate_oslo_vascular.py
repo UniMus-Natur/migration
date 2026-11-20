@@ -137,9 +137,21 @@ STAVANGER_VASCULAR_CONFIG = MusitDatasetConfig(
     dataset_label="stavanger-vascular-v1",
 )
 
+# Tromsø garden herbarium (Hageherbariet). Catalog strings are V-H-<n>-0, so
+# V_OBJECT_ATTRIBUTES parses institution V / collection H — not TROM/V.
+TROMSO_GARDEN_CONFIG = MusitDatasetConfig(
+    oracle_schema="MUSIT_BOTANIKK_FELLES",
+    institutioncode="V",
+    collectioncode="H",
+    specify_collection_code="TROM-V-H",
+    specify_discipline_name="Karplanter Moser",
+    dataset_label="tromso-garden-v1",
+)
+
 REPORT_CATEGORY_TROMSO_VASCULAR = "tromso-vascular-specimens"
 REPORT_CATEGORY_AGDER_VASCULAR = "agder-vascular-specimens"
 REPORT_CATEGORY_STAVANGER_VASCULAR = "stavanger-vascular-specimens"
+REPORT_CATEGORY_TROMSO_GARDEN = "tromso-garden-specimens"
 
 
 def _build_report(
@@ -404,6 +416,29 @@ def migrate_stavanger_vascular_task(
 
 
 @task(retries=0, retry_delay_seconds=10)
+def migrate_tromso_garden_task(
+    oracle_env: str,
+    dry_run: bool,
+    limit: int | None,
+    run_ts: str,
+    skip_media: bool = False,
+    only_catalog: str | None = None,
+    only_object_id: int | None = None,
+) -> DatasetLoadStats:
+    """Extract Tromsø garden herbarium objects (institution V, collection H)."""
+    return _load_vascular_dataset(
+        TROMSO_GARDEN_CONFIG,
+        oracle_env=oracle_env,
+        dry_run=dry_run,
+        limit=limit,
+        run_ts=run_ts,
+        skip_media=skip_media,
+        only_catalog=only_catalog,
+        only_object_id=only_object_id,
+    )
+
+
+@task(retries=0, retry_delay_seconds=10)
 def migrate_ntnu_vascular_task(
     oracle_env: str,
     dry_run: bool,
@@ -623,6 +658,39 @@ def migrate_stavanger_vascular_flow(
         flow_name="migrate_stavanger_vascular",
         report_category=REPORT_CATEGORY_STAVANGER_VASCULAR,
         task=migrate_stavanger_vascular_task,
+        oracle_env=oracle_env,
+        dry_run=dry_run,
+        purge_before_run=purge_before_run,
+        limit=limit,
+        skip_media=skip_media,
+        only_catalog=only_catalog,
+        only_object_id=only_object_id,
+    )
+
+
+@flow(
+    name="Migrate Tromso Garden Herbarium",
+    description=(
+        "Phase 2: Migrate Tromsø garden herbarium (Hageherbariet; institutioncode=V, "
+        "collectioncode=H, catalog numbers V-H-…-0) from MUSIT_BOTANIKK_FELLES into "
+        "Specify collection TROM-V-H (TROM-Hageherbariet). Same loader as Oslo vascular."
+    ),
+)
+def migrate_tromso_garden_flow(
+    oracle_env: str = "PROD",
+    dry_run: bool = True,
+    purge_before_run: bool = False,
+    limit: int | None = None,
+    skip_media: bool = True,
+    only_catalog: str | None = None,
+    only_object_id: int | None = None,
+) -> dict[str, Any]:
+    """Migrate Tromsø garden herbarium to Specify collection TROM-V-H."""
+    return _run_vascular_flow(
+        config=TROMSO_GARDEN_CONFIG,
+        flow_name="migrate_tromso_garden",
+        report_category=REPORT_CATEGORY_TROMSO_GARDEN,
+        task=migrate_tromso_garden_task,
         oracle_env=oracle_env,
         dry_run=dry_run,
         purge_before_run=purge_before_run,

@@ -27,6 +27,7 @@ divisions:
           - { code: TROM-V, name: TROM-V, catalognumberformatname: TROM-V }
           - { code: KMN-V, name: KMN-V, catalognumberformatname: KMN-V }
           - { code: SVG-V, name: SVG-V, catalognumberformatname: SVG-V }
+          - { code: TROM-V-H, name: TROM-Hageherbariet, catalognumberformatname: TROM-Hageherbariet }
       - name: Alger
         type: botany
       - name: Lav Sopp
