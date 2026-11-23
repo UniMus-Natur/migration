@@ -68,16 +68,18 @@ divisions:
                  Pattedyr (mammal), Fugl (bird), Fisk og herptiler (fish)
   Geology/paleontology
     disciplines: Geologi (geology), Paleontologi (invertpaleo)
-
-`discipline.type` must be a Specify DisciplineType picklist value (`bird`,
-`insect`, `botany`, …). Those keys select `config/<folder>/` disk defaults via
-`DISCIPLINE_DIRS`. Re-running the flow updates a mismatched type on an existing
-discipline row.
-
-collections per discipline: NHM, UM, UTM, VM, NBH
 ```
 
-All disciplines have the same five collection codes representing the five Norwegian university museums.
+`discipline.type` must be a Specify DisciplineType picklist value (`bird`, `insect`, `botany`, …). Those keys select `config/<folder>/` disk defaults via `DISCIPLINE_DIRS`. Re-running the flow updates a mismatched type on an existing discipline row.
+
+Collections are only declared where a loader exists or a code is already in use:
+
+| Discipline | Collections |
+|---|---|
+| Karplanter Moser | `O-V` NHM-karplanter, `TRH-V` NTNU-karplanter, `BG-S`, `BG-G`, `TROM-V`, `KMN-V`, `SVG-V`, `TROM-V-H` TROM-Hageherbariet |
+| Paleontologi | `PMO` NHM-Paleo |
+
+Other disciplines have no collections in the YAML. The flow is additive: it does not delete collections that an older YAML created.
 
 ## Report artifact
 
@@ -141,7 +143,7 @@ The resulting hierarchy in the database:
 | Geology/paleontology | Geologi | geology |
 | Geology/paleontology | Paleontologi | invertpaleo |
 
-Each discipline has five collections: **NHM, UM, UTM, VM, NBH**.
+That run used an older YAML: five collection codes (**NHM, UM, UTM, VM, NBH**) on every discipline, and discipline types that have since been corrected (`insect`, `mammal`, `bird`, `fish`, …). The current file is the table in the YAML section above. Re-run the flow to add the vascular and `PMO` collections; it will not remove the older codes.
 
 ## Running the flow
 

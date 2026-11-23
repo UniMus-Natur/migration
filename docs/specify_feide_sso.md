@@ -117,7 +117,9 @@ Non-secret provider settings (title, issuer, scopes) live under `specify7.specif
    ```bash
    cd migration
    helm dependency build charts/unimus-specify
-   helm upgrade staging ./charts/unimus-specify -f charts/unimus-specify/staging.values.yaml -n <namespace>
+   helm --kube-context nird upgrade specify7 ./charts/unimus-specify \
+     -n unimus-ns12130k \
+     -f charts/unimus-specify/staging.values.yaml
    ```
    After renaming the provider key, normalize existing DB rows (staging + test) with Prefect deployment `normalize-feide-provider-key-dev` before relying on SSO login.
 4. **Verify** — visit `/accounts/login/` and confirm the Feide button appears; test with a Feide test user and an invite link for account linking.

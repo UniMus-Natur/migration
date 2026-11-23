@@ -27,9 +27,9 @@ This documentation covers the planning, architecture, and execution of migrating
 - [**MUSIT agent name variants**](migrate_musit_agent_variants.md): alternate `PERSON_NAME` → `AgentVariant` (Phase 1.1b; fill-in, no agent re-create).
 - [**MUSIT agent details fill-in**](migrate_musit_agent_details.md): remaining `ACTOR` person-module fields → Agent / Address / AgentIdentifier (Phase 1.1c).
 - [**Specify structure sync**](sync_specify_structure.md): `sync_specify_structure_flow` — create divisions, disciplines, and collections from YAML (post-bootstrap, idempotent).
-- [**Specify forms & schema git sync**](specify_forms_git_sync.md): Forms XML and schema config in the [`specify7-forms`](../specify7-forms/) repository (`form.py`, `schema.py`).
+- [**Specify forms & schema git sync**](specify_forms_git_sync.md): Forms, schema, and app resources in [`specify7-config`](https://github.com/UniMus-Natur/specify7-config), pushed with `specli`.
 - [**Migration reports on S3**](migration_s3_reports.md): Shared bucket folder layout and `report.json` conventions.
-- [**Migration (ETL Technical)**](migration.md): ETL pipeline implementation details from Oracle to MariaDB.
+- [**ETL implementation**](migration.md): Which Prefect flows load Oracle into staging MariaDB, and how staging is copied to test.
 - [**NIRD Application Text**](nird_application.md): Text used in the Sigma2/NIRD application.
 - [**Specify + Feide SSO**](specify_feide_sso.md): Feide OIDC integration notes, onboarding model, and rollout guidance.
 - [**Submitted Proposal (PDF)**](documents/NIRD-application.pdf): Final submitted NIRD application.

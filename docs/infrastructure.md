@@ -53,18 +53,14 @@ Recent in-cluster Prefect connectivity checks show:
 
 These checks are runtime-dependent and should be revalidated through the current Prefect flow logs.
 
-## Sigma2 Resources (Staging)
+## NIRD staging
 
-We plan to use Sigma2 for the staging environment and computation.
+Staging runs on the NIRD Service Platform (kube context `nird`, namespace `unimus-ns12130k`, Helm release `specify7`).
 
-### Application Details
-*   **Architecture**: Kubernetes cluster hosting Dockerized microservices. (See [**Kubernetes Deployment**](kubernetes_deployment.md) for details).
-*   **Components**: 
-    *   **Specify 7**: Live web application instance for validation and user acceptance testing.
-    *   **MariaDB**: Database container acting as the staging storage.
-    *   **Migration Runners**: Python workers executing the ETL pipeline.
-    *   **Nginx/Ingress**: For routing traffic to the Specify interface.
-*   **Target Resources**: Storage (NIRD) and Compute (NIRD Service Platform).
+*   **Specify 7**: `https://specify-stg.natur.unimus.no/`
+*   **MariaDB / Redis / asset server / report runner**: same Helm release. See [Kubernetes Deployment](kubernetes_deployment.md).
+*   **Prefect**: `specify7-prefect-server` and long-lived `prefect-dev-worker` (work pool `dev-process`).
+*   **Test database**: `https://specify-test.natur.unimus.no/` is outside this chart. Staging MariaDB is copied there by `sync-specify-db-to-test-dev`. See [Prefect runbook](prefect_worker.md).
 
 ### Network Configuration (Firewall Whitelisting)
 
@@ -109,11 +105,3 @@ To allow migration flows running on Sigma2 to connect to the MUSIT Oracle databa
 ```
 
 > **Note**: This is a dynamic pool of 12 IP addresses. All addresses above must be whitelisted to ensure the migration runner can always connect to the MUSIT Oracle database.
-
-## AWS Production
-
-The final destination for the data is a Specify instance hosted on AWS.
-
-*   **Region**: France (EU West / Paris likely).
-*   **Role**: Production Specify instance.
-*   **Synchronization**: Automated sync from the Sigma2 staging environment.

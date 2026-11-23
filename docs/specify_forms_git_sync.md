@@ -6,8 +6,9 @@ nav_order: 11
 
 # Specify forms git sync
 
-Specify **forms and schema** git sync live in the **`specify7-forms`** repository
-(sibling to this repo: `../specify7-forms/`). CLI: **`specli`** (`specli form …`, `specli schema …`).
+Forms, schema config, app resources, and picklists for this project live in the sibling repository **`specify7-config`** (`https://github.com/UniMus-Natur/specify7-config`).
 
-- [Forms](../../specify7-forms/docs/specify_forms_git_sync.md)
-- [Schema](../../specify7-forms/docs/specify_schema_git_sync.md)
+Push and pull with **`specli`** (`specli pull`, `specli status`, `specli push`). The instance URL is `workspace.yaml` in that repo. Username and password stay in gitignored `.specli.local.yaml`.
+
+- [specli README](https://github.com/UniMus-Natur/specli)
+- [GitOps contract](https://github.com/UniMus-Natur/specli/blob/main/docs/GITOPS_V3.md)

@@ -15,12 +15,12 @@ Specify values nest under `specify7:` in the umbrella values / `staging.values.y
 
 ## Architecture
 
-1.  **Specify Backend (`backend`)**: Django (Gunicorn); initContainer copies static assets to a shared PVC.
-2.  **Static Server (`static`)**: Nginx serving the shared PVC.
-3.  **Worker (`worker`)**: Celery.
+1.  **Specify Backend (`backend`)**: Django (Gunicorn); initContainer copies static assets to a shared PVC (`subPath: Specify`).
+2.  **Static Server (`static`)**: Nginx serving that same PVC.
+3.  **Celery worker**: off in staging (`specify7.worker.enabled: false`). Jobs run on the Prefect dev worker.
 4.  **Ingress**: `/static/*` → static; asset-server paths; `/*` → backend. Harness path is a separate Ingress from the umbrella when enabled.
-5.  **MariaDB / Redis**: Bitnami subcharts of `specify7`.
-6.  **Prefect**: in-cluster API + long-lived `dev-process` worker (migration image).
+5.  **MariaDB / Redis**: Bitnami subcharts of `specify7`. MariaDB data is `subPath: MariaDB` on the shared RWX claim.
+6.  **Prefect**: in-cluster API + long-lived `dev-process` worker (migration image). Server SQLite is `subPath: Prefect` on the same claim when `prefect.server.persistence.enabled` is true.
 
 ## Prerequisites
 
@@ -41,12 +41,15 @@ helm dependency build charts/unimus-specify
 
 ### 2. Configure Credentials
 
-Use a gitignored overlay (move any existing `charts/specify7/staging.values.yaml` to `charts/unimus-specify/staging.values.yaml` and nest Specify keys under `specify7:`).
+Use the gitignored overlay `charts/unimus-specify/staging.values.yaml`. Specify keys nest under `specify7:`.
 
 ### 3. Deploy
 
+Release name is **`specify7`**, namespace **`unimus-ns12130k`**, context **`nird`**.
+
 ```bash
-helm upgrade --install staging ./charts/unimus-specify \
+helm --kube-context nird upgrade --install specify7 ./charts/unimus-specify \
+  -n unimus-ns12130k \
   -f charts/unimus-specify/staging.values.yaml
 ```
 
@@ -57,9 +60,12 @@ Specify settings are under `specify7.*` (see [specify7-helm values](https://gith
 | Setting | Description | Default |
 | :--- | :--- | :--- |
 | `prefect.enabled` | Deploy Prefect server / worker | `true` |
+| `prefect.server.persistence` | Shared RWX PVC + `subPath: Prefect` for Prefect SQLite (`PREFECT_HOME`) | off unless `existingClaim` is set |
 | `prefect.devWorker.image` | Migration image for the process worker | `ghcr.io/unimus-natur/migration` |
 | `migrationHarness.enabled` | Compare UI | `false` |
 | `secrets.existingSecret` | Env secret for Prefect / harness (also set `specify7.secrets.existingSecret`) | `""` |
+
+Staging turns persistence on and points `existingClaim` at the same RWX volume as MariaDB and Specify. A server pod restart then keeps deployments, the `dev-process` work pool, and run history.
 
 ## Report fonts
 
@@ -88,7 +94,9 @@ The jar in `fonts/report-fonts.jar` is ~7.6MiB, so it **cannot** be stored in a 
 3. Enable `specify7.reportRunner.fontsJar` (already on in `staging.values.yaml`) and upgrade:
 
    ```bash
-   helm upgrade staging ./charts/unimus-specify -f charts/unimus-specify/staging.values.yaml
+   helm --kube-context nird upgrade specify7 ./charts/unimus-specify \
+     -n unimus-ns12130k \
+     -f charts/unimus-specify/staging.values.yaml
    ```
 
 Make the GHCR package visible to the cluster the same way as `migration` / `migration-harness` (`ghcr-secret` plus package visibility).

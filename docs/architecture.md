@@ -11,23 +11,17 @@ This section describes the high-level architecture of the migration process.
 
 ## Data Flow Overview
 
-The migration follows a pipeline approach moving data from the legacy oracle system to the new Specify cloud instance.
+The migration loads MUSIT Oracle into Specify on NIRD, then can copy that database onto the test instance.
 
 ```mermaid
 graph LR
-    A["MUSIT (Oracle DB)"] -->|Pull & Transform| B("Prefect Migration Flows (Sigma2)")
-    B -->|Load| C["Specify Staging (MariaDB @ Sigma2)"]
-    C -->|Sync| D["Specify Production (AWS France)"]
+    A["MUSIT (Oracle)"] -->|Prefect flows| B["Staging MariaDB (NIRD)"]
+    B -->|sync-specify-db-to-test| C["Test MariaDB"]
 ```
 
 ### Components
 
-1.  **Source System**: MUSIT (Oracle Database).
-2.  **Migration Logic**: Prefect flows executed on **Sigma2**. They pull data from Oracle and use the **Specify 7 Django ORM** to load it into the staging database, keeping the migration code clean and readable.
-3.  **Staging Environment**: 
-    *   **Location**: Sigma2 (NIRD/NIRD Service Platform).
-    *   **Database**: MariaDB.
-    *   **Purpose**: Intermediate staging area to validate data structure and content before pushing to production.
-4.  **Production Environment**:
-    *   **Location**: AWS (France Region).
-    *   **System**: Live Specify instance.
+1.  **Source**: MUSIT Oracle. Reachable from the cluster; from a laptop, via `scripts/port-forward.sh`.
+2.  **Migration logic**: Prefect flows on the NIRD `prefect-dev-worker`. They use the Specify 7 Django ORM.
+3.  **Staging**: Helm release `specify7` in namespace `unimus-ns12130k` (context `nird`). App at `https://specify-stg.natur.unimus.no/`. MariaDB, Redis, asset server, report runner, and Prefect share that release. See [Kubernetes Deployment](kubernetes_deployment.md).
+4.  **Test**: `https://specify-test.natur.unimus.no/` is not managed by this chart. `sync-specify-db-to-test-dev` streams a logical dump of staging MariaDB through an SSH LocalForward on the dev worker. It does not copy S3 attachments.

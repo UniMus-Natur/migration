@@ -563,7 +563,7 @@ Suggested archival key: `MUSIT_BOTANIKK_FELLES:OBJECT_ID:<id>`.
 
 | Oracle table.column | Specify target | Keep / drop | Notes |
 |---|---|---|---|
-| `V_OBJECT_ATTRIBUTES.OBJECT_ID` | staging map key (`oracle_to_specify_map`) | Keep (raw + key) | Primary source identity for joins. |
+| `V_OBJECT_ATTRIBUTES.OBJECT_ID` | `migration_oracle_objectmap.source_id` and `CollectionObject.guid` (`urn:oracle:…:object:<id>`) | Keep (raw + key) | Primary source identity for joins and resume. |
 | `V_OBJECT_ATTRIBUTES.INSTITUTIONCODE` | `CollectionObject.text*` or migration metadata | Keep | Dataset filter + provenance (`O`). |
 | `V_OBJECT_ATTRIBUTES.COLLECTIONCODE` | `Collection.code` routing + metadata | Keep | Dataset filter + provenance (`V`). |
 | `OBJECT_ATTRIBUTES.UUID` | `CollectionObject.guid` / `uniqueidentifier` (policy-dependent) | Keep | Partial coverage in source; never use as sole key. |
@@ -822,7 +822,7 @@ The same private host also supports `filename=<OPPRINNELIG_FILNAVN>` for named d
 | Oracle | Tables / views | Specify-ish role |
 |--------|------------------|--------------------|
 | Catalog / DwC triple | **`DIGIR_MUSIT.V_DC_*`**: `INSTITUTIONCODE`, `COLLECTIONCODE`, `CATALOGNUMBER`, `PREVIOUSCATALOGNUMBER`, `UUID` | `CollectionObject.catalogNumber`, `uniqueidentifier` / `guid`, `AltCatalogNumber`; join UUID → **`OBJECT_ATTRIBUTES.UUID`**. |
-| Internal id | **`MUSEUM_OBJECT.OBJECT_ID`** | Stable primary key for joins (not necessarily stored in Specify; use in **`oracle_to_specify_map`**). |
+| Internal id | **`MUSEUM_OBJECT.OBJECT_ID`** | Stable primary key for joins. Stored as `migration_oracle_objectmap.source_id` and in the CollectionObject GUID. |
 | Human label | **`MUSEUM_OBJECT.IDENTIFIER_STRING`**, **`LONG_NAME`**, **`IDENTIFIER_NUM`** | `CollectionObject` text fields / remarks / “name” depending on policy. |
 | Workflow | **`OBJECT_ATTRIBUTES`**: `IS_REG`, `IS_CORRECTED`, `IS_APPROVED`, `REG_USER`, `KORR_USER`, `APPROVE_USER`, dates, `OBJECT_STATE`, `OBJECT_WITHHELD` | Provenance + “embargo-like” flags → Specify `Visibility` / `Embargo*` / `Remarks` / custom fields. |
 | Dataset / project | **`OBJECT_ATTRIBUTES.DATASET`**, **`PROJECT_NAME`** | Collection batch / `projectnumber` / remarks (see [earlier sections](#storage-model-musit-botany)). |

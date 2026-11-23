@@ -7,10 +7,13 @@ UniMus Natur **umbrella** Helm chart for staging:
 
 ## Deploy
 
+Live release name is **`specify7`** in namespace **`unimus-ns12130k`** (kube context **`nird`**). Keep that release name: Service names are `specify7-*`.
+
 ```bash
 # From the meta workspace, specify7-helm must sit next to migration (file:// dependency).
 helm dependency build charts/unimus-specify
-helm upgrade --install staging ./charts/unimus-specify \
+helm --kube-context nird upgrade --install specify7 ./charts/unimus-specify \
+  -n unimus-ns12130k \
   -f charts/unimus-specify/staging.values.yaml
 ```
 
@@ -26,10 +29,6 @@ helm upgrade --install staging ./charts/unimus-specify \
 
 Also set `specify7.secrets.existingSecret` (and `specify7.mariadb.auth.existingSecret` when using Bitnami) to the same Secret name.
 
-## Migrating from `charts/specify7`
+Specify keys live under `specify7:`. `prefect`, `migrationHarness`, and top-level `secrets` stay at the root of the values file.
 
-1. Move `charts/specify7/staging.values.yaml` → `charts/unimus-specify/staging.values.yaml`.
-2. Nest former top-level Specify keys under `specify7:` (keep `prefect`, `migrationHarness`, and top-level `secrets` at the root).
-3. `helm dependency build` then `helm upgrade` as above.
-
-Service names stay `staging-specify7-*` when the release name is `staging`.
+Staging Prefect keeps SQLite on the shared RWX claim (`prefect.server.persistence`, `subPath: Prefect`), the same claim MariaDB uses under `subPath: MariaDB` and Specify under `subPath: Specify`. With persistence off, a server restart drops deployments and run history.

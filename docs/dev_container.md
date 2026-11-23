@@ -32,7 +32,7 @@ podman push ghcr.io/unimus-natur/migration:latest
 
 ## 2. Deploy to Cluster
 
-The migration toolbox container is no longer deployed by the `specify7` Helm chart by default.
+The migration toolbox container is not part of the `unimus-specify` chart.
 For a fast in-cluster loop, use the Prefect `devWorker` (process type), which runs from the migration image.
 
 1.  **Load Image (Local Dev)**:
@@ -50,7 +50,9 @@ For a fast in-cluster loop, use the Prefect `devWorker` (process type), which ru
 
 3.  **Upgrade/Install**:
     ```bash
-    helm upgrade --install staging ./charts/unimus-specify --values ./charts/unimus-specify/values.yaml
+    helm --kube-context nird upgrade --install specify7 ./charts/unimus-specify \
+      -n unimus-ns12130k \
+      -f charts/unimus-specify/staging.values.yaml
     ```
 
 ## 3. Accessing the Runtime
@@ -59,8 +61,8 @@ The old long-lived `migration` toolbox pod is no longer part of the default char
 Use the Prefect `devWorker` pod as the runtime:
 
 ```bash
-export POD_NAME=$(kubectl get pods -l component=prefect-dev-worker -o jsonpath="{.items[0].metadata.name}")
-kubectl exec -it "$POD_NAME" -- bash
+export POD_NAME=$(kubectl --context=nird -n unimus-ns12130k get pods -l component=prefect-dev-worker -o jsonpath="{.items[0].metadata.name}")
+kubectl --context=nird -n unimus-ns12130k exec -it "$POD_NAME" -- bash
 ```
 
 ## 4. Database Proxies (Port Forwarding)
@@ -68,7 +70,7 @@ kubectl exec -it "$POD_NAME" -- bash
 From your laptop, Oracle is normally reachable only from the cluster network. Use `scripts/port-forward.sh` from a clone of this repo on your machine: it picks the `prefect-dev-worker` pod (migration image, includes `socat`), runs `socat` **inside** that pod toward the Oracle hosts, then `kubectl port-forward` exposes `1553` / `1554` on your localhost. MariaDB and other in-cluster services use regular service port-forwards in the same script.
 
 ```bash
-# In your repo checkout (uses current kubectl context / namespace)
+# In your repo checkout. The script always uses --context=nird.
 source scripts/port-forward.sh db
 # or everything:  source scripts/port-forward.sh
 ```

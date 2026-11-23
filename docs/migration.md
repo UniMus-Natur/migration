@@ -1,32 +1,27 @@
 ---
 layout: default
-title: Migration Strategy
+title: ETL implementation
 nav_order: 5
 ---
 
-# Migration Strategy
+# ETL implementation
 
+Specimen and reference data move from MUSIT Oracle into the staging MariaDB through Prefect flows that write with the Specify 7 Django ORM.
 
-This document details the technical implementation of the migration from MUSIT to Specify.
+## What runs
 
-## Strategy
+| Step | Flow | Doc |
+|---|---|---|
+| Agents, variants, details | `migrate-musit-agents-full-dev` and the split agent flows | [Agents](migrate_musit_agents.md) |
+| Specify divisions, disciplines, collections | `sync-specify-structure-dev` | [Structure sync](sync_specify_structure.md) |
+| Taxon trees | `nortaxa-discipline-trees-dev` | [NorTaxa](nortaxa_taxon_trees.md) |
+| Application users | `migrate-users-dev` | [User report](user_migration_report.md) |
+| Vascular specimens | one deployment per collection in `flows/migrate_oslo_vascular.py` | [Strategy](migration_strategy.md), [Prefect runbook](prefect_worker.md) |
 
-We are using an Extract-Transform-Load (ETL) pattern.
+Geography nodes and localities are created while a specimen flow runs (`flows/lib/oracle_geography_load.py`, `flows/lib/musit_coordinate_map.py`). Coordinates: [MUSIT coordinate migration](musit_coordinate_migration.md).
 
-### 1. Connect and Extract
-*   **Source**: MUSIT Oracle Database.
-*   **Tool**: **SQLAlchemy** with `oracledb` driver.
-*   **Method**: Select queries (via Pandas `read_sql` or SQLAlchemy Core) to retrieve data from legacy tables.
+Oracle access from the cluster uses `python-oracledb` in thick mode. Connectivity check: `infrastructure-prod-check-dev`.
 
-### 2. Transform
-*   **Logic**: Prefect flows will map MUSIT schema fields to Specify schema.
-*   **Data Cleaning**: Any necessary data cleanup will happen at this stage.
+## Staging and test
 
-### 3. Load to Staging
-*   **Target**: MariaDB on Sigma2.
-*   **Tool**: Specify 7 Django ORM.
-*   **Rationale**: Using the native ORM ensures full data integrity by enforcing application-level constraints and logic. It also results in a cleaner, more readable, and maintainable codebase compared to raw SQL insertion.
-*   **Schema**: Specify Schema.
-
-### 4. Sync to Production
-*   **Mechanism**: Database replication or dump/restore methodology (TBD) to move data from Sigma2 to AWS.
+Staging is the Specify instance on NIRD (`https://specify-stg.natur.unimus.no/`). The test instance is not deployed by this chart. Its database is replaced from staging by `sync-specify-db-to-test-dev` (SSH tunnel on the prefect-dev-worker) after schema fingerprints match. See the [Prefect runbook](prefect_worker.md#sync-staging-db--test-ssh-tunnel).

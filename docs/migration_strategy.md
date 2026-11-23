@@ -36,30 +36,24 @@ Reports are written under the `specify-structure-sync` category in the migration
 
 ---
 
-## Dataset Groups (Collections in Specify 7)
+## Dataset groups (collections in Specify 7)
 
-In the Oracle source, specimens group into datasets via:
+Vascular specimens are read from `MUSIT_BOTANIKK_FELLES` (`institutioncode` / `collectioncode` on `V_OBJECT_ATTRIBUTES`). Each herbarium is its own Specify collection under discipline **Karplanter Moser**. Codes are declared in [`config/specify_structure/unimus_natur.yaml`](../config/specify_structure/unimus_natur.yaml) and created by `sync-specify-structure-dev` before a specimen flow runs. The loader looks the collection up; it does not create it.
 
-| Oracle field | Where | What it means |
+| MUSIT filter | Specify code | Specify name |
 |---|---|---|
-| `FUNNETIKETT.HERB_ID` → `HERBARIE.HERB_FORK` | USD schemas | The herbarium sub-collection abbreviation (e.g. "V", "M", "L") |
-| `COLLECTING_EVENT.COLLECTIONTYPE_ID` | MUSIT schemas | Organism group / collection type |
-| `MUSEUM_OBJECT.SUB_COLLECTION_ID` + `USER_COLLECTION_SEQS.SUBCOLLECTION` | MUSIT schemas | Sub-collection numbering series |
+| `O` / `V` | `O-V` | NHM-karplanter |
+| `TRH` / `V` | `TRH-V` | NTNU-karplanter |
+| `BG` / `S`, number below 2000000 (null is Nordic) | `BG-S` | BG-S |
+| `BG` / `S`, number at or above 2000000 | `BG-G` | BG-G |
+| `TROM` / `V` | `TROM-V` | TROM-V |
+| `KMN` / `V` | `KMN-V` | KMN-V |
+| `SVG` / `V` | `SVG-V` | SVG-V |
+| `V` / `H` (Tromsø garden; catalog `V-H-…`) | `TROM-V-H` | TROM-Hageherbariet |
 
-Expected dataset → Specify Collection mapping (verify against actual `HERBARIE` contents):
+Bergen Nordic and global are one MUSIT collection (`BG` / `S`) split on catalog number, not two source collections. Other disciplines in the YAML (mosses are grouped with vascular plants in **Karplanter Moser**, plus algae, lichens/fungi, insects, and so on) have no specimen flow yet. Paleo has collection `PMO` / NHM-Paleo and no loader yet.
 
-| Source dataset (HERB_FORK / organism group) | Likely Specify Collection name | Discipline |
-|---|---|---|
-| Karplanter (vascular plants) | Karplanter | Botany |
-| Mosser (bryophytes) | Mosser | Botany |
-| Lav (lichens) | Lav | Botany |
-| Alger (algae) | Alger | Botany |
-| Sopp (fungi) | Sopp | Botany |
-| Kryptogamer (cryptogams, Svalbard) | Kryptogamer | Botany |
-| Marine inv. / fish | Marin | Zoology/Entomology |
-| Entomologi | Entomologi | Zoology/Entomology |
-
-> ⚠️ Confirm exact groupings by running `SELECT HERB_ID, HERB_FORK, NAVN FROM HERBARIE` in each USD schema before mapping.
+Deployments and run commands: [Prefect runbook](prefect_worker.md).
 
 ---
 
@@ -173,7 +167,7 @@ Existing geography nodes keep their current `rankid` until a **geography purge +
 
 > ⚠️ Confirm which admin model is populated: `SELECT COUNT(*) FROM MUSIT_BOTANIKK_FELLES.ADMINISTRATIVE_PLACE` vs counts on **`HIERARCHICAL_PLACE_OLD`** / **`PLACE_HIERACHICAL_PLACE`**. If `ADMINISTRATIVE_PLACE` is empty, map **`HIERACHICAL_TYPE`** (with `TYPES`) instead of `ADMPLACE_TYPE` for hierarchy levels.
 
-> ⚠️ Geography nodes are shared across all Specify collections. Build this tree once, completely, before any specimens are migrated. All four botany museums and the zoology collection will reference the same nodes.
+> ⚠️ Geography nodes are shared across all Specify collections. Specimen flows insert a missing node when they need it; they do not rebuild the tree. All vascular collections and later disciplines use the same nodes.
 
 **Implementation note**
 
@@ -249,54 +243,22 @@ The Prefect flow that performs the load writes a JSON summary artifact, **`migra
 
 ---
 
-### Phase 2 — Specimen Migration (one dataset at a time)
+### Phase 2 — Specimen migration (one collection at a time)
 
-Once Phase 1 is validated, migrate specimens collection by collection. Each iteration follows the same steps and produces a testable result in Specify.
+Implemented for vascular plants in [`flows/migrate_oslo_vascular.py`](../flows/migrate_oslo_vascular.py). One loader, one `MusitDatasetConfig` per herbarium. Source is `MUSIT_BOTANIKK_FELLES`, filtered by `institutioncode` and `collectioncode` (Bergen also by catalog number). Each run writes `CollectingEvent`, `Locality` (and `LocalityDetail`), `CollectionObject`, and `Determination` into that collection. It does not create `Agent`, `Taxon`, `Geography` definitions, or `SpecifyUser`. Missing geography nodes and localities are inserted on the fly and reused. Idempotency is `migration_oracle_objectmap` plus the deterministic CollectionObject GUID; a re-run without `purge_before_run` resumes.
 
 ```
-For each dataset (e.g. "Karplanter TRH"):
-  Step 2.1 — Collecting Events + Localities
-  Step 2.2 — Collection Objects (specimens)
-  Step 2.3 — Determinations (+ taxon links)
-  Step 2.4 — Attachments (media from USD_FELLES)
+For each vascular collection (see the table above):
+  ensure the Specify collection exists (structure sync)
+  load events, localities, objects, determinations
+  attachments unless skip_media=true
   ── VALIDATE ──
-  → proceed to next dataset
+  → next collection
 ```
 
-#### Filtering by dataset
+Oslo is the only deployment that uploads media by default (`skip_media=false`). The others default `skip_media=true`. `limit=100` is the timed test run. `dry_run` defaults to true.
 
-Source filter query (example for Karplanter in Trondheim):
-
-```sql
--- USD source
-SELECT f.* 
-FROM USD_BOTANIKK_TRONDHEIM.FUNNETIKETT f
-JOIN USD_BOTANIKK_TRONDHEIM.HERBARIE h ON f.HERB_ID = h.HERB_ID
-WHERE h.HERB_FORK = 'V'   -- 'V' = Vaskulærplanter/Karplanter
-
--- MUSIT source  
-SELECT mo.* 
-FROM MUSIT_BOTANIKK_FELLES.MUSEUM_OBJECT mo
-WHERE mo.SUB_COLLECTION_ID = <karplanter_id>
-```
-
-> The actual `HERB_FORK` values and `SUB_COLLECTION_ID` values need to be confirmed from live DB. Enumerate them as the first step of each collection migration.
-
-#### Iterating across museums
-
-Each dataset × museum combination is a separate batch. Suggested sequence:
-
-| Batch | Source | Specify Collection | ~Size estimate |
-|---|---|---|---|
-| 1 | USD_BOTANIKK_TRONDHEIM / Karplanter | Karplanter (TRH) | Pilot |
-| 2 | USD_BOTANIKK_TROMSO / Karplanter | Karplanter (TMS) | |
-| 3 | USD_BOTANIKK_BERGEN / Karplanter | Karplanter (BRG) | |
-| 4 | USD_BOTANIKK_SVALBARD / Karplanter | Karplanter (SVA) | |
-| 5 | */Mosser | Mosser | |
-| 6 | */Lav | Lav | |
-| … | … | … | |
-
-For each batch, the same Specify `Collection` (e.g. "Karplanter") receives records from all four museum schemas — they all share the same taxonomy and geography nodes loaded in Phase 1.
+Mosses, lichens, fungi, algae, and zoology are not loaded by these flows.
 
 ---
 
@@ -325,29 +287,23 @@ Each phase and batch needs a defined validation checkpoint before proceeding.
 
 ---
 
-## Handling the "Shared Data Updates" Problem
+## How a specimen run finds shared rows
 
-Once Phase 1 is done and Phase 2 begins, new agents or taxa might appear in later datasets that weren't present in the initial foundation load. This is expected.
+Agents and taxa are not created by the vascular loader.
 
-**Rule:** New agents/taxa discovered during a specimen batch are added to the shared tables *on the fly* during that batch migration. The shared tables grow incrementally, but each item is only ever added once (check before insert).
+- **Agents** must already be loaded. The run builds an in-memory cache from the `ACTOR` marker in `Agent.remarks` and links collectors and catalogers to those rows.
+- **Taxa** are matched to the NorTaxa tree already in the discipline. Unmatched names are left unmatched.
+- **Geography** nodes that a place needs and that are not already in the tree are inserted during the load (`_ensure_geography_for_place` in `musit_dataset_loader.py`).
+- **Localities** are created on the fly and reused.
 
-This means the specimen migration flows must:
-1. Look up the Agent/Taxon/Geography by stable ID (Oracle PK → Specify PK mapping table).
-2. If not found: insert it, record the mapping.
-3. If found: link to existing.
+Two bridge tables in the staging MariaDB record what has already been written (`flows/lib/migration_oracle_objectmap.py`, `flows/lib/migration_oracle_placemap.py`). They are created on the first non-dry-run load.
 
-A **cross-reference table** (maintained in the migration environment, not in Specify) is essential:
+| Table | Key | Points at |
+|---|---|---|
+| `migration_oracle_objectmap` | `source_owner`, `source_kind`, `source_id`, `specify_collection_id` | `CollectionObject` |
+| `migration_oracle_placemap` | Oracle place id for that owner | `Locality` / `Geography` |
 
-```
-oracle_to_specify_map:
-  oracle_schema    VARCHAR   -- e.g. 'MUSIT_BOTANIKK_FELLES'
-  oracle_table     VARCHAR   -- e.g. 'ACTOR'
-  oracle_id        NUMBER    -- e.g. 12345
-  specify_table    VARCHAR   -- e.g. 'Agent'
-  specify_id       NUMBER    -- e.g. 67890
-```
-
-This map is the migration's "memory" — it allows any phase to look up whether an Oracle record has already been imported.
+A re-run skips objects already in `migration_oracle_objectmap` (and the deterministic CollectionObject GUID). `purge-oslo-vascular-dataset-dev` can clear objectmap rows for one collection when `clear_objectmap_rows=true`.
 
 ---
 
@@ -360,18 +316,17 @@ Phase 1 (once, before any specimens)
 ├── 1.3  Taxonomy tree(s)         ← NorTaxa as primary backbone + unmatched Oracle taxa
 └── 1.4  SpecifyUsers             ← from USD_METADATA.BRUKARAR
 
-Phase 2 (repeated N times, one per dataset-batch)
-├── Batch 1  Karplanter / TRH     ← first pilot, most carefully validated
-├── Batch 2  Karplanter / TMS
-├── Batch 3  Karplanter / BRG
-├── Batch 4  Karplanter / SVA
-├── Batch 5  Mosser / all museums
-├── Batch 6  Lav / all museums
-├── Batch 7  Sopp / all museums
-├── Batch 8  Alger / all museums
-├── Batch 9  Marine / Marin
-└── Batch N  Entomologi / …
+Phase 2 (one Prefect deployment per Specify collection)
+├── O-V        Oslo vascular
+├── TRH-V      NTNU vascular
+├── BG-S       Bergen Nordic (BG/S number < 2000000)
+├── BG-G       Bergen global (BG/S number ≥ 2000000)
+├── TROM-V     Tromsø vascular
+├── KMN-V      Agder vascular
+├── SVG-V      Stavanger vascular
+└── TROM-V-H   Tromsø garden herbarium (MUSIT V/H)
 
-Cross-cutting concern (maintained throughout)
-└── oracle_to_specify_map         ← ID mapping table, lives in migration env
+Bridge tables in staging MariaDB (created on first live load)
+├── migration_oracle_objectmap    ← Oracle object → CollectionObject
+└── migration_oracle_placemap     ← Oracle place → Locality / Geography
 ```

@@ -12,8 +12,8 @@ How vascular-plant specimen coordinates from Oracle MUSIT are written onto Speci
 |--|--|
 | **Mapping code** | `flows/lib/musit_coordinate_map.py` |
 | **Callers** | `musit_dataset_loader.py`, `oracle_geography_load.py` |
-| **Mapping version** | `musit-coordinates-v9` (stored in `Locality.text4` audit JSON) |
-| **UI** | `specify7-forms` — Locality / CollectingEvent / CollectingEventSub forms + botany schema labels |
+| **Mapping version** | `musit-coordinates-v11` (stored in `Locality.text4` audit JSON) |
+| **UI** | `specify7-config` — Locality / CollectingEvent / CollectingEventSub forms + botany schema labels |
 
 Policy is **copy-only**: no DMS parsing, no grid→WGS conversion, no reprojection in the ETL. Prefer values already present as decimal degrees or structured UTM/MGRS in MUSIT.
 
@@ -52,7 +52,7 @@ For Oslo vascular plants (`institutioncode=O`, `collectioncode=V`), PROD analysi
 - Most “high” UTM corners are **MGRS grid-cell extents** (e.g. 100 m / 1 km), not collecting polygons.
 - Migration therefore sets Specify **`latLongType = Point`** whenever WGS decimals exist, and does **not** populate `latitude2` / `longitude2`.
 
-## Specify `Locality` field layout (v10)
+## Specify `Locality` field layout (v11)
 
 | Specify field | Content |
 |---------------|---------|

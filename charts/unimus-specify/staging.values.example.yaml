@@ -1,10 +1,10 @@
 # Example shape for charts/unimus-specify/staging.values.yaml (gitignored).
 # Copy to staging.values.yaml and fill secrets / hosts.
-# Former charts/specify7 top-level Specify keys move under specify7:.
+# Specify keys nest under specify7:; prefect, migrationHarness, and secrets stay at the root.
 
 specify7:
   image:
-    tag: "v7.11.3"
+    tag: "v7.12.2"
   ingress:
     enabled: true
     hosts:

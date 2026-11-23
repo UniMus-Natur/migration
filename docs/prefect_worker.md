@@ -25,30 +25,33 @@ This means you do **not** need to rebuild the image for normal code changes; com
 In `charts/unimus-specify/staging.values.yaml`:
 
 - `prefect.server.enabled: true`
+- `prefect.server.persistence.enabled: true` with `subPath: Prefect` on the shared RWX claim (same claim as MariaDB `subPath: MariaDB` and Specify `subPath: Specify`). This is Prefect's SQLite home (`PREFECT_HOME=/root/.prefect`). Without it, a server restart wipes deployments, the work pool, and run history.
 - `prefect.devWorker.enabled: true`
 - `prefect.devWorker.workPool: "dev-process"`
 - `prefect.devWorker.image.*` points to your migration image tag.
 - `prefect.devWorker.resources.limits.memory`: long specimen migrations (Django + Oracle + media uploads) need more than **1Gi**. Staging uses **4Gi** (namespace quota is **32G** with ~25Gi already allocated; **8Gi** cannot schedule). Limit/request ratio must be ≤ **2:1**.
 - `secrets.existingSecret` (and `specify7.secrets.existingSecret`) point to the env secret with Oracle and Prefect vars.
 
+Helm release is **`specify7`** in namespace **`unimus-ns12130k`** (context **`nird`**). See [Kubernetes Deployment](kubernetes_deployment.md).
+
 ## Daily Dev Loop
 
-1. Start API access:
+1. Start API access (pins `--context=nird` and sets `PREFECT_API_URL`):
 
 ```bash
-kubectl port-forward svc/specify7-prefect-server 4200:4200
+source scripts/port-forward.sh prefect
 ```
 
-2. In another terminal:
+Equivalent hand-rolled forward:
 
 ```bash
-source .venv/bin/activate
+kubectl --context=nird -n unimus-ns12130k port-forward svc/specify7-prefect-server 4200:4200
 export PREFECT_API_URL=http://127.0.0.1:4200/api
 ```
 
-3. Commit and push code changes to `dev` (the branch configured in `prefect.yaml`).
+2. Commit and push code changes to `dev` (the branch configured in `prefect.yaml`).
 
-4. Register/update deployment:
+3. Register/update deployment:
 
 ```bash
 prefect deploy --all
@@ -64,7 +67,7 @@ PREFECT_CLI_PROMPT=false prefect deploy --all
 
 To persist the setting in a **Prefect profile** instead of `prefect.toml`, use `prefect config set PREFECT_CLI_PROMPT=false` (writes to the active profile; see [Settings and profiles](https://docs.prefect.io/v3/concepts/settings-and-profiles)).
 
-5. Run PROD connectivity check (Oracle + S3 preflight):
+4. Run PROD connectivity check (Oracle + S3 preflight):
 
 ```bash
 prefect deployment run "Infrastructure Prod Check/infrastructure-prod-check-dev"
@@ -125,7 +128,25 @@ prefect deployment run "Migrate Users/migrate-users-dev" --param dry_run=false
 
 See [User migration report](user_migration_report.md) for the report format and recorded outcomes.
 
-6. Inspect results:
+Vascular herbarium loads (Phase 2) share `flows/migrate_oslo_vascular.py`. The Specify collection must already exist (`sync-specify-structure-dev` against `config/specify_structure/unimus_natur.yaml`). Default is `dry_run=true`. Oslo uploads media (`skip_media=false`); the other deployments default `skip_media=true`.
+
+| Deployment | MUSIT filter | Specify collection |
+|---|---|---|
+| `Migrate Oslo Vascular Plants/migrate-oslo-vascular-dev` | `O` / `V` | `O-V` |
+| `Migrate NTNU Vascular Plants/migrate-ntnu-vascular-dev` | `TRH` / `V` | `TRH-V` |
+| `Migrate Bergen Nordic Vascular Plants/migrate-bergen-nordic-vascular-dev` | `BG` / `S`, catalog number below 2000000 (null counts as Nordic) | `BG-S` |
+| `Migrate Bergen Global Vascular Plants/migrate-bergen-global-vascular-dev` | `BG` / `S`, catalog number at or above 2000000 | `BG-G` |
+| `Migrate Tromso Vascular Plants/migrate-tromso-vascular-dev` | `TROM` / `V` | `TROM-V` |
+| `Migrate Agder Vascular Plants/migrate-agder-vascular-dev` | `KMN` / `V` | `KMN-V` |
+| `Migrate Stavanger Vascular Plants/migrate-stavanger-vascular-dev` | `SVG` / `V` | `SVG-V` |
+| `Migrate Tromso Garden Herbarium/migrate-tromso-garden-dev` | `V` / `H` (catalog `V-H-…`; garden herbarium, not `TROM`/`V`) | `TROM-V-H` |
+
+```bash
+prefect deployment run "Migrate NTNU Vascular Plants/migrate-ntnu-vascular-dev" \
+  -p oracle_env=PROD -p dry_run=false -p limit=100 -p skip_media=true
+```
+
+5. Inspect results:
 
 ```bash
 prefect flow-run ls
