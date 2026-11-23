@@ -20,6 +20,7 @@ helm upgrade --install staging ./charts/unimus-specify \
 |-----|---------|
 | `specify7.*` | Passed through to the Specify7 subchart |
 | `prefect.*` | Prefect server / dev worker |
+| `prefect.server.persistence.*` | Optional shared RWX PVC + `subPath` for Prefect SQLite (`PREFECT_HOME`) |
 | `migrationHarness.*` | Optional compare UI |
 | `secrets.existingSecret` | Injected into Prefect / harness pods |
 

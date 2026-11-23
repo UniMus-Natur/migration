@@ -29,6 +29,13 @@ prefect:
       limits:
         cpu: 1000m
         memory: 1Gi
+    # Persist Prefect SQLite (deployments, work pools, run history) on the shared
+    # RWX claim, same pattern as MariaDB (subPath MariaDB) / Specify (subPath Specify).
+    persistence:
+      enabled: false
+      existingClaim: ""
+      subPath: Prefect
+      mountPath: /root/.prefect
 
   # Optional in-cluster worker for rapid development.
   # Runs flows as process jobs in a long-lived pod (sync code without rebuilds).

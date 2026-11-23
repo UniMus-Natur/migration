@@ -44,6 +44,12 @@ prefect:
   enabled: true
   server:
     enabled: true
+    # Same shared RWX PVC as MariaDB/Specify; keep state under a folder.
+    persistence:
+      enabled: true
+      existingClaim: b68dde39-d143-4514-bdc2-8320ebdc744c
+      subPath: Prefect
+      mountPath: /root/.prefect
   devWorker:
     enabled: true
     workPool: "dev-process"

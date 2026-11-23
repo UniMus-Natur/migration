@@ -1,4 +1,6 @@
 {{- if and .Values.prefect.enabled .Values.prefect.server.enabled -}}
+{{- $persist := .Values.prefect.server.persistence | default dict -}}
+{{- $persistEnabled := and $persist.enabled $persist.existingClaim -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -32,12 +34,30 @@ spec:
             - name: http
               containerPort: 4200
               protocol: TCP
+          env:
+            # Keep SQLite / server state on the mounted volume (survives reschedules).
+            - name: PREFECT_HOME
+              value: {{ $persist.mountPath | default "/root/.prefect" | quote }}
           {{- $secret := include "unimus-specify.existingSecret" . }}
           {{- if $secret }}
           envFrom:
             - secretRef:
                 name: {{ $secret }}
           {{- end }}
+          {{- if $persistEnabled }}
+          volumeMounts:
+            - name: prefect-home
+              mountPath: {{ $persist.mountPath | default "/root/.prefect" | quote }}
+              {{- if $persist.subPath }}
+              subPath: {{ $persist.subPath | quote }}
+              {{- end }}
+          {{- end }}
           resources:
             {{- toYaml .Values.prefect.server.resources | nindent 12 }}
+      {{- if $persistEnabled }}
+      volumes:
+        - name: prefect-home
+          persistentVolumeClaim:
+            claimName: {{ $persist.existingClaim | quote }}
+      {{- end }}
 {{- end }}
