@@ -71,7 +71,7 @@ Staging turns persistence on and points `existingClaim` at the same RWX volume a
 
 Staging normally runs the official image (`specifyconsortium/specify7-service`, tag set in `staging.values.yaml`). To test the `specify7/` submodule, build that Dockerfile’s `run` target and push it to GHCR. The registry is the same one the Prefect dev worker already uses: `ghcr.io/unimus-natur` (worker image `ghcr.io/unimus-natur/migration`). The app image is `ghcr.io/unimus-natur/specify7-service:<submodule sha>`. `specify7.imagePullSecrets` already includes `ghcr-secret`.
 
-Kaniko clones the submodule commit from GitHub. Commit and push `specify7` before building. The current submodule remote is `https://github.com/specify/specify7`. For commits that cannot be pushed there, push a branch to a fork and set `SPECIFY7_GIT_REMOTE` to that remote.
+Commit in the `specify7/` submodule, then run the script. It pushes that commit to this repo as `refs/tags/specify7-<sha>` (the tag’s tree is the Specify 7 source, not the migration project) and Kaniko clones that tag. The submodule remote stays `https://github.com/specify/specify7`.
 
 ```bash
 ./scripts/build-specify7-k8s.sh

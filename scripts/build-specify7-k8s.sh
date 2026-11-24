@@ -5,9 +5,9 @@ set -euo pipefail
 # and push it to GHCR, next to the Prefect dev-worker image
 # (ghcr.io/unimus-natur/migration).
 #
-# Kaniko clones the submodule commit from GitHub. Commit and push specify7
-# first (upstream, or a fork via SPECIFY7_GIT_REMOTE). Local edits are not
-# in the image.
+# Commit in the specify7 submodule first. This script pushes that commit to
+# the migration repo (refs/tags/specify7-<sha>) and Kaniko clones it from
+# there. The tag's tree is the Specify 7 source.
 #
 # Usage:
 #   ./scripts/build-specify7-k8s.sh
@@ -27,7 +27,6 @@ DESTINATION_REPO="${DESTINATION_REPO%%:*}"
 GHCR_SECRET_NAME="${GHCR_SECRET_NAME:-ghcr-secret}"
 KUBE_CONTEXT="${KUBE_CONTEXT:-nird}"
 KUBE_NAMESPACE="${KUBE_NAMESPACE:-unimus-ns12130k}"
-SPECIFY7_GIT_REMOTE="${SPECIFY7_GIT_REMOTE:-origin}"
 STAGING_VALUES_FILE="${STAGING_VALUES_FILE:-charts/unimus-specify/staging.values.yaml}"
 KANIKO_REQUEST_CPU="${KANIKO_REQUEST_CPU:-1000m}"
 KANIKO_REQUEST_MEMORY="${KANIKO_REQUEST_MEMORY:-2Gi}"
@@ -43,7 +42,7 @@ fi
 
 if ! git -C specify7 diff --quiet || ! git -C specify7 diff --cached --quiet; then
     echo "❌ specify7 has uncommitted changes."
-    echo "Commit and push them first. This build clones the remote commit, so local edits are left out."
+    echo "Commit them in the submodule, then rerun. The script pushes that commit to the migration repo."
     exit 1
 fi
 
@@ -55,37 +54,28 @@ else
     BUILD_VERSION="$SHORT_SHA"
 fi
 
-echo "🔍 Fetching $SPECIFY7_GIT_REMOTE..."
-git -C specify7 fetch --quiet "$SPECIFY7_GIT_REMOTE"
+MIGRATION_URL="$(git remote get-url origin)"
+SOURCE_TAG="specify7-${FULL_SHA}"
+echo "📤 Pushing specify7 ${FULL_SHA} to ${MIGRATION_URL} (refs/tags/${SOURCE_TAG})..."
+git -C specify7 push "$MIGRATION_URL" "HEAD:refs/tags/${SOURCE_TAG}"
 
-if ! git -C specify7 branch -r --contains "$FULL_SHA" | grep -q "^[[:space:]]*${SPECIFY7_GIT_REMOTE}/"; then
-    REMOTE_URL="$(git -C specify7 remote get-url "$SPECIFY7_GIT_REMOTE")"
-    echo "❌ specify7 HEAD $FULL_SHA is not on $SPECIFY7_GIT_REMOTE ($REMOTE_URL)."
-    echo "Push the commit, then rerun. For a fork:"
-    echo "  git -C specify7 remote add unimus https://github.com/UniMus-Natur/specify7.git"
-    echo "  git -C specify7 push -u unimus HEAD:refs/heads/staging-test"
-    echo "  SPECIFY7_GIT_REMOTE=unimus ./scripts/build-specify7-k8s.sh"
-    exit 1
-fi
-
-REMOTE_URL="$(git -C specify7 remote get-url "$SPECIFY7_GIT_REMOTE")"
-case "$REMOTE_URL" in
+case "$MIGRATION_URL" in
     git@*)
-        REMOTE_PATH="${REMOTE_URL#git@}"
+        REMOTE_PATH="${MIGRATION_URL#git@}"
         REMOTE_PATH="${REMOTE_PATH/://}"
         ;;
     http://*|https://*|git://*)
-        REMOTE_PATH="${REMOTE_URL#http://}"
+        REMOTE_PATH="${MIGRATION_URL#http://}"
         REMOTE_PATH="${REMOTE_PATH#https://}"
         REMOTE_PATH="${REMOTE_PATH#git://}"
         ;;
     *)
-        echo "❌ Unrecognized specify7 remote URL: $REMOTE_URL"
+        echo "❌ Unrecognized migration remote URL: $MIGRATION_URL"
         exit 1
         ;;
 esac
 REMOTE_PATH="${REMOTE_PATH%.git}"
-BUILD_CONTEXT="git://${REMOTE_PATH}.git#${FULL_SHA}"
+BUILD_CONTEXT="git://${REMOTE_PATH}.git#refs/tags/${SOURCE_TAG}"
 DESTINATION="${DESTINATION_REPO}:${SHORT_SHA}"
 
 echo "🎯 Build destination: $DESTINATION"
