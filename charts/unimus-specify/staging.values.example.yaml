@@ -4,6 +4,9 @@
 
 specify7:
   image:
+    # Official image. ./scripts/build-specify7-k8s.sh rewrites this to
+    # ghcr.io/unimus-natur/specify7-service:<submodule sha> for staging tests.
+    repository: specifyconsortium/specify7-service
     tag: "v7.12.2"
   ingress:
     enabled: true

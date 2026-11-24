@@ -67,6 +67,26 @@ Specify settings are under `specify7.*` (see [specify7-helm values](https://gith
 
 Staging turns persistence on and points `existingClaim` at the same RWX volume as MariaDB and Specify. A server pod restart then keeps deployments, the `dev-process` work pool, and run history.
 
+## Specify7 test image
+
+Staging normally runs the official image (`specifyconsortium/specify7-service`, tag set in `staging.values.yaml`). To test the `specify7/` submodule, build that Dockerfile’s `run` target and push it to GHCR. The registry is the same one the Prefect dev worker already uses: `ghcr.io/unimus-natur` (worker image `ghcr.io/unimus-natur/migration`). The app image is `ghcr.io/unimus-natur/specify7-service:<submodule sha>`. `specify7.imagePullSecrets` already includes `ghcr-secret`.
+
+Kaniko clones the submodule commit from GitHub. Commit and push `specify7` before building. The current submodule remote is `https://github.com/specify/specify7`. For commits that cannot be pushed there, push a branch to a fork and set `SPECIFY7_GIT_REMOTE` to that remote.
+
+```bash
+./scripts/build-specify7-k8s.sh
+```
+
+A successful build rewrites `specify7.image` in `charts/unimus-specify/staging.values.yaml` (`pullPolicy: Always`). Deploy with:
+
+```bash
+helm --kube-context nird upgrade specify7 ./charts/unimus-specify \
+  -n unimus-ns12130k \
+  -f charts/unimus-specify/staging.values.yaml
+```
+
+To go back to the official image, set `specify7.image.repository` to `specifyconsortium/specify7-service` and `specify7.image.tag` to the release tag (currently `v7.12.2`), then run the same upgrade.
+
 ## Report fonts
 
 The [report-runner service](https://github.com/specify/report-runner-service#fonts) uses built-in PDF fonts unless a Jasper font-extension jar is mounted at:
