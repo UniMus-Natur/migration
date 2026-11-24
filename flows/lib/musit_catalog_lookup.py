@@ -13,10 +13,12 @@ def resolve_musit_object_ids(
     collectioncode: str,
     catalog_number: str | None = None,
     object_id: int | None = None,
+    parent_object_id: int | None = None,
 ) -> list[int]:
     """Resolve a single catalog number or Oracle ``object_id`` for one dataset filter.
 
-    Returns validated ``object_id`` values that belong to the institution/collection filter.
+    Returns validated ``object_id`` values that belong to the institution/collection filter,
+    or to ``parent_object_id`` when the schema has no ``V_OBJECT_ATTRIBUTES`` codes.
     Raises ``ValueError`` when both selectors are set, ``RuntimeError`` when none match.
     """
     if catalog_number and object_id is not None:
@@ -45,25 +47,41 @@ def resolve_musit_object_ids(
 
     validated: list[int] = []
     for oid in candidate_ids:
-        oracle_cursor.execute(
-            f"""
-            SELECT object_id
-              FROM {schema}.v_object_attributes
-             WHERE object_id = :oid
-               AND institutioncode = :icode
-               AND collectioncode = :ccode
-            """,
-            {
-                "oid": int(oid),
-                "icode": institutioncode,
-                "ccode": collectioncode,
-            },
-        )
+        if parent_object_id is not None:
+            oracle_cursor.execute(
+                f"""
+                SELECT object_id
+                  FROM {schema}.museum_object
+                 WHERE object_id = :oid
+                   AND parent_object_id = :parent
+                   AND museum_object_type = 29
+                """,
+                {"oid": int(oid), "parent": int(parent_object_id)},
+            )
+        else:
+            oracle_cursor.execute(
+                f"""
+                SELECT object_id
+                  FROM {schema}.v_object_attributes
+                 WHERE object_id = :oid
+                   AND institutioncode = :icode
+                   AND collectioncode = :ccode
+                """,
+                {
+                    "oid": int(oid),
+                    "icode": institutioncode,
+                    "ccode": collectioncode,
+                },
+            )
         row = oracle_cursor.fetchone()
         if row is None:
+            scope = (
+                f"parent_object_id={parent_object_id}"
+                if parent_object_id is not None
+                else f"{institutioncode}/{collectioncode}"
+            )
             raise RuntimeError(
-                f"object_id={oid} is not in {institutioncode}/{collectioncode} "
-                f"for schema {schema}"
+                f"object_id={oid} is not in {scope} for schema {schema}"
             )
         validated.append(int(row[0]))
     return validated

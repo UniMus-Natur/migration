@@ -34,6 +34,8 @@ divisions:
         type: botany
       - name: Insekter
         type: insect
+        collections:
+          - { code: NHMO-ENT, name: NHMO-ENT, catalognumberformatname: NHMO-ENT }
       - name: Marine invertebrater
         type: invertebrate
       - name: Pattedyr

@@ -140,6 +140,7 @@ Vascular herbarium loads (Phase 2) share `flows/migrate_oslo_vascular.py`. The S
 | `Migrate Agder Vascular Plants/migrate-agder-vascular-dev` | `KMN` / `V` | `KMN-V` |
 | `Migrate Stavanger Vascular Plants/migrate-stavanger-vascular-dev` | `SVG` / `V` | `SVG-V` |
 | `Migrate Tromso Garden Herbarium/migrate-tromso-garden-dev` | `V` / `H` (catalog `V-H-…`; garden herbarium, not `TROM`/`V`) | `TROM-V-H` |
+| `Migrate NHMO Entomology/migrate-nhmo-entomology-dev` | `MUSIT_ZOOLOGI_ENTOMOLOGI` parent object 9 (NHMO/ENT; no institution/collection view) | `NHMO-ENT` |
 
 ```bash
 prefect deployment run "Migrate NTNU Vascular Plants/migrate-ntnu-vascular-dev" \

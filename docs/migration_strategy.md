@@ -38,7 +38,7 @@ Reports are written under the `specify-structure-sync` category in the migration
 
 ## Dataset groups (collections in Specify 7)
 
-Vascular specimens are read from `MUSIT_BOTANIKK_FELLES` (`institutioncode` / `collectioncode` on `V_OBJECT_ATTRIBUTES`). Each herbarium is its own Specify collection under discipline **Karplanter Moser**. Codes are declared in [`config/specify_structure/unimus_natur.yaml`](../config/specify_structure/unimus_natur.yaml) and created by `sync-specify-structure-dev` before a specimen flow runs. The loader looks the collection up; it does not create it.
+Vascular specimens are read from `MUSIT_BOTANIKK_FELLES` (`institutioncode` / `collectioncode` on `V_OBJECT_ATTRIBUTES`). Each herbarium is its own Specify collection under discipline **Karplanter Moser**. NHMO entomology is the same loader against `MUSIT_ZOOLOGI_ENTOMOLOGI`, filtered by parent object, into discipline **Insekter**. Codes are declared in [`config/specify_structure/unimus_natur.yaml`](../config/specify_structure/unimus_natur.yaml) and created by `sync-specify-structure-dev` before a specimen flow runs. The loader looks the collection up; it does not create it.
 
 | MUSIT filter | Specify code | Specify name |
 |---|---|---|
@@ -50,8 +50,9 @@ Vascular specimens are read from `MUSIT_BOTANIKK_FELLES` (`institutioncode` / `c
 | `KMN` / `V` | `KMN-V` | KMN-V |
 | `SVG` / `V` | `SVG-V` | SVG-V |
 | `V` / `H` (Tromsø garden; catalog `V-H-…`) | `TROM-V-H` | TROM-Hageherbariet |
+| `MUSIT_ZOOLOGI_ENTOMOLOGI` parent object 9 (NHMO/ENT) | `NHMO-ENT` | NHMO-ENT |
 
-Bergen Nordic and global are one MUSIT collection (`BG` / `S`) split on catalog number, not two source collections. Other disciplines in the YAML (mosses are grouped with vascular plants in **Karplanter Moser**, plus algae, lichens/fungi, insects, and so on) have no specimen flow yet. Paleo has collection `PMO` / NHM-Paleo and no loader yet.
+Bergen Nordic and global are one MUSIT collection (`BG` / `S`) split on catalog number, not two source collections. NHMO entomology is discipline **Insekter**; it is paged by parent object because that schema has no `V_OBJECT_ATTRIBUTES` codes. Other disciplines in the YAML (algae, lichens/fungi, and the remaining insect museums) have no specimen flow yet. Paleo has collection `PMO` / NHM-Paleo and no loader yet.
 
 Deployments and run commands: [Prefect runbook](prefect_worker.md).
 
@@ -324,7 +325,8 @@ Phase 2 (one Prefect deployment per Specify collection)
 ├── TROM-V     Tromsø vascular
 ├── KMN-V      Agder vascular
 ├── SVG-V      Stavanger vascular
-└── TROM-V-H   Tromsø garden herbarium (MUSIT V/H)
+├── TROM-V-H   Tromsø garden herbarium (MUSIT V/H)
+└── NHMO-ENT   Oslo entomology (MUSIT_ZOOLOGI_ENTOMOLOGI parent 9)
 
 Bridge tables in staging MariaDB (created on first live load)
 ├── migration_oracle_objectmap    ← Oracle object → CollectionObject

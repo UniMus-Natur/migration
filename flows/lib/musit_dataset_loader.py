@@ -132,6 +132,10 @@ class MusitDatasetConfig:
     # ``identifier_num_at_least`` requires a number at or above the bound.
     identifier_num_at_least: int | None = None
     identifier_num_below: int | None = None
+    # Entomology (and similar) schemas have no ``V_OBJECT_ATTRIBUTES``
+    # institution/collection codes. When set, page ``MUSEUM_OBJECT`` rows whose
+    # parent is this zoological-collection node (``museum_object_type`` Object).
+    parent_object_id: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -183,8 +187,8 @@ _SPECIMEN_SQL = """
       oa.is_reg,
       oa.is_approved,
       oa.is_corrected,
-      oa.object_withheld,
-      oa.object_state,
+      {object_withheld_expr},
+      {object_state_expr},
       oa.reg_user,
       oa.korr_user,
       oa.approve_user,
@@ -199,7 +203,7 @@ _SPECIMEN_SQL = """
       oa.dublettes,
       oa.analysis_request,
       oa.number_of_sheets,
-      oa.ex_herb,
+      {ex_herb_expr}{extra_select},
       oa.voucher,
       oa.artsobs_nr,
       mon.object_notes,
@@ -220,7 +224,7 @@ _SPECIMEN_SQL = """
       ev.event_type,
       ev.eventname,
       ce.event_id,
-      ce.collectiontype_id,
+      {collectiontype_expr},
       ce.legname_orig,
       ce.agg_personnames,
       ts.from_date,
@@ -264,7 +268,8 @@ _SPECIMEN_SQL = """
       erp.role_id,
       cte.detname_orig,
       cte.agg_personnames  AS det_agg_personnames
-    FROM {schema}.v_object_attributes voa
+    FROM {object_from}
+    {extra_join}
     JOIN {schema}.object_attributes oa
       ON oa.object_id = voa.object_id
     JOIN {schema}.museum_object mo
@@ -1689,6 +1694,131 @@ def _musit_bool(val: Any) -> bool | None:
     return None
 
 
+def _oracle_text(val: Any) -> str | None:
+    """Stringify an Oracle scalar, including CLOB values returned by oracledb."""
+    if val is None:
+        return None
+    read = getattr(val, "read", None)
+    if callable(read):
+        val = read()
+    if val is None:
+        return None
+    text = str(val).strip()
+    return text or None
+
+
+def _as_int(val: Any) -> int | None:
+    if val is None or val == "":
+        return None
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def _apply_entomology_event_fields(
+    ce_kwargs: dict[str, Any],
+    obj_row: dict[str, Any],
+    *,
+    habitat_already: bool,
+) -> None:
+    """MUSIT entomology collecting-event extras that the botany view does not carry."""
+    method = _trunc(obj_row.get("method_name"), 50)
+    if method:
+        ce_kwargs["method"] = method
+    if not habitat_already:
+        ecology = _trunc(_oracle_text(obj_row.get("ecology_text")), 65535)
+        if ecology:
+            ce_kwargs["text1"] = ecology
+    host = _trunc(_oracle_text(obj_row.get("host_text")), 65535)
+    if host:
+        ce_kwargs["text2"] = host
+    station = _trunc(_oracle_text(obj_row.get("station_number")), 50)
+    if station:
+        ce_kwargs["stationfieldnumber"] = station
+    region = _trunc(_oracle_text(obj_row.get("region_code")), 65535)
+    if region:
+        ce_kwargs["text4"] = region
+    eis_text = _oracle_text(obj_row.get("eis_code"))
+    eis_num = _as_int(eis_text)
+    if eis_num is not None:
+        ce_kwargs["integer1"] = eis_num
+    elif eis_text:
+        ce_kwargs["text5"] = _trunc(eis_text, 65535)
+
+
+def _apply_entomology_object_fields(co: Any, collection: Any, obj_row: dict[str, Any]) -> None:
+    """Map entomology-only MUSIT columns onto the CollectionObject and its attribute row."""
+    from specifyweb.specify.models import Collectionobjectattribute
+
+    old_no = _trunc(obj_row.get("old_identifier_string"), 128)
+    if old_no:
+        co.reservedtext2 = old_no
+    slide = _trunc(_oracle_text(obj_row.get("slide_tube")), 65535)
+    if slide:
+        co.text1 = slide
+    box = _trunc(_oracle_text(obj_row.get("box_jar")), 65535)
+    if box:
+        co.text4 = box
+    label = _trunc(_oracle_text(obj_row.get("original_label")), 65535)
+    if label:
+        co.description = label
+    dataset = _trunc(_oracle_text(obj_row.get("dataset")), 64)
+    if dataset:
+        co.projectnumber = dataset
+    owner = _oracle_text(obj_row.get("owner_name"))
+    if owner:
+        co.name = _trunc(owner, 64)
+    sub = _trunc(_oracle_text(obj_row.get("subcollection_code")), 255)
+    if sub and not co.text6:
+        co.text6 = sub
+    duplicates = _as_int(obj_row.get("dublettes"))
+    if duplicates is not None:
+        co.numberofduplicates = duplicates
+    no_of_ind = _as_int(obj_row.get("no_of_ind"))
+    if no_of_ind is not None:
+        co.countamt = no_of_ind
+
+    sex = _oracle_text(obj_row.get("sex"))
+    life_stage = _oracle_text(obj_row.get("life_stage"))
+    estimated = _musit_bool(obj_row.get("sex_estimated"))
+    legacy = _oracle_text(obj_row.get("legacy_data"))
+    if any(v is not None for v in (sex, life_stage, estimated, no_of_ind, owner, legacy)):
+        coa = Collectionobjectattribute(
+            collectionmemberid=int(collection.id),
+            text1=sex,
+            text2=life_stage,
+            text3=owner,
+            integer1=no_of_ind,
+            yesno1=estimated,
+            text16=legacy,
+        )
+        coa.save()
+        co.collectionobjectattribute = coa
+
+
+def _attach_entomology_preparation(co: Any, collection: Any, obj_row: dict[str, Any]) -> None:
+    """Preparation row for MUSIT prep type and barcode. Requires a saved CollectionObject."""
+    from specifyweb.specify.models import Preparation, Preptype
+
+    prep_name = _trunc(_oracle_text(obj_row.get("preparation_name")), 64)
+    barcode = _trunc(_oracle_text(obj_row.get("barcode")), 256)
+    if not prep_name and not barcode:
+        return
+    prep_type, _created = Preptype.objects.get_or_create(
+        collection=collection,
+        name=prep_name or "unspecified",
+        defaults={"isloanable": False},
+    )
+    Preparation.objects.create(
+        collectionobject=co,
+        preptype=prep_type,
+        collectionmemberid=int(collection.id),
+        barcode=barcode,
+        countamt=co.countamt,
+    )
+
+
 def _short_date(val: Any) -> str | None:
     """Format a MUSIT date value as ``YYYY-MM-DD`` for display-only audit text."""
     d = _coerce_date(val)
@@ -2041,6 +2171,10 @@ def _write_one_object(
             "mapping_version": config.dataset_label,
         },
     }
+    if config.parent_object_id is not None:
+        legacy = _oracle_text(obj_row.get("legacy_data"))
+        if legacy:
+            json_body["legacy_data"] = legacy
     if literature_archive:
         json_body["literature"] = literature_archive
     if hybrid_archives:
@@ -2062,9 +2196,23 @@ def _write_one_object(
                     f"Discipline id={discipline.id!r} has no geographytreedef_id — "
                     "initialize geography in Specify before migrating localities."
                 )
-            habitat_text, biogeo_region = _fetch_place_ecology_and_region(
-                oracle_cursor, owner, place_id
-            )
+            if config.parent_object_id is not None:
+                try:
+                    habitat_text, biogeo_region = _fetch_place_ecology_and_region(
+                        oracle_cursor, owner, place_id
+                    )
+                except Exception as exc:  # noqa: BLE001 — entomology may lack the botany ecology tables
+                    _log(
+                        "warning",
+                        "ecology/region lookup failed for place_id=%s (%s); using view columns",
+                        place_id,
+                        exc,
+                    )
+                    habitat_text, biogeo_region = None, None
+            else:
+                habitat_text, biogeo_region = _fetch_place_ecology_and_region(
+                    oracle_cursor, owner, place_id
+                )
             locality = _get_or_create_locality(
                 place_id=place_id,
                 oracle_cursor=oracle_cursor,
@@ -2118,6 +2266,12 @@ def _write_one_object(
         # Habitat / ecology (MUSIT ECOLOGY_PLACE) → text1.
         if habitat_text:
             ce_kwargs["text1"] = _trunc(habitat_text, 65535)
+        if config.parent_object_id is not None:
+            _apply_entomology_event_fields(
+                ce_kwargs,
+                collecting_row or obj_row,
+                habitat_already=bool(habitat_text),
+            )
 
         # Collectors note (MUSIT NOTE linked to the collecting event) → CE.remarks.
         # Keep this field note-only; do not mix in unresolved collector fallbacks.
@@ -2243,9 +2397,13 @@ def _write_one_object(
             co.cataloger = cataloger
 
         _apply_typification_co_field_updates(co, typification_co_updates)
+        if config.parent_object_id is not None:
+            _apply_entomology_object_fields(co, collection, obj_row)
 
         co.save()
         stats.co_created += 1
+        if config.parent_object_id is not None:
+            _attach_entomology_preparation(co, collection, obj_row)
 
         # 5. Determination(s) — one per MUSIT classification event (do not collapse
         # same-taxon events across different dates). Join fan-out within an event
@@ -2536,6 +2694,77 @@ def _write_one_object(
 # ---------------------------------------------------------------------------
 
 
+def _specimen_sql_parts(config: MusitDatasetConfig) -> dict[str, str]:
+    """Column and FROM fragments for ``_SPECIMEN_SQL``.
+
+    Botany schemas expose ``V_OBJECT_ATTRIBUTES`` plus ``OBJECT_STATE`` /
+    ``OBJECT_WITHHELD`` / ``EX_HERB``. Entomology (``parent_object_id``) does
+    not, and adds preparation, sex, method, and place extras.
+    """
+    schema = config.oracle_schema
+    if config.parent_object_id is None:
+        return {
+            "object_from": f"{schema}.v_object_attributes voa",
+            "object_withheld_expr": "oa.object_withheld",
+            "object_state_expr": "oa.object_state",
+            "ex_herb_expr": "oa.ex_herb",
+            "collectiontype_expr": "ce.collectiontype_id",
+            "extra_select": "",
+            "extra_join": "",
+        }
+    extra = f"""
+, oa.barcode AS barcode
+, oa.old_identifier_string AS old_identifier_string
+, oa.slide_tube AS slide_tube
+, oa.box_jar AS box_jar
+, oa.preparation_type AS preparation_type
+, (SELECT t.typeterm FROM {schema}.types t WHERE t.type_id = oa.preparation_type) AS preparation_name
+, (SELECT a.actorname FROM {schema}.actor a WHERE a.actor_id = oa.object_owner) AS owner_name
+, (SELECT cm.method_name
+     FROM {schema}.collecting_method cm
+    WHERE cm.collecting_method_id = ce.collecting_method_id) AS method_name
+, (SELECT gs.sex FROM {schema}.v_gender_and_stage gs
+    WHERE gs.object_id = voa.object_id FETCH FIRST 1 ROW ONLY) AS sex
+, (SELECT gs.no_of_ind FROM {schema}.v_gender_and_stage gs
+    WHERE gs.object_id = voa.object_id FETCH FIRST 1 ROW ONLY) AS no_of_ind
+, (SELECT gs.estimated FROM {schema}.v_gender_and_stage gs
+    WHERE gs.object_id = voa.object_id FETCH FIRST 1 ROW ONLY) AS sex_estimated
+, (SELECT gs.life_stage FROM {schema}.v_gender_and_stage gs
+    WHERE gs.object_id = voa.object_id FETCH FIRST 1 ROW ONLY) AS life_stage
+, (SELECT eis.eis FROM {schema}.v_eis_place eis
+    WHERE eis.place_id = por.place_id FETCH FIRST 1 ROW ONLY) AS eis_code
+, (SELECT h.host_free_text FROM {schema}.v_host_place h
+    WHERE h.place_id = por.place_id FETCH FIRST 1 ROW ONLY) AS host_text
+, (SELECT e.ecology FROM {schema}.v_ecology_place e
+    WHERE e.place_id = por.place_id FETCH FIRST 1 ROW ONLY) AS ecology_text
+, (SELECT st.station_number FROM {schema}.v_station_place st
+    WHERE st.place_id = por.place_id FETCH FIRST 1 ROW ONLY) AS station_number
+, (SELECT r.region FROM {schema}.v_region_place r
+    WHERE r.place_id = por.place_id FETCH FIRST 1 ROW ONLY) AS region_code
+, (SELECT ol.note_text FROM {schema}.v_orig_label_text ol
+    WHERE ol.object_id = voa.object_id FETCH FIRST 1 ROW ONLY) AS original_label
+, (SELECT le.legacy_data
+     FROM {schema}.event_museum_object emo_leg
+     JOIN {schema}.event ev_leg
+       ON ev_leg.event_id = emo_leg.event_id AND ev_leg.event_type = 232
+     JOIN {schema}.legacy_event le ON le.event_id = ev_leg.event_id
+    WHERE emo_leg.object_id = voa.object_id
+    FETCH FIRST 1 ROW ONLY) AS legacy_data
+, (SELECT sub.identifier_string
+     FROM {schema}.museum_object sub
+    WHERE sub.object_id = mo.sub_collection_id) AS subcollection_code
+"""
+    return {
+        "object_from": f"{schema}.museum_object voa",
+        "object_withheld_expr": "NULL AS object_withheld",
+        "object_state_expr": "NULL AS object_state",
+        "ex_herb_expr": "NULL AS ex_herb",
+        "collectiontype_expr": "ce.collectiontype_id",
+        "extra_select": extra,
+        "extra_join": "",
+    }
+
+
 def _identifier_num_filter_sql(config: MusitDatasetConfig) -> tuple[str, str, dict[str, int]]:
     """Return ``(join_sql, where_sql, binds)`` for an optional catalog-number series."""
     from flows.lib.musit_identifier_series import identifier_num_filter_sql
@@ -2555,6 +2784,21 @@ def _fetch_page_object_ids(
     batch: int,
 ) -> list[int]:
     """Fetch the next page of OBJECT_IDs strictly after ``after_id`` (keyset pagination)."""
+    if config.parent_object_id is not None:
+        sql = f"""
+        SELECT voa.object_id
+          FROM {config.oracle_schema}.museum_object voa
+         WHERE voa.parent_object_id = :parent
+           AND voa.museum_object_type = 29
+           AND voa.object_id > :after_id
+         ORDER BY voa.object_id
+         FETCH NEXT :batch ROWS ONLY
+        """
+        oracle_cursor.execute(
+            sql,
+            {"parent": int(config.parent_object_id), "after_id": after_id, "batch": batch},
+        )
+        return [int(row[0]) for row in oracle_cursor.fetchall()]
     join_sql, where_sql, extra = _identifier_num_filter_sql(config)
     sql = f"""
     SELECT voa.object_id
@@ -2588,7 +2832,11 @@ def _fetch_specimen_rows(
     if not object_ids:
         return []
     placeholders = ", ".join([":oid" + str(i) for i in range(len(object_ids))])
-    sql = _SPECIMEN_SQL.format(schema=config.oracle_schema, placeholders=placeholders)
+    sql = _SPECIMEN_SQL.format(
+        schema=config.oracle_schema,
+        placeholders=placeholders,
+        **_specimen_sql_parts(config),
+    )
     binds = {f"oid{i}": oid for i, oid in enumerate(object_ids)}
     oracle_cursor.execute(sql, binds)
     cols = [d[0].lower() for d in oracle_cursor.description]
@@ -2596,6 +2844,18 @@ def _fetch_specimen_rows(
 
 
 def _count_total_objects(oracle_cursor: Any, config: MusitDatasetConfig) -> int:
+    if config.parent_object_id is not None:
+        oracle_cursor.execute(
+            f"""
+            SELECT COUNT(*)
+              FROM {config.oracle_schema}.museum_object voa
+             WHERE voa.parent_object_id = :parent
+               AND voa.museum_object_type = 29
+            """,
+            {"parent": int(config.parent_object_id)},
+        )
+        row = oracle_cursor.fetchone()
+        return int(row[0]) if row else 0
     join_sql, where_sql, extra = _identifier_num_filter_sql(config)
     sql = f"""
     SELECT COUNT(*)
@@ -2738,6 +2998,7 @@ def load_musit_dataset(
             collectioncode=config.collectioncode,
             catalog_number=only_catalog,
             object_id=only_object_id,
+            parent_object_id=config.parent_object_id,
         )
         _assert_objects_in_identifier_series(oracle_cursor, config, pinned_object_ids)
 
