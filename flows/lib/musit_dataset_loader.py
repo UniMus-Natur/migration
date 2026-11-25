@@ -259,13 +259,13 @@ _SPECIMEN_SQL = """
       ln.full_name_author,
       ln.parent_latin_name_id,
       ln.nhm_taxon_id,
-      COALESCE(ln.adb_latin_name_id, labd.adb_latin_name) AS adb_latin_name_id,
+      {adb_latin_name_expr},
       -- NorTaxa id: prefer CLASSIFICATION_TAXON → TAXON; valid_latin_name path can disagree.
-      COALESCE(tx.adb_taxon_id, txv.adb_taxon_id) AS adb_taxon_id,
+      {adb_taxon_expr},
       ln.tax_cath_id,
       ln.is_valid          AS taxon_is_valid,
-      erp.actor_id,
-      erp.role_id,
+      {actor_id_expr},
+      {role_id_expr},
       cte.detname_orig,
       cte.agg_personnames  AS det_agg_personnames
     FROM {object_from}
@@ -325,17 +325,11 @@ _SPECIMEN_SQL = """
       ON ctl.classterm_id = ct.class_term_id
     LEFT JOIN {schema}.latin_names ln
       ON ln.latin_name_id = ctl.latin_name_id
-    LEFT JOIN {schema}.latinname_adb labd
-      ON labd.latin_name_id = ln.latin_name_id
+    {latinname_adb_join}
     LEFT JOIN {schema}.taxon txv
       ON txv.valid_latin_name_id = ln.latin_name_id
-    LEFT JOIN {schema}.classification_taxon ctax
-      ON ctax.class_term_id = ct.class_term_id
-    LEFT JOIN {schema}.taxon tx
-      ON REGEXP_LIKE(TRIM(ctax.tax_id), '^[0-9]+$')
-     AND tx.taxon_id = TO_NUMBER(TRIM(ctax.tax_id))
-    LEFT JOIN {schema}.event_role_actor erp
-      ON erp.event_id = ce.event_id
+    {classification_taxon_join}
+    {event_role_actor_join}
     WHERE voa.object_id IN ({placeholders})
     ORDER BY voa.object_id, emo.sequence_number NULLS LAST
 """
@@ -517,6 +511,17 @@ def _fetch_latin_name_lineage(
         seen.add(current)
         row = lineage_cache.get(current)
         if row is None:
+            if o == "MUSIT_ZOOLOGI_ENTOMOLOGI":
+                adb_latin_expr = "ln.adb_latin_name_id AS adb_latin_name_id"
+                latinname_adb_join = ""
+            else:
+                adb_latin_expr = (
+                    "COALESCE(ln.adb_latin_name_id, labd.adb_latin_name) AS adb_latin_name_id"
+                )
+                latinname_adb_join = (
+                    f"LEFT JOIN {o}.latinname_adb labd\n"
+                    "                  ON labd.latin_name_id = ln.latin_name_id"
+                )
             oracle_cursor.execute(
                 f"""
                 SELECT
@@ -526,13 +531,12 @@ def _fetch_latin_name_lineage(
                   ln.full_name,
                   ln.full_name_author,
                   ln.nhm_taxon_id,
-                  COALESCE(ln.adb_latin_name_id, labd.adb_latin_name) AS adb_latin_name_id,
+                  {adb_latin_expr},
                   tx.adb_taxon_id,
                   tc.tax_cath_code,
                   tc.tax_cath_name
                 FROM {o}.latin_names ln
-                LEFT JOIN {o}.latinname_adb labd
-                  ON labd.latin_name_id = ln.latin_name_id
+                {latinname_adb_join}
                 LEFT JOIN {o}.taxon tx
                   ON tx.valid_latin_name_id = ln.latin_name_id
                 LEFT JOIN {o}.taxon_cathegory tc
@@ -2717,6 +2721,27 @@ def _specimen_sql_parts(config: MusitDatasetConfig) -> dict[str, str]:
     not, and adds preparation, sex, method, and place extras.
     """
     schema = config.oracle_schema
+    vascular_taxon = {
+        "adb_latin_name_expr": "COALESCE(ln.adb_latin_name_id, labd.adb_latin_name) AS adb_latin_name_id",
+        "adb_taxon_expr": "COALESCE(tx.adb_taxon_id, txv.adb_taxon_id) AS adb_taxon_id",
+        "actor_id_expr": "erp.actor_id",
+        "role_id_expr": "erp.role_id",
+        "latinname_adb_join": (
+            f"LEFT JOIN {schema}.latinname_adb labd\n"
+            "      ON labd.latin_name_id = ln.latin_name_id"
+        ),
+        "classification_taxon_join": (
+            f"LEFT JOIN {schema}.classification_taxon ctax\n"
+            "      ON ctax.class_term_id = ct.class_term_id\n"
+            f"    LEFT JOIN {schema}.taxon tx\n"
+            "      ON REGEXP_LIKE(TRIM(ctax.tax_id), '^[0-9]+$')\n"
+            "     AND tx.taxon_id = TO_NUMBER(TRIM(ctax.tax_id))"
+        ),
+        "event_role_actor_join": (
+            f"LEFT JOIN {schema}.event_role_actor erp\n"
+            "      ON erp.event_id = ce.event_id"
+        ),
+    }
     if config.parent_object_id is None:
         return {
             "object_from": f"{schema}.v_object_attributes voa",
@@ -2726,6 +2751,7 @@ def _specimen_sql_parts(config: MusitDatasetConfig) -> dict[str, str]:
             "collectiontype_expr": "ce.collectiontype_id",
             "extra_select": "",
             "extra_join": "",
+            **vascular_taxon,
         }
     extra = f"""
 , oa.barcode AS barcode
@@ -2784,6 +2810,16 @@ def _specimen_sql_parts(config: MusitDatasetConfig) -> dict[str, str]:
         "collectiontype_expr": "ce.collectiontype_id",
         "extra_select": extra,
         "extra_join": "",
+        # Entomology has no LATINNAME_ADB, CLASSIFICATION_TAXON, or EVENT_ROLE_ACTOR.
+        # NorTaxa id comes from LATIN_NAMES / TAXON.valid_latin_name_id. Collectors
+        # are read later from EVENT_ROLE_PERSON_NAME.
+        "adb_latin_name_expr": "ln.adb_latin_name_id AS adb_latin_name_id",
+        "adb_taxon_expr": "txv.adb_taxon_id AS adb_taxon_id",
+        "actor_id_expr": "NULL AS actor_id",
+        "role_id_expr": "NULL AS role_id",
+        "latinname_adb_join": "",
+        "classification_taxon_join": "",
+        "event_role_actor_join": "",
     }
 
 
