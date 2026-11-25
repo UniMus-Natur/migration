@@ -917,6 +917,13 @@ _verbatim_coordinate_string = verbatim_coordinate_string
 def _fetch_coordinate_bundle(oracle_cursor: Any, owner: str, place_id: int) -> dict[str, Any | None]:
     """Load primary ``KOORDINATE_PLACE`` row plus ``DERIVED_COORDINATES`` for a ``PLACE_ID``."""
     o = owner.upper()
+    # Botany DERIVED_COORDINATES has LAT_WGS84 / LONG_WGS84. Entomology does not.
+    if o == "MUSIT_ZOOLOGI_ENTOMOLOGI":
+        wgs_lat_expr = "NULL AS DC_LAT_WGS84"
+        wgs_lon_expr = "NULL AS DC_LONG_WGS84"
+    else:
+        wgs_lat_expr = "dc.LAT_WGS84 AS DC_LAT_WGS84"
+        wgs_lon_expr = "dc.LONG_WGS84 AS DC_LONG_WGS84"
     oracle_cursor.execute(
         f"""
         SELECT * FROM (
@@ -960,8 +967,8 @@ def _fetch_coordinate_bundle(oracle_cursor: Any, owner: str, place_id: int) -> d
                 dc.UTM_Y AS DC_UTM_Y,
                 dc.UTM33_X AS DC_UTM33_X,
                 dc.UTM33_Y AS DC_UTM33_Y,
-                dc.LAT_WGS84 AS DC_LAT_WGS84,
-                dc.LONG_WGS84 AS DC_LONG_WGS84,
+                {wgs_lat_expr},
+                {wgs_lon_expr},
                 dc.DERIVED_COORDINATES_TYPE AS DC_COORDINATES_TYPE
               FROM {o}.koordinate_place kp
               JOIN {o}.koordinate_place_place kpp
