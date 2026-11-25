@@ -1745,6 +1745,12 @@ def _apply_entomology_event_fields(
         ce_kwargs["integer1"] = eis_num
     elif eis_text:
         ce_kwargs["text5"] = _trunc(eis_text, 65535)
+    sample = _trunc(_oracle_text(obj_row.get("sample_text")), 65535)
+    if sample:
+        ce_kwargs["text3"] = sample
+    ship = _trunc(_oracle_text(obj_row.get("ship_text")), 65535)
+    if ship:
+        ce_kwargs["text6"] = ship
 
 
 def _apply_entomology_object_fields(co: Any, collection: Any, obj_row: dict[str, Any]) -> None:
@@ -2303,6 +2309,15 @@ def _write_one_object(
                 stats.attachments_created += len(media_group_ids)
             return
 
+        if config.parent_object_id is not None:
+            doubtful = _musit_bool((collecting_row or obj_row).get("doubtful_place"))
+            if doubtful is not None:
+                from specifyweb.specify.models import Collectingeventattribute
+
+                cea = Collectingeventattribute(discipline=discipline, yesno1=doubtful)
+                cea.save()
+                ce_kwargs["collectingeventattribute"] = cea
+
         ce = Collectingevent(**ce_kwargs)
         ce.save()
         stats.ce_created += 1
@@ -2741,6 +2756,13 @@ def _specimen_sql_parts(config: MusitDatasetConfig) -> dict[str, str]:
     WHERE st.place_id = por.place_id FETCH FIRST 1 ROW ONLY) AS station_number
 , (SELECT r.region FROM {schema}.v_region_place r
     WHERE r.place_id = por.place_id FETCH FIRST 1 ROW ONLY) AS region_code
+, (SELECT pa.sample FROM {schema}.v_placeattr_place pa
+    WHERE pa.place_id = por.place_id FETCH FIRST 1 ROW ONLY) AS sample_text
+, (SELECT pa.ship FROM {schema}.v_placeattr_place pa
+    WHERE pa.place_id = por.place_id FETCH FIRST 1 ROW ONLY) AS ship_text
+, (SELECT CASE r.roleterm WHEN 'Funnsted, usikker' THEN '1' ELSE '0' END
+     FROM {schema}.roles r
+    WHERE r.role_id = por.role_id) AS doubtful_place
 , (SELECT ol.note_text FROM {schema}.v_orig_label_text ol
     WHERE ol.object_id = voa.object_id FETCH FIRST 1 ROW ONLY) AS original_label
 , (SELECT le.legacy_data
